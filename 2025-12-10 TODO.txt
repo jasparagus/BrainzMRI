@@ -1,0 +1,90 @@
+I’ve looked over your `ParseListensV2.txt` and here’s what’s happening with that extra number on the left:
+
+---
+
+### 🔎 Why You See Two Numbers
+When you call:
+
+```python
+f.write(df.to_string())
+```
+
+inside `save_report`, Pandas prints the DataFrame in its default “pretty” format. That format includes:
+
+- **Row index** (the number on the far left: `28`, `214`, `16`).
+- **Columns** (`artist`, `likes`).
+
+So the “mystery number” is just the DataFrame’s index being displayed. It’s not another metric — it’s the row label.
+
+---
+
+### ✅ How to Remove the Index Column
+You can tell Pandas not to include the index when converting to string:
+
+```python
+f.write(df.to_string(index=False))
+```
+
+That way, only the actual columns (`artist`, `likes`) will be written.
+
+---
+
+### ⚠️ Other Improvements / Expected Issues
+1. **normalize_listens**  
+   - You’re referencing `zip_path` inside `normalize_listens`, but `zip_path` isn’t passed in. That will raise a `NameError` if you run it directly.  
+   👉 Fix: Add `zip_path` as a parameter:
+   ```python
+   def normalize_listens(listens, zip_path=None):
+       ...
+   ```
+   And call it as:
+   ```python
+   df = normalize_listens(listens, zip_path)
+   ```
+
+2. **report_artists_with_likes**  
+   - Currently counts *all liked listens*. If you want unique liked recordings per artist, replace `.size()` with `.nunique()`:
+   ```python
+   liked_listens.groupby("artist")["recording_mbid"].nunique()
+   ```
+
+3. **save_report**  
+   - Right now you always write `.txt`. For CSV‑style reports (like your enriched genres), you’re manually writing rows. If you want consistency, you could use `df.to_csv(filepath, index=False)` instead of `to_string`.
+
+4. **Genres lookup**  
+   - MusicBrainz tags can be noisy. You may want to run them through your `normalize_genres` function before joining.
+
+---
+
+### 📊 Example Fix for Save Report
+```python
+def save_report(df, report_name, zip_path):
+    base_dir = os.path.dirname(zip_path)
+    reports_dir = os.path.join(base_dir, "reports")
+    os.makedirs(reports_dir, exist_ok=True)
+
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    filename = f"{report_name}_{timestamp}.txt"
+    filepath = os.path.join(reports_dir, filename)
+    
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(f"=== {report_name} ===\n\n")
+        f.write(df.to_string(index=False))  # 👈 suppress index
+    
+    print(f"Report saved to {filepath}")
+```
+
+---
+
+✅ That will remove the “28 / 214 / 16” numbers and give you just:
+
+```
+artist                        likes
+Between the Buried and Me      412
+Rivers of Nihil                184
+Animals as Leaders             148
+```
+
+---
+
+Would you like me to also show you how to **merge the likes count into your enriched genre report** so each artist row has `Tracks, Hours, Genres, Likes` all together?

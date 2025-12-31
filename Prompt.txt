@@ -1,0 +1,32 @@
+I'd like to build a Python script to parse and analyze my music listens exported from Listenbrainz. Exports come in a zip file, which holds the following:
+
+  * a file called user.json
+  * a file called feedback.jsonl
+  * a subfolder called "listens"
+
+The user.json file is a very simple file that has the user info as a json object like this: {"user_id":5685,"username":"jasparagus"}
+
+feedback.jsonl is a json lines file located in the root of the zip folder that contains per-track likes and dislikes, each as a distinct line. The lines look like this:
+  {"score": 1, "created": 1476644563, "recording_mbid": "25b22e5e-052c-4550-85c6-9c1a7efe5dba", "recording_msid": null}
+
+Finally, the "listens" subfolder has one subfolder per year (e.g. "2025"). Each yearly subfolder contains a set of jsonlines files called "1.jsonl", "2.jsonl", etc. in which each line represents one listen as a json object, formatted as in the following example lines:
+
+{"inserted_at": 1764740348.909054, "listened_at": 1764740227, "track_metadata": {"track_name": "Etched Headplate", "artist_name": "Burial", "mbid_mapping": {"caa_id": 41334538769, "artists": [{"artist_mbid": "9ddce51c-2b75-4b3e-ac8c-1db09e7c89c6", "join_phrase": "", "artist_credit_name": "Burial"}], "artist_mbids": ["9ddce51c-2b75-4b3e-ac8c-1db09e7c89c6"], "release_mbid": "e08c3db9-fc33-4d4e-b8b7-818d34228bef", "recording_mbid": "1eacb3ca-e8e1-4588-920d-1187dcb8ca79", "recording_name": "Etched Headplate", "caa_release_mbid": "02aa03a5-001b-4e5a-b3ad-23ad0fadb49c"}, "release_name": "Untrue", "recording_msid": "2b7b424f-b5f5-4ef2-bd2d-e80834708f02", "additional_info": {"duration": 362, "origin_url": "https://music.youtube.com/playlist?list=OLAK5uy_l-q8XlDmU4d7d2dgjpZBYPC-wFFKQTKrA", "submission_client": "Web Scrobbler", "music_service_name": "YouTube Music", "submission_client_version": "3.18.0"}}}    
+{"inserted_at": 1762107306.802417, "listened_at": 1762107215, "track_metadata": {"track_name": "I Knew You Were Waiting (For Me)", "artist_name": "George Michael & Aretha Franklin", "mbid_mapping": {"caa_id": 15472428393, "artists": [{"artist_mbid": "ccb8f30e-4d71-40c4-8b1d-846dafe73e2c", "join_phrase": " & ", "artist_credit_name": "George Michael"}, {"artist_mbid": "2f9ecbed-27be-40e6-abca-6de49d50299e", "join_phrase": "", "artist_credit_name": "Aretha Franklin"}], "artist_mbids": ["ccb8f30e-4d71-40c4-8b1d-846dafe73e2c", "2f9ecbed-27be-40e6-abca-6de49d50299e"], "release_mbid": "69205df9-e4c3-41f2-9ff5-ad9714b0c210", "recording_mbid": "e5acf34e-d0eb-4e61-8269-b1d56d81d971", "recording_name": "I Knew You Were Waiting for Me", "caa_release_mbid": "bf240ed0-9e0c-3a44-ab3c-94dc69216af0"}, "release_name": "Aretha (Expanded Edition)", "recording_msid": "db4caef1-f087-4a35-9e79-51b14bffc882", "additional_info": {"duration_ms": 242000, "submission_client": "Pano Scrobbler", "submission_client_version": "4.13"}}}
+{'inserted_at': 1714272371.501321, 'listened_at': 1550646006, 'track_metadata': {'track_name': 'Easy on Me (feat. FATHERDUDE)', 'artist_name': 'Kill Paris', 'mbid_mapping': None, 'release_name': 'Galaxies Within Us', 'recording_msid': '058b6225-8311-4c7f-ad79-d34e1bc334bc', 'additional_info': {'submission_client': 'ListenBrainz lastfm importer', 'lastfm_artist_mbid': 'cfa44aeb-2cfa-40ff-b2bf-cef345312325', 'lastfm_release_mbid': '732b3d57-cdc5-401b-91d4-114b5e009f65'}}}
+
+
+From the above listen objects, the things I'm most interested in are:
+  * the artist name(s), e.g. "Burial" (which appears to be given by the "artist_credit_name" from the list "artists" in "mbid_mapping" if available or, as a fallback, the simple "artist_name" from "track_metadata"). In cases where a listen is tagged with multiple artists from "artist_credit_name", I'd like to count the listen towards the total for each artist separately in the final analysis. This will result in multiple listens for one object, but will help to accurately credit individual artists (which is more interesting to me)
+  * the overall album name, e.g. "Untrue" (given by "release_name" from the json object)
+  * the track duration (given by "duration_ms", in milliseconds, or "duration", in s)
+
+I'd like to start the script with a user prompt (preferably as a simple file selection pop-up) in which a listenbrainz archive file (in zip format) is selected by the user. I'd then like to parse the listens into a readily accessible object (like a pandas dictionary, for example). I'd like the script to generate the following text "reports":
+
+  * a list of all artists from whom I've listened to more than 30 minutes or more than 15 tracks, sorted by total number of tracks listened
+  * a list of my top 100 artists from the last 2 years by total listening duration (in hours)
+  * a list of my top 100 artists from the last 2 years by number of listens
+  * a list of my top 100 albums from the last 2 years by total listening duration (in hours)
+  * a list of my top 100 albums from the last 2 years by number of listens
+  * a list of my top 100 albums from all time by total number of listens
+  * a list of my top 100 albums from all time by total listening duration (in hours)

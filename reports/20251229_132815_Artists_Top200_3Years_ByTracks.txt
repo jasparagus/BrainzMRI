@@ -1,0 +1,203 @@
+=== 20251229_132815_Artists_Top200_3Years_ByTracks.txt ===
+
+                          artist  total_tracks  total_duration_ms  total_duration_hours
+       Between the Buried and Me           994          398293214                 110.6
+                            Rush           947           50889439                  14.1
+              Animals as Leaders           590           56794775                  15.8
+                       Periphery           486          105100214                  29.2
+                Caligula’s Horse           366          100591046                  27.9
+King Gizzard & the Lizard Wizard           341           14675475                   4.1
+                 Rivers of Nihil           323          101678883                  28.2
+                        Polyphia           305           18567542                   5.2
+                           Haken           292           54844492                  15.2
+              Coheed and Cambria           277           50119295                  13.9
+             Thank You Scientist           277           52752195                  14.7
+                       Meshuggah           251           65085535                  18.1
+                        Fallujah           227           59260914                  16.5
+                       Allegaeon           226           61911612                  17.2
+                        Syncatto           203           15609635                   4.3
+                     Unprocessed           198           17960703                   5.0
+                Protest the Hero           191           23040256                   6.4
+                        Mastodon           181           48461677                  13.5
+                         Obscura           174           53554035                  14.9
+                         Omnerod           166           83864909                  23.3
+                          Orgone           165           54492355                  15.1
+             Artificial Language           165           18994132                   5.3
+      Their Dogs Were Astronauts           159           10723167                   3.0
+                       The Ocean           156           38620109                  10.7
+                   Jakub Żytecki           151           11997585                   3.3
+                         Ratatat           142            6944236                   1.9
+                      Psycroptic           141           33505278                   9.3
+                          Gojira           135           31054740                   8.6
+                  Born of Osiris           132           22137554                   6.1
+                  First Fragment           132           55658790                  15.5
+                  Run the Jewels           130            6718048                   1.9
+                      Vildhjarta           127           29623003                   8.2
+                          Igorrr           124           14322557                   4.0
+                       Arch Echo           123           12973754                   3.6
+                            Tool           122           16628497                   4.6
+                Within the Ruins           120           30770749                   8.5
+                           Plini           118            7229530                   2.0
+                           Death           115           35723458                   9.9
+                      Revocation           115           33485465                   9.3
+                Fractal Universe           113           32328293                   9.0
+                         Leprous           113           13582989                   3.8
+                          Inferi           113           35148851                   9.8
+                         Vitriol           111           32185286                   8.9
+                          Noisia           108            1865000                   0.5
+                Michael Kiwanuka           105            7741383                   2.2
+                    Led Zeppelin           104            4777736                   1.3
+                       Cryptopsy           104           26788343                   7.4
+         The World Is Quiet Here            98           42323887                  11.8
+                          Reliqa            98            4290000                   1.2
+                        Exocrine            97           22833288                   6.3
+            Black Crown Initiate            97           34007254                   9.4
+                       Cognitive            93           18601708                   5.2
+                           Opeth            92           37633242                  10.5
+          Unhallowed Deliverance            92           25657099                   7.1
+                    Night Verses            91            9623757                   2.7
+                Artificial Brain            91           25117518                   7.0
+                       Greylotus            90           26789409                   7.4
+                           Wheel            89            6540586                   1.8
+              Fit for an Autopsy            88           23404389                   6.5
+              Luck Wont Save You            88           26705838                   7.4
+                    Atomic Guava            88           18978108                   5.3
+                Shadow of Intent            87           24565415                   6.8
+                      Horrendous            86           21349796                   5.9
+                       Archspire            84           20473523                   5.7
+                Job for a Cowboy            84           22795340                   6.3
+                       Sithu Aye            83                  0                   0.0
+                    Veil of Maya            82           15317757                   4.3
+                Strawberry Girls            81            3560519                   1.0
+                        Gramatik            81                  0                   0.0
+                           Cynic            80           17000484                   4.7
+                       Intervals            80            3356142                   0.9
+                            Nile            80           21333641                   5.9
+                      Fire Whale            80            2751000                   0.8
+               Twelve Foot Ninja            80           11700963                   3.3
+                      Amon Tobin            79            2389834                   0.7
+                            Muse            78            2064297                   0.6
+                 I Built the Sky            78            6090518                   1.7
+         The Black Dahlia Murder            78           17539356                   4.9
+             Cattle Decapitation            78           22773221                   6.3
+                            VOLA            77           13548056                   3.8
+                  Dormant Ordeal            77           22058495                   6.1
+                            RJD2            77                  0                   0.0
+                        Baroness            76           12058947                   3.3
+                 Beyond Creation            75           20871258                   5.8
+                       Daft Punk            75            2556164                   0.7
+              The Zenith Passage            74           20859937                   5.8
+                The Beast of Nod            74           24515517                   6.8
+                       TesseracT            73           11705466                   3.3
+               Pull Down The Sun            72           21532292                   6.0
+                 Nine Inch Nails            72            4872522                   1.4
+                    Little Tybee            71           15159176                   4.2
+                      Phantogram            71            1873000                   0.5
+                    The Midnight            70                  0                   0.0
+                     Sleep Token            70           20147114                   5.6
+                         Apogean            70           18178208                   5.0
+                          Marcin            70           12273920                   3.4
+                      Moon Tooth            70           16667561                   4.6
+                      Aphex Twin            69            3158940                   0.9
+                      Changeling            68           25406766                   7.1
+                         Aborted            67           13628631                   3.8
+                       Cytotoxin            66           15021533                   4.2
+               The Contortionist            66            9282390                   2.6
+                        Ulcerate            65           27919435                   7.8
+                   Vale of Pnath            63           14630411                   4.1
+                  Kendrick Lamar            63            3223956                   0.9
+                     Sallow Moth            62           19438604                   5.4
+                       The Daily            62           27223766                   7.6
+                            Reso            62            4413360                   1.2
+                 I Built The Sky            62            3956000                   1.1
+          Humanity’s Last Breath            61           14254263                   4.0
+               Blood Incantation            61           23735134                   6.6
+                August Burns Red            61           13506631                   3.8
+                 Blotted Science            61            4266662                   1.2
+       The Dillinger Escape Plan            61            5006325                   1.4
+                       Replicant            61           17446951                   4.8
+                          Jinjer            60            6890671                   1.9
+                          Kongos            60                  0                   0.0
+                            edIT            60            5682080                   1.6
+                         Slugdge            60           23854519                   6.6
+                Crown of Madness            59           12624684                   3.5
+                  Cyborg Octopus            59           15156576                   4.2
+                     Delta Sleep            59           12638735                   3.5
+                        Wretched            58           17158701                   4.8
+                      Aesop Rock            58            7511653                   2.1
+             The Callous Daoboys            58           15177834                   4.2
+                       DJ Shadow            58            2239022                   0.6
+               Heaven Shall Burn            57           14173663                   3.9
+                           Gorod            57           15888804                   4.4
+                       Anciients            57           21330484                   5.9
+                     Stan Kenton            57            7700982                   2.1
+                          Ihsahn            57           15490526                   4.3
+                           Queen            57            4392324                   1.2
+              The Human Abstract            57           13921303                   3.9
+                       Soreption            56           13016167                   3.6
+                   The Algorithm            56            2897981                   0.8
+                            GRiZ            55            3048329                   0.8
+                         Voyager            55           13679352                   3.8
+                     Linkin Park            55            4311231                   1.2
+                      Lord Huron            54           11506767                   3.2
+                      KOAN Sound            54            1665261                   0.5
+                         Aquilus            54           28161711                   7.8
+                   Despised Icon            54           11599455                   3.2
+                    Ok Goodnight            54           12648523                   3.5
+                          CloZee            54            5163133                   1.4
+                  Sensory Amusia            54           13470535                   3.7
+                  Gary Clark Jr.            54            8154119                   2.3
+                       Equipoise            54           13879881                   3.9
+                     Perturbator            54            3060304                   0.9
+                     The Omnific            52             421000                   0.1
+                          Mendel            52            9103148                   2.5
+                          Mestís            52            8848270                   2.5
+                       Pronostic            51           11768415                   3.3
+                           Owane            51            1148554                   0.3
+                          OWDWYR            51            5931119                   1.6
+                       Stortregn            51           16975989                   4.7
+                            Jack            50            1056000                   0.3
+                           Covet            50            4894916                   1.4
+                    Moron Police            50           10028333                   2.8
+                     Whitechapel            50           11723264                   3.3
+                Hideous Divinity            50           15129940                   4.2
+             Spawn of Possession            50           12384099                   3.4
+                    Ominous Ruin            49           12493209                   3.5
+                   Angel Vivaldi            49            2593278                   0.7
+                         Gorguts            49           16321527                   4.5
+                        Synaptic            48           12883523                   3.6
+                    Andy Gillion            48            7207647                   2.0
+                   Dream Theater            48            4597594                   1.3
+                     Lamb of God            48           11989003                   3.3
+                       Monuments            48                  0                   0.0
+                       Obsidious            47           14594468                   4.1
+                          Eidola            47            8280403                   2.3
+                      Cognizance            47            9843570                   2.7
+                      Jack White            47                  0                   0.0
+                         Atheist            47           10780887                   3.0
+                        Wilderun            47           22180267                   6.2
+                     Unsolicited            46            3989026                   1.1
+                  Duke Ellington            46            6397000                   1.8
+                     Suffocation            46           12154648                   3.4
+                   Billy Strings            45            7425672                   2.1
+                        Up First            45            2652324                   0.7
+                          Vulkan            45           11975376                   3.3
+                         Maladie            45           14762563                   4.1
+                 Floating Points            44            3460298                   1.0
+                       Steve Vai            44            1751133                   0.5
+                     Ichika Nito            44            3089599                   0.9
+                      Waveshaper            44             732493                   0.2
+                   Glass Animals            44                  0                   0.0
+                  Devin Townsend            44            9759962                   2.7
+        Subterranean Lava Dragon            43           17262658                   4.8
+                     John Legend            43            7248384                   2.0
+                 Ne Obliviscaris            43           23313137                   6.5
+                     Dessiderium            42           19998478                   5.6
+                        Carnosus            42            9914206                   2.8
+                      Ophidian I            42            9937832                   2.8
+                   Michal Menert            41                  0                   0.0
+                            Xoth            41           12077958                   3.4
+              Economist Podcasts            41           33040536                   9.2
+                            Dvne            40           16553932                   4.6
+                            CAKE            40            1667981                   0.5
+                          Parius            40           13304614                   3.7

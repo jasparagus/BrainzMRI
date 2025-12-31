@@ -1,0 +1,343 @@
+=== 20251229_132815_Artists_TopLiked_AllTime_ByLikes.txt ===
+
+                               artist  unique_likes  total_liked_listens
+            Between the Buried and Me            38                  451
+                      Rivers of Nihil            21                  197
+                            Periphery            17                  145
+                            Allegaeon            15                  106
+              The World Is Quiet Here            14                   81
+                  Thank You Scientist            12                   94
+                 Black Crown Initiate            12                   64
+                     Caligula’s Horse            11                  128
+                   Animals as Leaders            10                  183
+                              Omnerod            10                  126
+                             Fallujah            10                   69
+                               Inferi            10                   45
+                                 Rush             9                  157
+                               Orgone             9                  105
+                            Meshuggah             9                   58
+                                Death             9                   44
+                              Obscura             9                   31
+                            Soreption             8                   34
+                              Vitriol             7                   86
+                                 Tool             7                   82
+                         Atomic Guava             7                   49
+                           Psycroptic             7                   41
+                         Ok Goodnight             7                   25
+                              Gorguts             7                   17
+                           Revocation             7                   17
+                              Slugdge             7                   16
+                            Stortregn             7                   16
+                                Haken             6                   66
+                             Ulcerate             6                   38
+                            Greylotus             6                   37
+                            Archspire             6                   32
+                               Igorrr             6                   29
+                     Shadow of Intent             6                   26
+                           Vildhjarta             6                   20
+                              Voyager             6                   18
+                   Coheed and Cambria             6                   14
+                             Exocrine             6                   13
+                              Apogean             5                   35
+                  Cattle Decapitation             5                   30
+                    Pull Down The Sun             5                   30
+                           Ophidian I             5                   24
+                              In Vain             5                   23
+                            Replicant             5                   22
+                     Fractal Universe             5                   21
+                       Retromorphosis             5                   20
+                  The Callous Daoboys             5                   20
+                          Sallow Moth             5                   19
+                             Wayfarer             5                   19
+                                HELGA             5                   18
+                              Exuvial             5                   16
+                          Rototypical             5                   16
+                             Alkaloid             5                   10
+                             Polyphia             4                  113
+                                 Reso             4                  113
+                                 edIT             4                   51
+               Unhallowed Deliverance             4                   42
+                        Jakub Żytecki             4                   37
+                           Changeling             4                   30
+             Subterranean Lava Dragon             4                   29
+                             Synaptic             4                   28
+                     The Beast of Nod             4                   25
+                          Dessiderium             4                   22
+                               Gojira             4                   21
+                     Protest the Hero             4                   21
+                         Ominous Ruin             4                   20
+                           Moon Tooth             4                   18
+                              Aquilus             4                   17
+                             Wilderun             4                   15
+                       Dormant Ordeal             4                   14
+                    Twelve Foot Ninja             4                   11
+                                Gorod             4                   10
+                       Born of Osiris             4                    9
+                         Venom Prison             4                    9
+                 Horror of Pestilence             4                    8
+                  Spawn of Possession             4                    7
+                        Billy Strings             4                    6
+                            BABYMETAL             4                    5
+                       Thy Catafalque             4                    5
+                                FROGG             4                    4
+                            Kardashev             4                    4
+                              Ratatat             3                   72
+                       Run the Jewels             3                   54
+                           Aphex Twin             3                   30
+                      I Built The Sky             3                   19
+                   The Zenith Passage             3                   19
+                            Obsidious             3                   16
+                                 CAKE             3                   14
+                            Equipoise             3                   12
+                          Johnny Cash             3                   12
+                   The Human Abstract             3                   12
+                             Wretched             3                   11
+                          Perturbator             3                    8
+                               Augury             3                    7
+                            Lady Gaga             3                    7
+                              Leprous             3                    7
+                           Moontricks             3                    7
+                        Vale of Pnath             3                    7
+                     Within the Ruins             3                    7
+                                Lowen             3                    6
+                       Porcupine Tree             3                    6
+                          Lamb of God             3                    5
+                             Carnosus             3                    4
+                          Ephel Duath             3                    4
+                            Greyhaven             3                    4
+Professor Caffeine & the Insecurities             3                    4
+                      Swallow the Sun             3                    4
+                            clipping.             3                    4
+                              Doechii             3                    3
+                            Katalepsy             3                    3
+                Labyrinthus Stellarum             3                    3
+                     Jason Richardson             2                   44
+                               Noisia             2                   24
+                             Mastodon             2                   18
+                         Hippotraktor             2                   15
+                           Phantogram             2                   15
+                      Blotted Science             2                   13
+                              Jidenna             2                   13
+                             Ubiquity             2                   12
+                          Delta Sleep             2                   10
+                               Ihsahn             2                   10
+                            Oceansize             2                   10
+                            Anciients             2                    9
+                           Horrendous             2                    9
+                               Parius             2                    9
+                            Pronostic             2                    9
+                     Artificial Brain             2                    8
+                      Nine Inch Nails             2                    8
+                      Beyond Creation             2                    7
+                   Disembodied Tyrant             2                    7
+                               Marcin             2                    7
+                             Synestia             2                    7
+                           Tim Henson             2                    7
+                               Eidola             2                    6
+                            Fabricant             2                    6
+                                Kyros             2                    6
+                         Necrophagist             2                    6
+                                Opeth             2                    6
+                               Throne             2                    6
+                               Truent             2                    6
+                              Atheist             2                    5
+                         Calva Louise             2                    5
+                             Eschaton             2                    5
+                            Fleshbore             2                    5
+                    Heaven Shall Burn             2                    5
+                              Maladie             2                    5
+                           Tiktaalika             2                    5
+                  Unleash the Archers             2                    5
+                             Car Bomb             2                    4
+                        Chelsea Wolfe             2                    4
+                             Flaahgra             2                    4
+                  Fleshgod Apocalypse             2                    4
+                  Imperial Triumphant             2                    4
+              Subterranean Masquerade             2                    4
+                The Syncope Threshold             2                    4
+                                μ‐Ziq             2                    4
+                         Agent Fresco             2                    3
+                         Black Violin             2                    3
+                                Cynic             2                    3
+                          In Mourning             2                    3
+                            Persefone             2                    3
+                                Ulver             2                    3
+               Unfathomable Ruination             2                    3
+                        Despised Icon             2                    2
+                          Little Simz             2                    2
+                               Origin             2                    2
+                        Rina Sawayama             2                    2
+                              Stromae             2                    2
+                                  Týr             2                    2
+                                 Xaon             2                    2
+                               Ichika             1                   27
+                             Syncatto             1                   19
+                          Brasstracks             1                   17
+                            Cognitive             1                   16
+                       First Fragment             1                   16
+                        Vince Staples             1                   15
+                        FM Collective             1                   12
+                               CloZee             1                   11
+                     Job for a Cowboy             1                   11
+     King Gizzard & the Lizard Wizard             1                   11
+                    Blood Incantation             1                    9
+                   Luck Wont Save You             1                    9
+                        Adrian Bellue             1                    8
+                          Sleep Token             1                    8
+                                Wheel             1                    8
+                            DJ Shadow             1                    7
+                             Kavinsky             1                    7
+                       Kendrick Lamar             1                    7
+                         Led Zeppelin             1                    7
+                         Luke Holland             1                    7
+                          Unprocessed             1                    7
+                             Big Wild             1                    6
+                     Crown of Madness             1                    6
+                         Little Tybee             1                    6
+                      Subway to Sally             1                    6
+                      Imagine Dragons             1                    5
+                      Louis Armstrong             1                    5
+                         Moron Police             1                    5
+                          Post Malone             1                    5
+                               Reliqa             1                    5
+                     Richard Henshall             1                    5
+                          Stan Kenton             1                    5
+                             Swae Lee             1                    5
+                         Veil of Maya             1                    5
+                        Angel Vivaldi             1                    4
+          Béla Fleck & the Flecktones             1                    4
+        Béla Fleck and the Flecktones             1                    4
+                   Fit for an Autopsy             1                    4
+                             Gramatik             1                    4
+                                 K/DA             1                    4
+                           Miike Snow             1                    4
+                          Misanthropy             1                    4
+                                 Muse             1                    4
+                             NovaGina             1                    4
+                        Sean Harmanis             1                    4
+                       Sensory Amusia             1                    4
+                        The Algorithm             1                    4
+                 We broke the weather             1                    4
+                                 Xoth             1                    4
+                       Anaal Nathrakh             1                    3
+                         Buried Realm             1                    3
+                          Decapitated             1                    3
+                       Elizabeth Hull             1                    3
+                      Floating Points             1                    3
+                                Frogg             1                    3
+                     Hideous Divinity             1                    3
+                               Iotunn             1                    3
+                            Lamentari             1                    3
+                                  Lör             1                    3
+                           Mr. Bungle             1                    3
+                            Neosignal             1                    3
+                         Night Verses             1                    3
+                               Nospūn             1                    3
+                        Savage Garden             1                    3
+                      Secret Chiefs 3             1                    3
+                            TesseracT             1                    3
+                         Tommy Rogers             1                    3
+                          Travis Ryan             1                    3
+                        Trey Spruance             1                    3
+                           Unreqvited             1                    3
+                         Zeal & Ardor             1                    3
+                low before the breeze             1                    3
+                     After the Burial             1                    2
+                             Agalloch             1                    2
+                               Alcest             1                    2
+                 An Abstract Illusion             1                    2
+                             Ando San             1                    2
+                             Bitpanic             1                    2
+                           Béla Fleck             1                    2
+                            Daft Punk             1                    2
+                           Demon King             1                    2
+                       Destiny Potato             1                    2
+                               Diabys             1                    2
+                                 Dvne             1                    2
+                               Gaerea             1                    2
+                      Gilad Hekselman             1                    2
+          Godspeed You Black Emperor!             1                    2
+                                Gydra             1                    2
+                     Hands of Despair             1                    2
+                         Hate Eternal             1                    2
+                             Huntsmen             1                    2
+                           Immolation             1                    2
+                    Infected Mushroom             1                    2
+                            Intronaut             1                    2
+                        Kanonenfieber             1                    2
+                      Kristen Stewart             1                    2
+                            Lil Wayne             1                    2
+                           Lord Huron             1                    2
+                                Norse             1                    2
+                         Nubya Garcia             1                    2
+                               OWDWYR             1                    2
+                        Phantom Spell             1                    2
+                                 REZZ             1                    2
+                             Ray Chen             1                    2
+                               Richie             1                    2
+                          Rody Walker             1                    2
+                            She & Him             1                    2
+                          Sordid Pink             1                    2
+                        Spock’s Beard             1                    2
+                           Stewp KiDD             1                    2
+                           Subtronics             1                    2
+                    The Hirsch Effekt             1                    2
+                The New Pornographers             1                    2
+                              Trivium             1                    2
+                        Ty Dolla $ign             1                    2
+             Unknown Mortal Orchestra             1                    2
+                    Valerie Broussard             1                    2
+                          Whitechapel             1                    2
+                         XXXTENTACION             1                    2
+                          AUDREY NUNA             1                    1
+                               AURORA             1                    1
+                              Aborted             1                    1
+         Adam Rafowitz from Arch Echo             1                    1
+                           Aesop Rock             1                    1
+                         Anika Nilles             1                    1
+                            B.B. King             1                    1
+                 Beneath the Massacre             1                    1
+                           Blasteroid             1                    1
+                           Bloodywood             1                    1
+                            Borknagar             1                    1
+                        Calvin Harris             1                    1
+                            Cara Neir             1                    1
+                              Carcass             1                    1
+                            Cryptopsy             1                    1
+                            Cytotoxin             1                    1
+                          David Bowie             1                    1
+                             Deadborn             1                    1
+                             Deftones             1                    1
+                             Desultor             1                    1
+                       Dreamless Veil             1                    1
+                               Fakear             1                    1
+                         Flying Lotus             1                    1
+                          Incantation             1                    1
+                               Kanine             1                    1
+                                Lunar             1                    1
+                        Lunar Chamber             1                    1
+                       Minus the Bear             1                    1
+                                Mirar             1                    1
+                      Ne Obliviscaris             1                    1
+                       Novembers Doom             1                    1
+                               Photek             1                    1
+                                Poppy             1                    1
+                              Pyrrhon             1                    1
+             Rage Against the Machine             1                    1
+                     Rendezvous Point             1                    1
+                              Rishloo             1                    1
+                           Sid Sriram             1                    1
+                            Spiritbox             1                    1
+                          Suffocation             1                    1
+                   Summoning the Lich             1                    1
+                              Sylosis             1                    1
+                      Tennessee Three             1                    1
+                            Testament             1                    1
+              The Black Dahlia Murder             1                    1
+                       The Mars Volta             1                    1
+                 This Town Needs Guns             1                    1
+                          Tom Morello             1                    1
+                             Vulfpeck             1                    1
+                               WILLOW             1                    1
+                         Xanthochroid             1                    1
+                                  toe             1                    1

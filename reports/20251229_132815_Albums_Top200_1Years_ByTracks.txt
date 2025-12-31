@@ -1,0 +1,203 @@
+=== 20251229_132815_Albums_Top200_1Years_ByTracks.txt ===
+
+                                                                               album  total_tracks  total_duration_ms  total_duration_hours
+                                                                             Unknown          1356          432259434                 120.1
+                                                                   The Joy of Motion           189           11658339                   3.2
+                                                          Remember That You Will Die           169           14085485                   3.9
+                                                                           Colors II           159           61454539                  17.1
+                                                                           Parrhesia           150           19108991                   5.3
+                                                                             Pleroma           147           48119378                  13.4
+                                                                              Colors           136           54655238                  15.2
+                                                                       Coma Ecliptic           120           38800262                  10.8
+                                                                    The Amensal Rise           117           64153609                  17.8
+                                                             Where Owls Know My Name           115           37761990                  10.5
+                                                    The Parallax II: Future Sequence           112           39224660                  10.9
+                                                                             Fiction           102            6854667                   1.9
+                                                                     Suffer & Become           102           28975893                   8.0
+                                                              Stranger Heads Prevail            98           27961441                   7.8
+                                                                        The Mountain            91           12875961                   3.6
+                                                                               Fauna            86           16694295                   4.6
+                                                                         Multiversal            86           28695036                   8.0
+                                                                    The Ossuary Lens            85           24624399                   6.8
+                                                     Charcoal Grace (Deluxe Edition)            83           26881000                   7.5
+                                                               New Levels New Devils            83           12312494                   3.4
+                                                                               Bloom            82           14971572                   4.2
+                                                              Of Spectres and Strife            82           24166408                   6.7
+                                                                           Remind Me            79            6575450                   1.8
+                                                    Periphery III: Select Difficulty            78           16633947                   4.6
+                                                Through the Mountains of Melancholia            78           22740686                   6.3
+                                                                 The Great Misdirect            77           40570709                  11.3
+                                                             Periphery IV: HAIL STAN            77           23551174                   6.5
+                                                                            The Work            76           25649638                   7.1
+                                                                 The Madness of Many            76                  0                   0.0
+                                                                   Juggernaut: Alpha            75            9953218                   2.8
+                                                 Rise Radiant (Bonus Tracks Version)            74           20240386                   5.6
+                                                                          Automata I            74           24185848                   6.7
+                                                                         Terraformer            72           17170735                   4.8
+                                                            Of Valleys and Mountains            72           21532292                   6.0
+                                                                                  II            72            8199323                   2.3
+                                                                    The Blue Nowhere            72           31638166                   8.8
+                                                                          Datalysium            72           20266419                   5.6
+                                                                                 Zon            71           31515054                   8.8
+                                                                         Moon Healer            70           18597642                   5.2
+                                                                      Cyberstrictive            69           17893787                   5.0
+                                                                          Abhorrence            68           13050310                   3.6
+                                                                          Palimpsest            67            7184643                   2.0
+                                                           Chapter One: Shredemption            66            2528000                   0.7
+                                                                              DAMNUM            66           15962048                   4.4
+                                                                 The Madness Of Many            65           21411300                   5.9
+                                                                        The Observer            65            5548449                   1.5
+                                                                    Gloire Éternelle            64           29405357                   8.2
+                                                                          Changeling            64           23219795                   6.4
+                                                                     Rivers of Nihil            63           19379330                   5.4
+                                                  Violent Portraits of Doomed Escape            62           20765416                   5.8
+                                                                   Dragon in Harmony            62           11272664                   3.1
+                                                   Periphery V: Djent Is Not A Genre            62           28920691                   8.0
+                                                                 Memories Fragmented            61           12923361                   3.6
+                                                   I Don’t Want to See You in Heaven            60           17234913                   4.8
+                                                                     The Zenith Rise            60            3654000                   1.0
+                                                                         Automata II            60           27869542                   7.7
+                                                                        Arcade Metal            59            7143330                   2.0
+                                                                        Periphery II            58            4873848                   1.4
+                                                                      Divine Council            58           14903512                   4.1
+                                                                         Final Pitch            57            8832518                   2.5
+                                                                            Xenotaph            57           18644797                   5.2
+                                                                          Weightless            57            3511374                   1.0
+                                                    Split the Atom (Special Edition)            56            1865000                   0.5
+                                                                        Now We Sleep            56            8382807                   2.3
+                                                                  Catch Thirty Three            56            5867667                   1.6
+                                                                        Neon Theatre            55            6104575                   1.7
+Spider-Man: Into the Spider-Verse (Soundtrack From & Inspired by the Motion Picture)            55           10432194                   2.9
+                                                                    Bleed the Future            54           12810188                   3.6
+                                                                        Little Tybee            54           11346176                   3.2
+                                                                          Motherwort            53           16207971                   4.5
+                                                                           Dreamless            53           11285261                   3.1
+                                                                           Demiurgus            53           13725051                   3.8
+                                                              Peasants of the Future            52           12208863                   3.4
+                                                                          In Contact            52           14809306                   4.1
+                                                                     Emperor of Sand            51           11366906                   3.2
+                                                                           Algorythm            51           13787406                   3.8
+                                                                           Terrasite            51           16020737                   4.5
+                                                                       Bottom Feeder            51           12630573                   3.5
+                                                                       A Valediction            50           13657662                   3.8
+                                                                            Coalesce            50            2308118                   0.6
+                                                                The Quiet Place Away            49            4648533                   1.3
+                                                                           Lateralus            49            9987212                   2.8
+                                                                            Empyrean            48           11134168                   3.1
+                                                                      Angel Or Alien            48            8065321                   2.2
+                                                               The Cosmic Cornucopia            48           18803260                   5.2
+                                                                    Artificial Brain            47           13031133                   3.6
+                                                                   Juggernaut: Omega            47           10324553                   2.9
+                                                           The Sound of Perseverance            47           17102163                   4.8
+                                                                 Gold (Instrumental)            46            2515475                   0.7
+                                                                            Receptor            46            5201399                   1.4
+                                                                        Vile Genesis            46           15116483                   4.2
+                                                                 The Nothing That Is            46           11868171                   3.3
+                                                              The Impassable Horizon            46           13097087                   3.6
+                                                                                Crux            46           11045393                   3.1
+                                                                      Enter The Void            46           12510523                   3.5
+                                                                  Absolute Elsewhere            45           17514982                   4.9
+                                                                  Infinite Mortality            45           12649083                   3.5
+                                                               Ontological Mysterium            45           10013490                   2.8
+                                                                The Fox and the Bird            45           10951833                   3.0
+                                                         Spirituality and Distortion            44            5618629                   1.6
+                                                                          Technatura            44           11426782                   3.2
+                                                           Cutting the Throat of God            44           21330349                   5.9
+                                                                     Ascension Codes            44            6878241                   1.9
+                                                                        Digital Veil            43           10721511                   3.0
+                                                         Beyond the Reach of the Sun            43           15050000                   4.2
+                                                                              MAYHEM            43            7197374                   2.0
+                                                                     Luminous Empire            43            2926000                   0.8
+                                                You Won't Believe What Happens Next!            43            3109000                   0.9
+                                                                      Tooth and Nail            42           12633798                   3.5
+                                      Every Sound Has A Color In The Valley Of Night            42            5926116                   1.6
+                                     Crying over Pros for No Reason (Deluxe Edition)            41            5682080                   1.6
+                                                                   måsstaden (forte)            41            9825068                   2.7
+                                                                     Snakes & Arrows            41            8208961                   2.3
+                                                                            JPEG RAW            41            3780370                   1.1
+                                                                              Iconic            41           12546556                   3.5
+                                                               A Legendary Christmas            40            7445369                   2.1
+                                                                                Amen            40            9021583                   2.5
+                                                               Secrets of the Future            40            4092000                   1.1
+                                                                           Fortitude            40            8005960                   2.2
+                                                                              Heimat            40            9170072                   2.5
+                                          Guardian Spirits of the Quantum Multiverse            40                  0                   0.0
+                                                                     The Hybrid Suns            39            7657931                   2.1
+                                                                     Moving Pictures            39            5954114                   1.7
+                                                                 From Mars to Sirius            39           12098284                   3.4
+                                                  The Parallax: Hypersleep Dialogues            39           21690094                   6.0
+                                                                            Desolate            39            9260896                   2.6
+                                                                    Clockwork Angels            38            3964000                   1.1
+                                                                                RTJ4            38            3321233                   0.9
+                                                                         Soul Sphere            38            6076069                   1.7
+                                                                               World            38            8791292                   2.4
+                                                                          Modal Soul            38            9931360                   2.8
+                                                                    Chaotic Upheaval            38            9038240                   2.5
+                                                 Le Recueuil Des Âges (Instrumental)            37           15963935                   4.4
+                                                                           Imbalance            37            1566080                   0.4
+                                                                           Apoptosis            37           11217779                   3.1
+                                                                            Momentum            37             967133                   0.3
+                                                               No World For Tomorrow            37            4065166                   1.1
+                                                                 The Great Architect            37           14689622                   4.1
+                                                          The Father of Make Believe            37            9075684                   2.5
+                                                                Black Hole Superette            37            9295783                   2.6
+                                               The Ascendant Travels Among the Stars            37           18002734                   5.0
+                                                                         Equilibrium            37            7046477                   2.0
+                                                                        Netherheaven            37           11043423                   3.1
+                                                              måsstaden under vatten            36            7958449                   2.2
+                                                                          Eviscerate            36            6731636                   1.9
+                                                           From the Gallery of Sleep            36            4423914                   1.2
+                                                                               Virus            36            7325027                   2.0
+                                                                            Volition            36            8544424                   2.4
+                                  Re:Invent the Universe (10th Anniversary Remaster)            36                  0                   0.0
+                                                                              Mirage            36            4892632                   1.4
+                                                                                Jord            35            8265277                   2.3
+                                                                       Spring Island            35            7360001                   2.0
+                                                        ...And Everything In Between            35            7482703                   2.1
+                                                                            Pelagial            35            6074581                   1.7
+                                                   Periphery V: Djent Is Not a Genre            34                  0                   0.0
+                                                         Maps of Non-Existent Places            34            4086803                   1.1
+                                                                      Impulse Voices            34             752000                   0.2
+                                                               As the Kingdom Drowns            34            7981071                   2.2
+                                                                 Friend Of A Phantom            34            8808589                   2.4
+                                                                              IHSAHN            34            9671282                   2.7
+                                                                            Dawnfall            34            9780274                   2.7
+                                                                           Matriarch            34            6183366                   1.7
+                                                                   Imperium Delirium            33            8859323                   2.5
+                                                                            Diluvium            33            9831473                   2.7
+                                                                           Disrepair            33            8500106                   2.4
+                                                                           In Stasis            33                  0                   0.0
+                                                                         Clairvoyant            33            3935348                   1.1
+                                                                 Charismatic Leaders            33            3534000                   1.0
+                                                                      Charcoal Grace            33            7908582                   2.2
+                                                             Volume I: The Tactician            33           10616199                   2.9
+                                                                              Solemn            33           13644719                   3.8
+                                                                         Flight b741            32            5607653                   1.6
+                                                   The Signal Heard Throughout Space            32           11272136                   3.1
+                                                                             Incurso            32            9421309                   2.6
+                                                                              Alaska            32            9097040                   2.5
+                                                                             Hit It!            32            8010688                   2.2
+                                                                      Psalmus Mortis            32            9644415                   2.7
+                                                                        Distant Glow            32            4075410                   1.1
+                                                                Rhizomes of Insanity            31            8727921                   2.4
+                                                                       Small Changes            31            4550000                   1.3
+                                                                     Artificial Void            31            2943121                   0.8
+                                                                   The Great Filters            31            9267610                   2.6
+                                                                     Wrapped in Mist            31            7733037                   2.1
+                                                                 Veil of Imagination            31           14775268                   4.1
+                                                                              CRONOS            30                  0                   0.0
+                                                                         Biographyte            30            6951943                   1.9
+                                                               This Is Where It Ends            30            7787482                   2.2
+                                                                   A Merry Christmas            30            3454000                   1.0
+                                                                                Gold            30            1118582                   0.3
+                                                                    Fearless in Love            30            7138546                   2.0
+                                                                          Scurrilous            30            5327018                   1.5
+                                                              The Path of Apotheosis            30            9368311                   2.6
+                                                                     Even In Arcadia            30            8441274                   2.3
+                                                                  Keys To The Palace            30           12878659                   3.6
+                                                                             Memento            30            4879291                   1.4
+                                                              I Don't Know What I Am            30                  0                   0.0
+                                                                         Exogalactic            29            8501492                   2.4
+                                                                             Requiem            29            7196646                   2.0
+                                                                          The Hunter            29            5280442                   1.5
+                                                                                 Fym            29           10857368                   3.0
