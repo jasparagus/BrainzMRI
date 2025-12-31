@@ -12,14 +12,13 @@ from datetime import datetime, UTC, timezone
 
 
 """
-Parses and analyzes music listens exported as a zip from Listenbrainz. The exported zip file contains 3 items:
+Parses and analyzes music listens exported as a zip from Listenbrainz. Goal is to [TODO - fully describe app, etc.].
 
+The exported listenbrainz zip file contains 3 items:
 1. "user.json" - a json file with user name and ID; this is unused
-
 2. "feedback.jsonl" - a json lines file with likes and dislikes, each as a distinct line
     * Example row from "feedback.jsonl":
         {"score": 1, "created": 1476644563, "recording_mbid": "25b22e5e-052c-4550-85c6-9c1a7efe5dba", "recording_msid": null}
-
 3. "listens" folder:
     * Contains one subfolder per year (e.g. "2016", "2025") 
     * Each year subfolder contains a set of json lines files "1.jsonl", "12.jsonl", etc.
@@ -36,11 +35,8 @@ This module retrieves the following priority items from the listen objects.
     * This is given by "artist_credit_name" from the list "artists" in "mbid_mapping" object if available
     * Fallback to simple "artist_name" from "track_metadata" if "mbid_mapping" is None
     * If a listen is tagged with multiple artists in "artists" list, count the listen towards the total for each artist separately
-
 2. Album name, e.g. "Untrue" (given by "release_name" from the json object)
-
 3. Track duration (given by "duration_ms", in milliseconds, or "duration", in s, from within "additional_info")
-
 4. Recording_mbid for cross-linking likes with tracks
 
 
