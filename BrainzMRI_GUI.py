@@ -51,9 +51,10 @@ class BrainzMRIGUI:
         self.root.title("BrainzMRI Report Generator")
         
         # Fix window size and prevent auto-resizing
-        self.root.geometry("1100x800")   # adjust as you like
-        self.root.minsize(1100, 800)
-        self.root.resizable(True, True)  # allow manual resize but prevent auto-shrink
+        self.root.geometry("1000x700")
+        self.root.minsize(1000, 700)
+        self.root.resizable(True, True)
+        self.root.update_idletasks()
 
         self.zip_path = None
         self.df = None
@@ -169,6 +170,7 @@ class BrainzMRIGUI:
         # -----------------------------
         self.table_frame = tk.Frame(root)
         self.table_frame.pack(fill="both", expand=True)
+        self.table_frame.pack_propagate(False)
 
 
 
@@ -400,7 +402,8 @@ class BrainzMRIGUI:
         
         for col in df.columns:
             tree.heading(col, text=col)
-            tree.column(col, width=150, anchor="w")
+            tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
+            tree.pack(fill="both", expand=True)
         
         # Insert rows
         for _, row in df.iterrows():
