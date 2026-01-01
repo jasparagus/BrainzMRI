@@ -49,10 +49,19 @@ class BrainzMRIGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("BrainzMRI Report Generator")
+        
+        # Fix window size and prevent auto-resizing
+        self.root.geometry("1100x800")   # adjust as you like
+        self.root.minsize(1100, 800)
+        self.root.resizable(True, True)  # allow manual resize but prevent auto-shrink
 
         self.zip_path = None
         self.df = None
         self.feedback = None
+        
+        self.last_result = None
+        self.last_meta = None
+        self.last_mode = None
 
         # -----------------------------
         # ZIP File Selection
@@ -111,12 +120,32 @@ class BrainzMRIGUI:
             state="readonly"
         )
         self.report_type.current(0)
-        self.report_type.pack(side="left")
+        self.report_type.pack(side="left")       
+        
+        # -----------------------------
+        # Analyze / Save Buttons
+        # -----------------------------
+        btn_frame = tk.Frame(root)
+        btn_frame.pack(pady=10)
 
-        # -----------------------------
-        # Analyze Button
-        # -----------------------------
-        tk.Button(root, text="Generate Report", command=self.run_report, bg="#4CAF50", fg="white").pack(pady=20)
+        tk.Button(
+            btn_frame,
+            text="Generate Report",
+            command=self.run_report,
+            bg="#4CAF50",
+            fg="white",
+            width=16
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            btn_frame,
+            text="Save Report",
+            command=self.save_report,
+            bg="#2196F3",
+            fg="white",
+            width=16
+        ).pack(side="left", padx=5)
+        
         
         # -----------------------------
         # Status Bar
@@ -135,14 +164,18 @@ class BrainzMRIGUI:
 
         self.status_bar.pack(fill="x", side="bottom")
 
+        # -----------------------------
+        # Table Viewer Frame
+        # -----------------------------
+        self.table_frame = tk.Frame(root)
+        self.table_frame.pack(fill="both", expand=True)
+
+
 
     def set_status(self, text):
         self.status_var.set(text)
         self.status_bar.update_idletasks()
     
-    # --------------------------------------------------------
-    # Select ZIP file
-    # --------------------------------------------------------
     def select_zip(self):
         path = filedialog.askopenfilename(title="Select ListenBrainz ZIP", filetypes=[("ZIP files", "*.zip")])
         if not path:
@@ -172,7 +205,7 @@ class BrainzMRIGUI:
             min_dt = now - timedelta(days=rec_end)
             max_dt = now - timedelta(days=rec_start)
 
-            mask = (result["last_listened_dt"] >= min_dt) & (result["last_listened_dt"] <= max_dt)
+            mask = (result["last_listened"] >= min_dt) & (result["last_listened"] <= max_dt)
             result.drop(result[~mask].index, inplace=True)
 
         except ValueError:
@@ -182,9 +215,6 @@ class BrainzMRIGUI:
             messagebox.showerror("Unexpected Error in Last Listened", f"{type(e).__name__}: {e}")
             self.set_status("Error: Unexpected Error in Last Listened.")
 
-    # --------------------------------------------------------
-    # Run the selected report
-    # --------------------------------------------------------
     def run_report(self):
         if self.df is None:
             messagebox.showerror("Error", "Please select a ListenBrainz ZIP file first.")
@@ -226,6 +256,12 @@ class BrainzMRIGUI:
         mode = self.report_type.get()
         topn = int(self.ent_topn.get())
 
+
+        # TODO: the artist/album/track cases are quite redundant.
+        # These should be combined into one case and should use 
+        # a context-sensitive value from the "mode" input.
+        # The "set_status" output can also be derived accordingly.
+        
         # By Artist
         if mode == "By Artist":
             result, meta = core.report_top(
@@ -236,9 +272,13 @@ class BrainzMRIGUI:
                 topn=topn
             )
             self.apply_recency_filter(result)
-            filepath = core.save_report(result, self.zip_path, meta=meta)
-            open_file_default(filepath)
-            self.set_status("Artist report generated and opened.")
+
+            self.last_result = result
+            self.last_meta = meta
+            self.last_mode = "By Artist"
+
+            self.show_table(result)
+            self.set_status("Artist report generated.")
             return
 
         # By Album
@@ -251,9 +291,13 @@ class BrainzMRIGUI:
                 topn=topn
             )
             self.apply_recency_filter(result)
-            filepath = core.save_report(result, self.zip_path, meta=meta)
-            open_file_default(filepath)
-            self.set_status("Album report generated and opened.")
+
+            self.last_result = result
+            self.last_meta = meta
+            self.last_mode = "By Album"
+
+            self.show_table(result)
+            self.set_status("Album report generated.")
             return
             
         # By Track
@@ -266,18 +310,26 @@ class BrainzMRIGUI:
                 topn=topn
             )
             self.apply_recency_filter(result)
-            filepath = core.save_report(result, self.zip_path, meta=meta)
-            open_file_default(filepath)
-            self.set_status("Track report generated and opened.")
+
+            self.last_result = result
+            self.last_meta = meta
+            self.last_mode = "By Track"
+
+            self.show_table(result)
+            self.set_status("Track report generated.")
             return
             
             
         # All liked artists
         elif mode == "All Liked Artists":
-            result, meta = core.report_artists_with_likes(df, self.feedback)            
-            filepath = core.save_report(result, self.zip_path, meta=meta)
-            open_file_default(filepath)
-            self.set_status("Liked artists report generated and opened.")
+            result, meta = core.report_artists_with_likes(df, self.feedback)
+
+            self.last_result = result
+            self.last_meta = meta
+            self.last_mode = "All Liked Artists"
+
+            self.show_table(result)
+            self.set_status("Liked artists report generated.")
             return
 
         # Enriched artist report (threshold + genres)
@@ -288,14 +340,71 @@ class BrainzMRIGUI:
                 tracks=min_tracks
             )
             out_path, enriched = core.enrich_report_with_genres(artist_report, self.zip_path)
-            open_file_default(out_path)
-            self.set_status("Enriched artist report (with genres) generated and opened.")
+
+            self.last_result = enriched
+            self.last_meta = None
+            self.last_mode = "Enriched Artist Report"
+
+            self.show_table(enriched)
+            self.set_status("Enriched artist report (with genres) generated.")
             return
 
         else:
             messagebox.showerror("Error", "Unsupported report type.")
             self.set_status("Error: Unsupported report type.")
             return
+            
+    def save_report(self):
+        if self.last_result is None:
+            messagebox.showerror("Error", "No report to save. Generate a report first.")
+            self.set_status("Error: No report to save.")
+            return
+
+        try:
+            if self.last_mode == "Enriched Artist Report":
+                # No meta; use explicit report_name
+                filepath = core.save_report(
+                    self.last_result,
+                    self.zip_path,
+                    report_name="Enriched_Artist_Report"
+                )
+            else:
+                filepath = core.save_report(
+                    self.last_result,
+                    self.zip_path,
+                    meta=self.last_meta
+                )
+
+            open_file_default(filepath)
+            self.set_status(f"{self.last_mode} report saved and opened.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save report: {type(e).__name__}: {e}")
+            self.set_status("Error: Failed to save report.")
+    
+    def show_table(self, df):
+        # Clear old table
+        for widget in self.table_frame.winfo_children():
+            widget.destroy()
+        
+        # Create Treeview
+        tree = ttk.Treeview(self.table_frame, show="headings")
+        tree.pack(fill="both", expand=True)
+        
+        # Add scrollbar
+        scrollbar = ttk.Scrollbar(self.table_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Setup columns
+        tree["columns"] = list(df.columns)
+        
+        for col in df.columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=150, anchor="w")
+        
+        # Insert rows
+        for _, row in df.iterrows():
+            tree.insert("", "end", values=list(row))
 
 
 # ------------------------------------------------------------

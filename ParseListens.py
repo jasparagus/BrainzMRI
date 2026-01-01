@@ -44,17 +44,13 @@ This module retrieves the following priority items from the listen objects.
 
 
 ToDo - 
+* Clean up reports a bit
+  1. Remove total_duration_ms in favor of total_duration_hours throughout
+  2. Reorder (Album, Artist, or Track always as first column, for example)
+  3. Deal with redundancy of last_listened_dt and last_listened; probably skip the string one
+  
+* Add a Simple "table viewer" to the GUI instead of always writing to a text file.
 
-Build a GUI wrapper to live inside a separate file. The GUI should have the following UI elements for generating reports:
-  1. A UI element (button) to select (and render an indication after selection) the zip file
-  2. A set of inputs for the reporting functions (mins, tracks, group_col, days, topn, etc. in functions "report_top" and "report_artists_threshold")
-    * Time Range [Days Ago] - "Start" and "End" boxes that accept a number of days or 0 to filter time range. Defaults: 0 (min) and 365 (max).
-    * Minimum Tracks Listened - A box that accepts a number of tracks (accepts 0 or greater). Default: 15.
-    * Minimum Listening Hours - A box that accepts a number of hours (accepts 0 to greater). Default: 0.
-    * Last Listened [Days Ago] - A box of the same format as "Time Range [Days Ago]"; enables filtering by last listened date. Defaults: 180 (min) & 365 (max).
-    * Top N - A box to enter a number for how many items to include in output. Default: 200.
-  3. A dropdown to select reporting type ("By Album", "By Artist", "By Track")
-  4. An "Analyze" button to generate the filtered report
 
 """
 
@@ -185,6 +181,7 @@ def normalize_listens(listens, zip_path=None):
         Columns:
         - artist : str
         - album : str
+        - track_name : str
         - duration_ms : int
         - listened_at : datetime or None
         - recording_mbid : str or None
@@ -433,15 +430,18 @@ def report_top(df, group_col="artist", days=None, by="total_tracks", topn=100):
         )
 
     grouped["total_duration_hours"] = (grouped["total_duration_ms"] / (1000 * 60 * 60)).round(1)
-    grouped["last_listened_dt"] = grouped["last_listened"]
-    grouped["last_listened"] = grouped["last_listened"].dt.strftime("%Y-%m-%d")
+    grouped = grouped.drop(columns=["total_duration_ms"])
     grouped = grouped.reset_index()
+    if group_col == "artist":
+        grouped = grouped[["artist", "total_tracks", "total_duration_hours", "last_listened"]]
     if group_col == "album":
         grouped["album"] = grouped["artist"] + " | " + grouped["album"]
         grouped = grouped.drop(columns=["artist"])
+        grouped = grouped[["album", "total_tracks", "total_duration_hours", "last_listened"]]
     if group_col == "track":
         grouped["track"] = grouped["artist"] + " | " + grouped["track_name"]
         grouped = grouped.drop(columns=["artist", "track_name"])
+        grouped = grouped[["track", "total_tracks", "total_duration_hours", "last_listened"]]
     
     key = by
     result = grouped.sort_values(key, ascending=False).head(topn)
