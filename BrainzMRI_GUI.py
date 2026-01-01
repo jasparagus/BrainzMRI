@@ -148,10 +148,10 @@ class BrainzMRIGUI:
         topn = int(self.ent_topn.get())
 
         if mode == "By Artist":
-            result, meta = core.report_top(df, group_col="artist", years=None, by="total_tracks", topn=topn)
+            result, meta = core.report_top(df, group_col="artist", days=None, by="total_tracks", topn=topn)
 
         elif mode == "By Album":
-            result, meta = core.report_top(df, group_col="album", years=None, by="total_tracks", topn=topn)
+            result, meta = core.report_top(df, group_col="album", days=None, by="total_tracks", topn=topn)
 
         else:
             messagebox.showerror("Error", "Unsupported report type.")
