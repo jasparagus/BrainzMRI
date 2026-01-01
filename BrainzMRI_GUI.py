@@ -115,7 +115,29 @@ class BrainzMRIGUI:
         # Analyze Button
         # -----------------------------
         tk.Button(root, text="Generate Report", command=self.run_report, bg="#4CAF50", fg="white").pack(pady=20)
+        
+        # -----------------------------
+        # Status Bar
+        # -----------------------------
+        self.status_var = tk.StringVar()
+        self.status_var.set("Ready.")
 
+        self.status_bar = tk.Label(
+            root,
+            textvariable=self.status_var,
+            bd=1,
+            relief="sunken",
+            anchor="center",          # center the text
+            font=("Segoe UI", 11)     # larger, cleaner font
+        )
+
+        self.status_bar.pack(fill="x", side="bottom")
+
+
+    def set_status(self, text):
+        self.status_var.set(text)
+        self.status_bar.update_idletasks()
+    
     # --------------------------------------------------------
     # Select ZIP file
     # --------------------------------------------------------
@@ -130,6 +152,7 @@ class BrainzMRIGUI:
         user_info, feedback, listens = core.parse_listenbrainz_zip(path)
         self.feedback = feedback
         self.df = core.normalize_listens(listens, path)
+        self.set_status("Zip loaded.")
 
     def apply_recency_filter(self, result):
         try:
@@ -152,8 +175,10 @@ class BrainzMRIGUI:
 
         except ValueError:
             messagebox.showerror("Error", "Last listened range must be numeric.")
+            self.set_status("Error: Last listened range must be numeric.")
         except Exception as e:
             messagebox.showerror("Unexpected Error in Last Listened", f"{type(e).__name__}: {e}")
+            self.set_status("Error: Unexpected Error in Last Listened.")
 
     # --------------------------------------------------------
     # Run the selected report
@@ -161,6 +186,7 @@ class BrainzMRIGUI:
     def run_report(self):
         if self.df is None:
             messagebox.showerror("Error", "Please select a ListenBrainz ZIP file first.")
+            self.set_status("Error: Please select a ListenBrainz ZIP file first.")
             return
 
         df = self.df.copy()
@@ -179,9 +205,11 @@ class BrainzMRIGUI:
 
         except ValueError:
             messagebox.showerror("Error", "Time range must be numeric.")
+            self.set_status("Error: Time range must be numeric.")
             return
         except Exception as e:
             messagebox.showerror("Unexpected Error in Time Range", f"{type(e).__name__}: {e}")
+            self.set_status("Error: Unexpected Error in Time Range.")
             return
 
         # Read thresholds
@@ -190,6 +218,7 @@ class BrainzMRIGUI:
             min_minutes  = float(self.ent_min_minutes.get())
         except:
             messagebox.showerror("Error", "Invalid numeric filter values.")
+            self.set_status("Error: Invalid numeric filter values.")
             return
 
         mode = self.report_type.get()
@@ -208,7 +237,7 @@ class BrainzMRIGUI:
             self.apply_recency_filter(result)
             filepath = core.save_report(result, self.zip_path, meta=meta)
             open_file_default(filepath)
-            messagebox.showinfo("Success", "Artist report generated and opened.")
+            self.set_status("Artist report generated and opened.")
             return
 
         # By Album
@@ -224,7 +253,7 @@ class BrainzMRIGUI:
             self.apply_recency_filter(result)
             filepath = core.save_report(result, self.zip_path, meta=meta)
             open_file_default(filepath)
-            messagebox.showinfo("Success", "Album report generated and opened.")
+            self.set_status("Album report generated and opened.")
             return
 
         # All liked artists
@@ -232,7 +261,7 @@ class BrainzMRIGUI:
             result, meta = core.report_artists_with_likes(df, self.feedback)            
             filepath = core.save_report(result, self.zip_path, meta=meta)
             open_file_default(filepath)
-            messagebox.showinfo("Success", "Liked artists report generated and opened.")
+            self.set_status("Liked artists report generated and opened.")
             return
 
         # Enriched artist report (threshold + genres)
@@ -244,12 +273,13 @@ class BrainzMRIGUI:
             )
             csv_path = core.enrich_report_with_genres(artist_report, self.zip_path)
             open_file_default(csv_path)
-            messagebox.showinfo("Success", "Enriched artist report (with genres) generated and opened.")
+            self.set_status("Enriched artist report (with genres) generated and opened.")
 
             return
 
         else:
             messagebox.showerror("Error", "Unsupported report type.")
+            self.set_status("Error: Unsupported report type.")
             return
 
 
