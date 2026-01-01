@@ -634,7 +634,7 @@ def enrich_report_with_genres(report_df, zip_path, report_name="Artists_Library"
 
     enriched = report_df.copy()
     enriched["Genres"] = genres
-    return enriched
+    return out_path, enriched
 
 
 if __name__ == "__main__":

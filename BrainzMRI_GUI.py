@@ -271,8 +271,8 @@ class BrainzMRIGUI:
                 mins=min_minutes,
                 tracks=min_tracks
             )
-            csv_path = core.enrich_report_with_genres(artist_report, self.zip_path)
-            open_file_default(csv_path)
+            out_path, enriched = core.enrich_report_with_genres(artist_report, self.zip_path)
+            open_file_default(out_path)
             self.set_status("Enriched artist report (with genres) generated and opened.")
 
             return
