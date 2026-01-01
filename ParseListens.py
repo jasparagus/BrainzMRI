@@ -12,7 +12,10 @@ from datetime import datetime, UTC, timezone
 
 
 """
-Parses and analyzes music listens exported as a zip from Listenbrainz. Generates a "library" of artists/albums/tracks based on listened data to enable browsing of listened music, including generating reports of top artists, albums, etc. at various times.
+Parses and analyzes music listens exported as a zip from Listenbrainz. 
+Generates a "library" of artists/albums/tracks based on listened data.
+Enables browsing of listened music, including generating reports of things
+like top artists, top albums, top tracks, filtered by time or recency. 
 
 The exported listenbrainz zip file contains 3 items:
 1. "user.json" - a json file with user name and ID; this is unused
@@ -44,7 +47,7 @@ ToDo -
 
 Build a GUI wrapper to live inside a separate file. The GUI should have the following UI elements for generating reports:
   1. A UI element (button) to select (and render an indication after selection) the zip file
-  2. A set of inputs for the reporting functions (mins, tracks, group_col, years, topn, etc. in functions "report_top" and "report_artists_threshold")
+  2. A set of inputs for the reporting functions (mins, tracks, group_col, days, topn, etc. in functions "report_top" and "report_artists_threshold")
     * Time Range [Days Ago] - "Start" and "End" boxes that accept a number of days or 0 to filter time range. Defaults: 0 (min) and 365 (max).
     * Minimum Tracks Listened - A box that accepts a number of tracks (accepts 0 or greater). Default: 15.
     * Minimum Listening Hours - A box that accepts a number of hours (accepts 0 to greater). Default: 0.
@@ -114,6 +117,18 @@ def parse_listenbrainz_zip(zip_path):
                         listens.append(json.loads(line.decode("utf-8")))
     
     return user_info, feedback, listens
+
+
+def filter_by_days(df, col, start_days=0, end_days=365):
+    """
+    Filter a DataFrame by a datetime column using a "days ago" range.
+    start_days = minimum days ago (e.g., 0)
+    end_days   = maximum days ago (e.g., 365)
+    """
+    now = datetime.now(timezone.utc)
+    start_dt = now - timedelta(days=end_days)
+    end_dt = now - timedelta(days=start_days)
+    return df[(df[col] >= start_dt) & (df[col] <= end_dt)]
 
 
 def load_genre_cache(cache_path):
@@ -262,7 +277,8 @@ def load_feedback(feedback):
 
 def report_artists_with_likes(df, feedback):
     """
-    Generate a report of artists with liked recordings. 
+    Generate a report of artists with liked recordings.
+    NOTE: This report does not use days-based filtering; this should be applied before calling.
     Note: the returned DataFrame preserves the artist name as the index for later use.
     Note: enrich_report_with_genres relies on iterating over report_df.index.
 
@@ -284,7 +300,7 @@ def report_artists_with_likes(df, feedback):
             - unique_likes
             - total_liked_listens
         - metadata : dict
-            Contains entity, topn, years, and metric for filename generation.    
+            Contains entity, topn, days, and metric for filename generation.    
     """
     # Filter listens that were liked
     liked_mbids = load_feedback(feedback)
@@ -313,7 +329,7 @@ def report_artists_with_likes(df, feedback):
     meta = {
         "entity": "Artists",
         "topn": "Liked",
-        "years": None,
+        "days": None,
         "metric": "Likes"
     }
 
@@ -355,9 +371,10 @@ def report_artists_threshold(df, mins=30, tracks=15):
         ["total_tracks", "total_duration_hours", "last_listened"]
         ]
 
-def report_top(df, group_col="artist", years=None, by="total_tracks", topn=100):
+def report_top(df, group_col="artist", days=None, by="total_tracks", topn=100):
     """
     Generate a Top-N report for artists or albums.
+    Optionally filter by a "last N days" window.
 
     Parameters
     ----------
@@ -365,8 +382,8 @@ def report_top(df, group_col="artist", years=None, by="total_tracks", topn=100):
         Normalized listens DataFrame.
     group_col : {"artist", "album"}
         Column to group by.
-    years : int or None, optional
-        If provided, restricts listens to the last N years.
+    days : int or None, optional
+        If provided, restricts listens to the last N days.
     by : {"total_tracks", "total_duration_hours"}
         Metric used for ranking.
     topn : int
@@ -379,12 +396,11 @@ def report_top(df, group_col="artist", years=None, by="total_tracks", topn=100):
         - result_df : pandas.DataFrame
             Top-N rows sorted by the chosen metric.
         - metadata : dict
-            Contains entity, topn, years, and metric for filename generation.
+            Contains entity, topn, days, and metric for filename generation.
     """
-    if years:
-        cutoff = datetime.now(timezone.utc).year - years
-        df = df[df.listened_at.dt.year >= cutoff]
-
+    if days is not None:
+           df = filter_by_days(df, "listened_at", 0, days)
+   
     if group_col == "album":
         grouped = df.groupby(["artist", "album"]).agg(
             total_tracks=("album", "count"),
@@ -411,7 +427,7 @@ def report_top(df, group_col="artist", years=None, by="total_tracks", topn=100):
     return result, {
         "entity": "Artists" if group_col == "artist" else "Albums",
         "topn": topn,
-        "years": years,
+        "days": days,
         "metric": "tracks" if by == "total_tracks" else "duration"
     }
 
@@ -431,7 +447,7 @@ def save_report(df, zip_path, meta=None, report_name=None):
         Keys:
             - entity : str
             - topn : int
-            - years : int or None
+            - days : int or None
             - metric : str
     report_name : str, optional
         If provided, overrides auto-naming (e.g., "Artists_With_Likes").
@@ -452,13 +468,13 @@ def save_report(df, zip_path, meta=None, report_name=None):
     else:
         entity = meta["entity"]
         topn = meta["topn"]
-        years = meta["years"]
+        days = meta.get("days")
         metric = meta["metric"]
 
-        years_str = f"{years}Years" if years else "AllTime"
+        days_str = f"{days}Days" if days else "AllTime"
         metric_str = "By" + metric.capitalize()
 
-        filename = f"{timestamp}_{entity}_Top{topn}_{years_str}_{metric_str}.txt"
+        filename = f"{timestamp}_{entity}_Top{topn}_{days_str}_{metric_str}.txt"
 
     filepath = os.path.join(reports_dir, filename)
 
@@ -609,10 +625,10 @@ if __name__ == "__main__":
     user_info, feedback, listens = parse_listenbrainz_zip(zip_path)
     df = normalize_listens(listens, zip_path)
     
-    artists_df, meta = report_top(df, group_col="artist", years=3, by="total_tracks", topn=200)
+    artists_df, meta = report_top(df, group_col="artist", days=1000, by="total_tracks", topn=200)
     save_report(artists_df, zip_path, meta=meta)
     
-    albums_df, meta = report_top(df, group_col="album", years=1, by="total_tracks", topn=200)
+    albums_df, meta = report_top(df, group_col="album", days=365, by="total_tracks", topn=200)
     save_report(albums_df, zip_path, meta=meta)
     
     likes_df, meta = report_artists_with_likes(df, feedback)

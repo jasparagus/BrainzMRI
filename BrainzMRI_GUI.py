@@ -1,15 +1,15 @@
-# ============================================================
-# BrainzMRI_GUI.py
-# A standalone GUI wrapper for ParseListens.py
 """
-A complete, runnable Python GUI module that wraps your analysis code exactly as described in the ToDo section.
+BrainzMRI_GUI.py
+============================================================
+A standalone GUI wrapper for ParseListens.py
+A Python GUI module that wraps analysis code from ParseListens.py.
 This GUI:
 - Lets the user select a ZIP file
 - Lets the user enter:
 - Time Range (days ago)
 - Minimum tracks
 - Minimum hours
-- Last‑listened range (days ago)
+- Last-listened range (days ago)
 - Top N
 - Lets the user choose:
 - By Artist
@@ -18,32 +18,14 @@ This GUI:
 - Runs the appropriate report
 - Saves output using your existing save_report() function
 - Calls your existing functions without modifying them
+============================================================
 """
-# ============================================================
-
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 from datetime import datetime, timedelta, timezone
 import os
 
-# Import your analysis module
 import ParseListens as core
-
-
-# ------------------------------------------------------------
-# Helper: filter by "days ago" ranges
-# ------------------------------------------------------------
-def filter_by_days(df, col, start_days, end_days):
-    """
-    Filter a DataFrame by a datetime column using a "days ago" range.
-    start_days = minimum days ago (e.g., 0)
-    end_days   = maximum days ago (e.g., 365)
-    """
-    now = datetime.now(timezone.utc)
-    start_dt = now - timedelta(days=end_days)
-    end_dt = now - timedelta(days=start_days)
-    return df[(df[col] >= start_dt) & (df[col] <= end_dt)]
-
 
 # ------------------------------------------------------------
 # GUI Application
@@ -139,7 +121,7 @@ class BrainzMRIGUI:
         try:
             t_start = int(self.ent_time_start.get())
             t_end   = int(self.ent_time_end.get())
-            df = filter_by_days(df, "listened_at", t_start, t_end)
+            df = core.filter_by_days(df, "listened_at", t_start, t_end)
         except:
             messagebox.showerror("Error", "Invalid time range values.")
             return
@@ -148,7 +130,7 @@ class BrainzMRIGUI:
         try:
             l_start = int(self.ent_last_start.get())
             l_end   = int(self.ent_last_end.get())
-            df = filter_by_days(df, "listened_at", l_start, l_end)
+            df = core.filter_by_days(df, "listened_at", l_start, l_end)
         except:
             messagebox.showerror("Error", "Invalid last-listened values.")
             return
