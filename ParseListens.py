@@ -522,6 +522,7 @@ def save_report(df, zip_path, meta=None, report_name=None):
             f.write("  ".join(cells) + "\n")
 
     print(f"Report saved to {filepath}")
+    return filepath
 
 
 def get_artist_genres(artist_name):

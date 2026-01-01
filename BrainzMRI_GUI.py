@@ -8,13 +8,14 @@ This GUI:
 - Lets the user enter:
 - Time Range (days ago)
 - Minimum tracks
-- Minimum hours
+- Minimum minutes
 - Last-listened range (days ago)
 - Top N
 - Lets the user choose:
 - By Artist
 - By Album
-- By Track (future expansion)
+- All Liked Artists
+- Enriched Artist Report
 - Runs the appropriate report
 - Saves output using your existing save_report() function
 - Calls your existing functions without modifying them
@@ -24,8 +25,21 @@ import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 from datetime import datetime, timedelta, timezone
 import os
+import subprocess
+import sys
+
+
 
 import ParseListens as core
+
+def open_file_default(path):
+    """Open a file using the OS default application."""
+    if sys.platform.startswith("win"):
+        os.startfile(path)
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", path])
+    else:
+        subprocess.Popen(["xdg-open", path])
 
 # ------------------------------------------------------------
 # GUI Application
@@ -59,7 +73,7 @@ class BrainzMRIGUI:
         def add_labeled_entry(parent, label, default):
             row = tk.Frame(parent)
             row.pack(anchor="w")
-            tk.Label(row, text=label, width=25, anchor="w").pack(side="left")
+            tk.Label(row, text=label, width=32, anchor="w").pack(side="left")
             ent = tk.Entry(row, width=10)
             ent.insert(0, str(default))
             ent.pack(side="left")
@@ -68,13 +82,13 @@ class BrainzMRIGUI:
         self.ent_time_start = add_labeled_entry(frm_inputs, "Time Range Start (days ago):", 0)
         self.ent_time_end   = add_labeled_entry(frm_inputs, "Time Range End (days ago):", 365)
 
-        self.ent_min_tracks = add_labeled_entry(frm_inputs, "Minimum Tracks:", 15)
-        self.ent_min_hours  = add_labeled_entry(frm_inputs, "Minimum Hours:", 0)
-
         self.ent_last_start = add_labeled_entry(frm_inputs, "Last Listened Start (days ago):", 0)
-        self.ent_last_end   = add_labeled_entry(frm_inputs, "Last Listened End (days ago):", 365)
-
-        self.ent_topn       = add_labeled_entry(frm_inputs, "Top N:", 200)
+        self.ent_last_end   = add_labeled_entry(frm_inputs, "Last Listened End (days ago):", 0)
+        
+        self.ent_topn       = add_labeled_entry(frm_inputs, "Top N (Number Of Results):", 200)
+        
+        self.ent_min_tracks   = add_labeled_entry(frm_inputs, "Minimum Tracks Listened Threshold:", 15)
+        self.ent_min_minutes  = add_labeled_entry(frm_inputs, "Minimum Minutes Listened Threshold:", 30)
 
         # -----------------------------
         # Dropdown for report type
@@ -84,7 +98,16 @@ class BrainzMRIGUI:
 
         tk.Label(frm_type, text="Report Type:").pack(side="left", padx=5)
 
-        self.report_type = ttk.Combobox(frm_type, values=["By Artist", "By Album"], state="readonly")
+        self.report_type = ttk.Combobox(
+            frm_type,
+            values=[
+                "By Artist",
+                "By Album",
+                "All Liked Artists",
+                "Enriched Artist Report"
+            ],
+            state="readonly"
+        )
         self.report_type.current(0)
         self.report_type.pack(side="left")
 
@@ -108,6 +131,30 @@ class BrainzMRIGUI:
         self.feedback = feedback
         self.df = core.normalize_listens(listens, path)
 
+    def apply_recency_filter(self, result):
+        try:
+            l_start = int(self.ent_last_start.get())
+            l_end   = int(self.ent_last_end.get())
+
+            rec_start = min(l_start, l_end)
+            rec_end   = max(l_start, l_end)
+
+            # (0,0) => All time, skip recency filter
+            if rec_start == 0 and rec_end == 0:
+                return
+
+            now = datetime.now(timezone.utc)
+            min_dt = now - timedelta(days=rec_end)
+            max_dt = now - timedelta(days=rec_start)
+
+            mask = (result["last_listened_dt"] >= min_dt) & (result["last_listened_dt"] <= max_dt)
+            result.drop(result[~mask].index, inplace=True)
+
+        except ValueError:
+            messagebox.showerror("Error", "Last listened range must be numeric.")
+        except Exception as e:
+            messagebox.showerror("Unexpected Error in Last Listened", f"{type(e).__name__}: {e}")
+
     # --------------------------------------------------------
     # Run the selected report
     # --------------------------------------------------------
@@ -118,16 +165,18 @@ class BrainzMRIGUI:
 
         df = self.df.copy()
 
-        # Apply time range filter
+        # Apply time range filter (pre-grouping)
         try:
             t_start = int(self.ent_time_start.get())
             t_end   = int(self.ent_time_end.get())
 
-            start_days = min(t_start, t_end)
-            end_days   = max(t_start, t_end)
-            range_info = (start_days, end_days)
-            
-            df = core.filter_by_days(df, "listened_at", start_days, end_days)
+            time_start = min(t_start, t_end)
+            time_end   = max(t_start, t_end)
+            time_range = (time_start, time_end)
+
+            if not (time_start == 0 and time_end == 0):
+                df = core.filter_by_days(df, "listened_at", time_start, time_end)
+
         except ValueError:
             messagebox.showerror("Error", "Time range must be numeric.")
             return
@@ -135,70 +184,74 @@ class BrainzMRIGUI:
             messagebox.showerror("Unexpected Error in Time Range", f"{type(e).__name__}: {e}")
             return
 
-
-        # Minimum tracks / hours filters
+        # Read thresholds
         try:
-            min_tracks = int(self.ent_min_tracks.get())
-            min_hours  = float(self.ent_min_hours.get())
+            min_tracks   = int(self.ent_min_tracks.get())
+            min_minutes  = float(self.ent_min_minutes.get())
         except:
             messagebox.showerror("Error", "Invalid numeric filter values.")
             return
 
-        # Determine report type
         mode = self.report_type.get()
         topn = int(self.ent_topn.get())
 
+        # By Artist
         if mode == "By Artist":
             result, meta = core.report_top(
                 df,
                 group_col="artist",
-                days=range_info,
+                days=time_range,
                 by="total_tracks",
                 topn=topn
             )
 
+            self.apply_recency_filter(result)
+            filepath = core.save_report(result, self.zip_path, meta=meta)
+            open_file_default(filepath)
+            messagebox.showinfo("Success", "Artist report generated and opened.")
+            return
+
+        # By Album
         elif mode == "By Album":
             result, meta = core.report_top(
                 df,
                 group_col="album",
-                days=range_info,
+                days=time_range,
                 by="total_tracks",
                 topn=topn
             )
 
+            self.apply_recency_filter(result)
+            filepath = core.save_report(result, self.zip_path, meta=meta)
+            open_file_default(filepath)
+            messagebox.showinfo("Success", "Album report generated and opened.")
+            return
+
+        # All liked artists
+        elif mode == "All Liked Artists":
+            result, meta = core.report_artists_with_likes(df, self.feedback)            
+            filepath = core.save_report(result, self.zip_path, meta=meta)
+            open_file_default(filepath)
+            messagebox.showinfo("Success", "Liked artists report generated and opened.")
+            return
+
+        # Enriched artist report (threshold + genres)
+        elif mode == "Enriched Artist Report":
+            artist_report = core.report_artists_threshold(
+                df,
+                mins=min_minutes,
+                tracks=min_tracks
+            )
+            csv_path = core.enrich_report_with_genres(artist_report, self.zip_path)
+            open_file_default(csv_path)
+            messagebox.showinfo("Success", "Enriched artist report (with genres) generated and opened.")
+
+            return
+
         else:
             messagebox.showerror("Error", "Unsupported report type.")
             return
-        
-        # Apply last-listened recency filter (post-grouping)
-        try:
-            l_start = int(self.ent_last_start.get())
-            l_end   = int(self.ent_last_end.get())
 
-            start_days = min(l_start, l_end)
-            end_days   = max(l_start, l_end)
-
-            now = datetime.now(timezone.utc)
-            min_dt = now - timedelta(days=end_days)
-            max_dt = now - timedelta(days=start_days)
-
-            # Now filter the grouped results
-            if not (start_days == 0 and end_days == 0):
-                result = result[
-                    (result["last_listened_dt"] >= min_dt) &
-                    (result["last_listened_dt"] <= max_dt)
-                ]
-
-        except ValueError:
-            messagebox.showerror("Error", "Last listened range must be numeric.")
-            return
-        except Exception as e:
-            messagebox.showerror("Unexpected Error in Last Listened", f"{type(e).__name__}: {e}")
-            return
-        
-        # Save report
-        core.save_report(result, self.zip_path, meta=meta)
-        messagebox.showinfo("Success", "Report generated successfully.")
 
 # ------------------------------------------------------------
 # Run GUI
