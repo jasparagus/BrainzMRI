@@ -14,6 +14,7 @@ This GUI:
 - Lets the user choose:
 - By Artist
 - By Album
+- By Track
 - All Liked Artists
 - Enriched Artist Report
 - Runs the appropriate report
@@ -79,16 +80,16 @@ class BrainzMRIGUI:
             ent.pack(side="left")
             return ent
 
-        self.ent_time_start = add_labeled_entry(frm_inputs, "Time Range Start (days ago):", 0)
-        self.ent_time_end   = add_labeled_entry(frm_inputs, "Time Range End (days ago):", 365)
+        self.ent_time_start = add_labeled_entry(frm_inputs, "Time Range Start (days ago, e.g. 0):", 0)
+        self.ent_time_end   = add_labeled_entry(frm_inputs, "Time Range End (days ago, e.g. 365):", 0)
 
-        self.ent_last_start = add_labeled_entry(frm_inputs, "Last Listened Start (days ago):", 0)
-        self.ent_last_end   = add_labeled_entry(frm_inputs, "Last Listened End (days ago):", 0)
+        self.ent_last_start = add_labeled_entry(frm_inputs, "Last Listened Start (days ago, e.g. 180):", 0)
+        self.ent_last_end   = add_labeled_entry(frm_inputs, "Last Listened End (days ago, e.g. 365):", 0)
         
-        self.ent_topn       = add_labeled_entry(frm_inputs, "Top N (Number Of Results):", 200)
+        self.ent_topn       = add_labeled_entry(frm_inputs, "Top N (Number Of Results, e.g. 100):", 200)
         
-        self.ent_min_tracks   = add_labeled_entry(frm_inputs, "Minimum Tracks Listened Threshold:", 15)
-        self.ent_min_minutes  = add_labeled_entry(frm_inputs, "Minimum Minutes Listened Threshold:", 30)
+        self.ent_min_tracks   = add_labeled_entry(frm_inputs, "Min. Tracks Listened Threshold:", 15)
+        self.ent_min_minutes  = add_labeled_entry(frm_inputs, "Min. Minutes Listened Threshold:", 30)
 
         # -----------------------------
         # Dropdown for report type
@@ -103,6 +104,7 @@ class BrainzMRIGUI:
             values=[
                 "By Artist",
                 "By Album",
+                "By Track",
                 "All Liked Artists",
                 "Enriched Artist Report"
             ],
@@ -233,7 +235,6 @@ class BrainzMRIGUI:
                 by="total_tracks",
                 topn=topn
             )
-
             self.apply_recency_filter(result)
             filepath = core.save_report(result, self.zip_path, meta=meta)
             open_file_default(filepath)
@@ -249,13 +250,28 @@ class BrainzMRIGUI:
                 by="total_tracks",
                 topn=topn
             )
-
             self.apply_recency_filter(result)
             filepath = core.save_report(result, self.zip_path, meta=meta)
             open_file_default(filepath)
             self.set_status("Album report generated and opened.")
             return
-
+            
+        # By Track
+        elif mode == "By Track":
+            result, meta = core.report_top(
+                df,
+                group_col="track",
+                days=time_range,
+                by="total_tracks",
+                topn=topn
+            )
+            self.apply_recency_filter(result)
+            filepath = core.save_report(result, self.zip_path, meta=meta)
+            open_file_default(filepath)
+            self.set_status("Track report generated and opened.")
+            return
+            
+            
         # All liked artists
         elif mode == "All Liked Artists":
             result, meta = core.report_artists_with_likes(df, self.feedback)            
@@ -274,7 +290,6 @@ class BrainzMRIGUI:
             out_path, enriched = core.enrich_report_with_genres(artist_report, self.zip_path)
             open_file_default(out_path)
             self.set_status("Enriched artist report (with genres) generated and opened.")
-
             return
 
         else:

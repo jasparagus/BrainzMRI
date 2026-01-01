@@ -7,7 +7,7 @@ import time
 import urllib.parse
 import urllib.request
 from tkinter import Tk, filedialog
-from tqdm import tqdm  # progress bar
+from tqdm import tqdm
 from datetime import datetime, UTC, timezone, timedelta
 
 
@@ -245,6 +245,7 @@ def normalize_listens(listens, zip_path=None):
             records.append({
                 "artist": artist,
                 "album": album_name,
+                "track_name": meta.get("track_name", "Unknown"),
                 "duration_ms": duration_ms or 0,
                 "listened_at": listened_dt,
                 "recording_mbid": recording_mbid
@@ -380,7 +381,7 @@ def report_top(df, group_col="artist", days=None, by="total_tracks", topn=100):
     ----------
     df : pandas.DataFrame
         Normalized listens DataFrame.
-    group_col : {"artist", "album"}
+    group_col : {"artist", "album", "track"}
         Column to group by.
     days : int or None or tuple, optional
         If provided, restricts listens to the last N days or a range given by tuple
@@ -411,16 +412,20 @@ def report_top(df, group_col="artist", days=None, by="total_tracks", topn=100):
                 pass
             else:
                 df = filter_by_days(df, "listened_at", 0, days)
-
-
-   
+    
     if group_col == "album":
         grouped = df.groupby(["artist", "album"]).agg(
             total_tracks=("album", "count"),
             total_duration_ms=("duration_ms", "sum"),
             last_listened=("listened_at", "max")
         )
-    else:
+    elif group_col == "track":
+        grouped = df.groupby(["artist", "track_name"]).agg(
+            total_tracks=("track_name", "count"),
+            total_duration_ms=("duration_ms", "sum"),
+            last_listened=("listened_at", "max")
+        )
+    else:  # artist
         grouped = df.groupby("artist").agg(
             total_tracks=("artist", "count"),
             total_duration_ms=("duration_ms", "sum"),
@@ -434,12 +439,19 @@ def report_top(df, group_col="artist", days=None, by="total_tracks", topn=100):
     if group_col == "album":
         grouped["album"] = grouped["artist"] + " | " + grouped["album"]
         grouped = grouped.drop(columns=["artist"])
-
+    if group_col == "track":
+        grouped["track"] = grouped["artist"] + " | " + grouped["track_name"]
+        grouped = grouped.drop(columns=["artist", "track_name"])
+    
     key = by
     result = grouped.sort_values(key, ascending=False).head(topn)
 
     return result, {
-        "entity": "Artists" if group_col == "artist" else "Albums",
+        "entity": (
+            "Artists" if group_col == "artist"
+            else "Albums" if group_col == "album"
+            else "Tracks"
+        ),
         "topn": topn,
         "days": days,
         "metric": "tracks" if by == "total_tracks" else "duration"
