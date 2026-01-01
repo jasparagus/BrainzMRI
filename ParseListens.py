@@ -12,7 +12,7 @@ from datetime import datetime, UTC, timezone
 
 
 """
-Parses and analyzes music listens exported as a zip from Listenbrainz. Goal is to [TODO - fully describe app, etc.].
+Parses and analyzes music listens exported as a zip from Listenbrainz. Generates a "library" of artists/albums/tracks based on listened data to enable browsing of listened music, including generating reports of top artists, albums, etc. at various times.
 
 The exported listenbrainz zip file contains 3 items:
 1. "user.json" - a json file with user name and ID; this is unused
@@ -40,16 +40,18 @@ This module retrieves the following priority items from the listen objects.
 4. Recording_mbid for cross-linking likes with tracks
 
 
-To Do:
-I think I'd like to re-factor this be able to make a VERY minimalist interface to trigger "arbitrary" reports.
-I'd like to wrap it in:
+ToDo - 
+
+Build a GUI wrapper to live inside a separate file. The GUI should have the following UI elements for generating reports:
   1. A UI element (button) to select (and render an indication after selection) the zip file
-  2. A set of entry boxes for the input variables into the reporting functions 
-    * number of years
-    * select by tracks/duration
-    * Number for top n (count)
-  3. A dropdown to select which function(s) to run (list Albums/artists/tracks)
-  4. An "Analyze" button to do the analysis
+  2. A set of inputs for the reporting functions (mins, tracks, group_col, years, topn, etc. in functions "report_top" and "report_artists_threshold")
+    * Time Range [Days Ago] - "Start" and "End" boxes that accept a number of days or 0 to filter time range. Defaults: 0 (min) and 365 (max).
+    * Minimum Tracks Listened - A box that accepts a number of tracks (accepts 0 or greater). Default: 15.
+    * Minimum Listening Hours - A box that accepts a number of hours (accepts 0 to greater). Default: 0.
+    * Last Listened [Days Ago] - A box of the same format as "Time Range [Days Ago]"; enables filtering by last listened date. Defaults: 180 (min) & 365 (max).
+    * Top N - A box to enter a number for how many items to include in output. Default: 200.
+  3. A dropdown to select reporting type ("By Album", "By Artist", "By Track")
+  4. An "Analyze" button to generate the filtered report
 
 """
 
@@ -151,7 +153,8 @@ def save_genre_cache(cache, cache_path):
 
 def normalize_listens(listens, zip_path=None):
     """
-    Normalize raw ListenBrainz listen objects into a flat DataFrame.
+    Normalize raw ListenBrainz listen objects into a flat DataFrame. 
+    Log any items without album info in missing_album_info
 
     Parameters
     ----------
@@ -173,7 +176,6 @@ def normalize_listens(listens, zip_path=None):
     """
     records = []
     
-    # Prepare log file if zip_path is provided
     log_file = None
     if zip_path:
         base_dir = os.path.dirname(zip_path)
@@ -183,22 +185,17 @@ def normalize_listens(listens, zip_path=None):
         
         if os.path.exists(log_file):
             with open(log_file, "w", encoding="utf-8") as f:
-                f.write("")  # empty the file
+                f.write("")
             print(f"[INFO] Purged old missing_album_info log at {log_file}")
-
     
-    # Do the processing
     for idx, l in enumerate(listens):
         meta = l.get("track_metadata", {})
         
-        # mbid_mapping may be None
         mbid_mapping = meta.get("mbid_mapping") or {}
         artists = []
         if "artists" in mbid_mapping and mbid_mapping["artists"]:
-            # Prefer artist_credit_name from mbid_mapping
             artists = [a.get("artist_credit_name") for a in mbid_mapping["artists"] if a.get("artist_credit_name")]
         else:
-            # Fallback to artist_name
             if meta.get("artist_name"):
                 artists = [meta["artist_name"]]
             else:
@@ -326,6 +323,9 @@ def report_artists_with_likes(df, feedback):
 def report_artists_threshold(df, mins=30, tracks=15):
     """
     Filter artists who exceed a minimum listening threshold.
+    Threshold based on either of:
+    - total listen minutes (default 30)
+    - total tracks scrobbled (default 15)
 
     Parameters
     ----------
@@ -342,15 +342,18 @@ def report_artists_threshold(df, mins=30, tracks=15):
         Artists meeting the threshold, sorted by total tracks.
     """
     grouped = df.groupby("artist").agg(
-        total_tracks=("artist", "count"),
-        total_duration_ms=("duration_ms", "sum")
+    total_tracks=("artist", "count"),
+    total_duration_ms=("duration_ms", "sum"),
+    last_listened=("listened_at", "max")
     )
     grouped["total_duration_hours"] = (grouped["total_duration_ms"] / (1000 * 60 * 60)).round(1)
+    grouped["last_listened"] = grouped["last_listened"].dt.strftime("%Y-%m-%d")
     
-    # Filter by total listening time or total tracks listened
+    
     filtered = grouped[(grouped.total_tracks > tracks) | (grouped.total_duration_ms > mins*60*1000)]
-    return filtered.sort_values("total_tracks", ascending=False)[["total_tracks","total_duration_hours"]]
-
+    return filtered.sort_values("total_tracks", ascending=False)[
+        ["total_tracks", "total_duration_hours", "last_listened"]
+        ]
 
 def report_top(df, group_col="artist", years=None, by="total_tracks", topn=100):
     """
@@ -382,13 +385,25 @@ def report_top(df, group_col="artist", years=None, by="total_tracks", topn=100):
         cutoff = datetime.now(timezone.utc).year - years
         df = df[df.listened_at.dt.year >= cutoff]
 
-    grouped = df.groupby(group_col).agg(
-        total_tracks=(group_col, "count"),
-        total_duration_ms=("duration_ms", "sum")
-    )
+    if group_col == "album":
+        grouped = df.groupby(["artist", "album"]).agg(
+            total_tracks=("album", "count"),
+            total_duration_ms=("duration_ms", "sum"),
+            last_listened=("listened_at", "max")
+        )
+    else:
+        grouped = df.groupby("artist").agg(
+            total_tracks=("artist", "count"),
+            total_duration_ms=("duration_ms", "sum"),
+            last_listened=("listened_at", "max")
+        )
 
     grouped["total_duration_hours"] = (grouped["total_duration_ms"] / (1000 * 60 * 60)).round(1)
+    grouped["last_listened"] = grouped["last_listened"].dt.strftime("%Y-%m-%d")
     grouped = grouped.reset_index()
+    if group_col == "album":
+        grouped["album"] = grouped["artist"] + " | " + grouped["album"]
+        grouped = grouped.drop(columns=["artist"])
 
     key = by
     result = grouped.sort_values(key, ascending=False).head(topn)
@@ -426,7 +441,6 @@ def save_report(df, zip_path, meta=None, report_name=None):
     None
         Writes a .txt file to disk.
     """
-    # Create a "reports" folder next to the zip file
     base_dir = os.path.dirname(zip_path)
     reports_dir = os.path.join(base_dir, "reports")
     os.makedirs(reports_dir, exist_ok=True)
@@ -448,10 +462,32 @@ def save_report(df, zip_path, meta=None, report_name=None):
 
     filepath = os.path.join(reports_dir, filename)
 
+    # with open(filepath, "w", encoding="utf-8") as f:
+        # title = report_name if report_name else filename
+        # f.write(f"=== {title} ===\n\n")
+        # f.write(df.to_string(index=False, justify="left"))
+
     with open(filepath, "w", encoding="utf-8") as f:
         title = report_name if report_name else filename
         f.write(f"=== {title} ===\n\n")
-        f.write(df.to_string(index=False))
+
+        # Convert everything to strings for consistent left-justified formatting
+        df_str = df.astype(str)
+
+        # Compute column widths (max of header and values)
+        col_widths = {}
+        for col in df_str.columns:
+            max_len = max(len(col), df_str[col].map(len).max())
+            col_widths[col] = max_len
+
+        # Write header row
+        header_cells = [col.ljust(col_widths[col]) for col in df_str.columns]
+        f.write("  ".join(header_cells) + "\n")
+
+        # Write each data row
+        for _, row in df_str.iterrows():
+            cells = [row[col].ljust(col_widths[col]) for col in df_str.columns]
+            f.write("  ".join(cells) + "\n")
 
     print(f"Report saved to {filepath}")
 
@@ -470,7 +506,6 @@ def get_artist_genres(artist_name):
     list of str
         Genre names, or ["Unknown"] if no tags are found or an error occurs.
     """
-    # Build the MusicBrainz query URL
     query = urllib.parse.quote(artist_name)
     url = f"https://musicbrainz.org/ws/2/artist/?query={query}&fmt=json"
     
@@ -517,34 +552,50 @@ def enrich_report_with_genres(report_df, zip_path, report_name="Artists_Library"
     out_path = os.path.join(reports_dir, filename)
 
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write("Artist,Tracks,Hours,Genres\n")
+        f.write("Artist,Tracks,Hours,LastListened,Genres\n")
 
         genres = []
+        cache_hits = 0
+        api_hits = 0
+        api_failures = 0
 
         with tqdm(total=len(report_df), desc="Enriching artists") as pbar:
             for artist in report_df.index:                
-                # Check cache first
                 if artist in genre_cache and genre_cache[artist] != ["Unknown"]:
                     g = genre_cache[artist]
+                    cache_hits += 1
                 else:
                     g = get_artist_genres(artist)
-                    if not g:
-                        g = ["Unknown"]  # in case of an error or empty result
+                    time.sleep(1.2)
+                    if not g or g == ["Unknown"]:
+                        api_failures += 1
+                    else:
+                        api_hits += 1
+
                     genre_cache[artist] = g
                     save_genre_cache(genre_cache, cache_path)
-                    time.sleep(1.2)  # only sleep when querying API
+
                 
                 genre_str = "|".join(g)
                 genres.append(genre_str)
-
-                # Write row immediately
+                
                 tracks = report_df.loc[artist, "total_tracks"]
                 hours = report_df.loc[artist, "total_duration_hours"]
-                f.write(f"{artist},{tracks},{hours:.2f},{genre_str}\n")
+                last = report_df.loc[artist, "last_listened"]
+                
+                f.write(f"{artist},{tracks},{hours:.2f},{last},{genre_str}\n")
                 f.flush()
 
-                # Write the current info to console
-                pbar.set_postfix({"Artist": artist, "Genre": genre_str[:30]})
+                artist_disp = (artist[:15] + "...") if len(artist) > 18 else artist.ljust(18)
+                genre_disp  = (genre_str[:20] + "...") if len(genre_str) > 23 else genre_str.ljust(23)
+
+                pbar.set_postfix({
+                    "Cache": cache_hits,
+                    "API": api_hits,
+                    "Fail": api_failures,
+                    "Artist": artist_disp,
+                    "Genre": genre_disp
+                })
 
                 pbar.update(1)
 
@@ -558,7 +609,6 @@ if __name__ == "__main__":
     user_info, feedback, listens = parse_listenbrainz_zip(zip_path)
     df = normalize_listens(listens, zip_path)
     
-    # Save basic reports
     artists_df, meta = report_top(df, group_col="artist", years=3, by="total_tracks", topn=200)
     save_report(artists_df, zip_path, meta=meta)
     
@@ -568,7 +618,6 @@ if __name__ == "__main__":
     likes_df, meta = report_artists_with_likes(df, feedback)
     save_report(likes_df, zip_path, meta=meta)
 
-    # Save a report of all artists "in library"
     artist_report = report_artists_threshold(df, mins=30, tracks=15)
     enriched_report = enrich_report_with_genres(artist_report, zip_path)
 
