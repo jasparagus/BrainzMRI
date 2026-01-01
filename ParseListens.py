@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 from tkinter import Tk, filedialog
 from tqdm import tqdm  # progress bar
-from datetime import datetime, UTC, timezone
+from datetime import datetime, UTC, timezone, timedelta
 
 
 """
@@ -382,8 +382,8 @@ def report_top(df, group_col="artist", days=None, by="total_tracks", topn=100):
         Normalized listens DataFrame.
     group_col : {"artist", "album"}
         Column to group by.
-    days : int or None, optional
-        If provided, restricts listens to the last N days.
+    days : int or None or tuple, optional
+        If provided, restricts listens to the last N days or a range given by tuple
     by : {"total_tracks", "total_duration_hours"}
         Metric used for ranking.
     topn : int
@@ -398,8 +398,21 @@ def report_top(df, group_col="artist", days=None, by="total_tracks", topn=100):
         - metadata : dict
             Contains entity, topn, days, and metric for filename generation.
     """
+    
     if days is not None:
-           df = filter_by_days(df, "listened_at", 0, days)
+        if isinstance(days, tuple):
+            start_days, end_days = days
+            if start_days == 0 and end_days == 0:
+                pass
+            else:
+                df = filter_by_days(df, "listened_at", start_days, end_days)
+        else:
+            if days == 0:
+                pass
+            else:
+                df = filter_by_days(df, "listened_at", 0, days)
+
+
    
     if group_col == "album":
         grouped = df.groupby(["artist", "album"]).agg(
@@ -415,6 +428,7 @@ def report_top(df, group_col="artist", days=None, by="total_tracks", topn=100):
         )
 
     grouped["total_duration_hours"] = (grouped["total_duration_ms"] / (1000 * 60 * 60)).round(1)
+    grouped["last_listened_dt"] = grouped["last_listened"]
     grouped["last_listened"] = grouped["last_listened"].dt.strftime("%Y-%m-%d")
     grouped = grouped.reset_index()
     if group_col == "album":
@@ -447,7 +461,7 @@ def save_report(df, zip_path, meta=None, report_name=None):
         Keys:
             - entity : str
             - topn : int
-            - days : int or None
+            - days : int or None or tuple
             - metric : str
     report_name : str, optional
         If provided, overrides auto-naming (e.g., "Artists_With_Likes").
@@ -471,17 +485,19 @@ def save_report(df, zip_path, meta=None, report_name=None):
         days = meta.get("days")
         metric = meta["metric"]
 
-        days_str = f"{days}Days" if days else "AllTime"
+        if days is None:
+            range_str = "AllTime"
+        elif isinstance(days, tuple):
+            start_days, end_days = days
+            range_str = f"Range{start_days}-{end_days}days"
+        else:
+            range_str = f"Last{days}days"
+
         metric_str = "By" + metric.capitalize()
 
-        filename = f"{timestamp}_{entity}_Top{topn}_{days_str}_{metric_str}.txt"
+        filename = f"{timestamp}_{entity}_Top{topn}_{range_str}_{metric_str}.txt"
 
     filepath = os.path.join(reports_dir, filename)
-
-    # with open(filepath, "w", encoding="utf-8") as f:
-        # title = report_name if report_name else filename
-        # f.write(f"=== {title} ===\n\n")
-        # f.write(df.to_string(index=False, justify="left"))
 
     with open(filepath, "w", encoding="utf-8") as f:
         title = report_name if report_name else filename

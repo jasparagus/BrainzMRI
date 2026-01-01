@@ -1,3 +1,5 @@
 /Archive/
 /reports/
 *listenbrainz*.zip
+__pycache__/
+*.pyc

@@ -44,10 +44,11 @@ class BrainzMRIGUI:
         # -----------------------------
         frm_zip = tk.Frame(root)
         frm_zip.pack(pady=10)
-
-        tk.Button(frm_zip, text="Select ListenBrainz ZIP", command=self.select_zip).pack(side="left")
+        
+        tk.Button(frm_zip, text="Select ListenBrainz ZIP", command=self.select_zip).pack()
+        
         self.lbl_zip = tk.Label(frm_zip, text="No file selected", fg="gray")
-        self.lbl_zip.pack(side="left", padx=10)
+        self.lbl_zip.pack(pady=5)
 
         # -----------------------------
         # Input Fields
@@ -121,19 +122,19 @@ class BrainzMRIGUI:
         try:
             t_start = int(self.ent_time_start.get())
             t_end   = int(self.ent_time_end.get())
-            df = core.filter_by_days(df, "listened_at", t_start, t_end)
-        except:
-            messagebox.showerror("Error", "Invalid time range values.")
+
+            start_days = min(t_start, t_end)
+            end_days   = max(t_start, t_end)
+            range_info = (start_days, end_days)
+            
+            df = core.filter_by_days(df, "listened_at", start_days, end_days)
+        except ValueError:
+            messagebox.showerror("Error", "Time range must be numeric.")
+            return
+        except Exception as e:
+            messagebox.showerror("Unexpected Error in Time Range", f"{type(e).__name__}: {e}")
             return
 
-        # Apply last-listened filter
-        try:
-            l_start = int(self.ent_last_start.get())
-            l_end   = int(self.ent_last_end.get())
-            df = core.filter_by_days(df, "listened_at", l_start, l_end)
-        except:
-            messagebox.showerror("Error", "Invalid last-listened values.")
-            return
 
         # Minimum tracks / hours filters
         try:
@@ -148,19 +149,56 @@ class BrainzMRIGUI:
         topn = int(self.ent_topn.get())
 
         if mode == "By Artist":
-            result, meta = core.report_top(df, group_col="artist", days=None, by="total_tracks", topn=topn)
+            result, meta = core.report_top(
+                df,
+                group_col="artist",
+                days=range_info,
+                by="total_tracks",
+                topn=topn
+            )
 
         elif mode == "By Album":
-            result, meta = core.report_top(df, group_col="album", days=None, by="total_tracks", topn=topn)
+            result, meta = core.report_top(
+                df,
+                group_col="album",
+                days=range_info,
+                by="total_tracks",
+                topn=topn
+            )
 
         else:
             messagebox.showerror("Error", "Unsupported report type.")
             return
+        
+        # Apply last-listened recency filter (post-grouping)
+        try:
+            l_start = int(self.ent_last_start.get())
+            l_end   = int(self.ent_last_end.get())
 
+            start_days = min(l_start, l_end)
+            end_days   = max(l_start, l_end)
+
+            now = datetime.now(timezone.utc)
+            min_dt = now - timedelta(days=end_days)
+            max_dt = now - timedelta(days=start_days)
+
+            # Now filter the grouped results
+            if not (start_days == 0 and end_days == 0):
+                result = result[
+                    (result["last_listened_dt"] >= min_dt) &
+                    (result["last_listened_dt"] <= max_dt)
+                ]
+
+        except ValueError:
+            messagebox.showerror("Error", "Last listened range must be numeric.")
+            return
+        except Exception as e:
+            messagebox.showerror("Unexpected Error in Last Listened", f"{type(e).__name__}: {e}")
+            return
+        
         # Save report
         core.save_report(result, self.zip_path, meta=meta)
         messagebox.showinfo("Success", "Report generated successfully.")
-
 
 # ------------------------------------------------------------
 # Run GUI
