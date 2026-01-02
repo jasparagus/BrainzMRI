@@ -131,7 +131,7 @@ class BrainzMRIGUI:
         self.ent_time_end.pack(side="left", padx=5)
         
         self.ent_time_start.insert(0, "0")
-        self.ent_time_end.insert(0, "365")
+        self.ent_time_end.insert(0, "9999")
 
         
         # Last Listened
@@ -452,25 +452,28 @@ class BrainzMRIGUI:
         # Clear old table
         for widget in self.table_frame.winfo_children():
             widget.destroy()
-        
+
+        # Create an inner frame to hold tree + scrollbar
+        container = tk.Frame(self.table_frame)
+        container.pack(fill="both", expand=True)
+
         # Create Treeview
-        tree = ttk.Treeview(self.table_frame, show="headings")
-        tree.pack(fill="both", expand=True)
-        
+        tree = ttk.Treeview(container, show="headings")
+        tree.pack(side="left", fill="both", expand=True)
+
         # Add scrollbar
-        scrollbar = ttk.Scrollbar(self.table_frame, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=tree.yview)
         scrollbar.pack(side="right", fill="y")
-        
+
+        tree.configure(yscrollcommand=scrollbar.set)
+
         # Setup columns
         tree["columns"] = list(df.columns)
-        
+
         for col in df.columns:
             tree.heading(col, text=col)
             tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
-        
-        tree.pack(fill="both", expand=True)
-        
+
         # Insert rows
         for _, row in df.iterrows():
             tree.insert("", "end", values=list(row))
