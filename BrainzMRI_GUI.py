@@ -117,7 +117,7 @@ class BrainzMRIGUI:
         frm_time = tk.Frame(frm_inputs)
         frm_time.pack(fill="x", pady=5)
 
-        lbl_time = tk.Label(frm_time, text="Time Range")
+        lbl_time = tk.Label(frm_time, text="Time Range To Analyze (Days)")
         lbl_time.pack(anchor="center")   # <-- centers the label
 
         row_time = tk.Frame(frm_time)
@@ -133,13 +133,12 @@ class BrainzMRIGUI:
         
         self.ent_time_start.insert(0, "0")
         self.ent_time_end.insert(0, "9999")
-
         
         # Last Listened
         frm_last = tk.Frame(frm_inputs)
         frm_last.pack(fill="x", pady=5)
 
-        lbl_last = tk.Label(frm_last, text="Last Listened")
+        lbl_last = tk.Label(frm_last, text="Last Listened Date (Days Ago)")
         lbl_last.pack(anchor="center")
 
         row_last = tk.Frame(frm_last)
@@ -155,13 +154,21 @@ class BrainzMRIGUI:
         
         self.ent_last_start.insert(0, "0")
         self.ent_last_end.insert(0, "0")
-
         
-        self.ent_topn       = add_labeled_entry(frm_inputs, "Top N (Number Of Results, e.g. 100):", 200)
-        
+        self.ent_topn         = add_labeled_entry(frm_inputs, "Top N (Number Of Results, e.g. 100):", 200)
         self.ent_min_tracks   = add_labeled_entry(frm_inputs, "Min. Tracks Listened Threshold:", 15)
         self.ent_min_minutes  = add_labeled_entry(frm_inputs, "Min. Minutes Listened Threshold:", 30)
 
+        # Use AP or Cache Only For Enriched Artist Report
+        self.use_api_var = tk.BooleanVar(value=True)
+        chk_api = tk.Checkbutton(
+            frm_inputs,
+            text="Do MusicBrainz Genre Lookup (Slow)?",
+            variable=self.use_api_var
+        )
+        Hovertip(chk_api, "If checked: query MusicBrainz.\nIf unchecked: use cache only.")
+        chk_api.pack(anchor="w", pady=5)
+        
         # Dropdown for report type
         frm_type = tk.Frame(root)
         frm_type.pack(pady=10)
@@ -204,16 +211,6 @@ class BrainzMRIGUI:
             width=16
         ).pack(side="left", padx=5)
         
-        # Use AP or Cache Only For Enriched Artist Report
-        self.use_api_var = tk.BooleanVar(value=True)
-        
-        chk_api = tk.Checkbutton(
-            frm_inputs,
-            text="Do MusicBrainz Genre Lookup (Slow)?",
-            variable=self.use_api_var
-        )
-        chk_api.pack(anchor="w", pady=5)
-        Hovertip(chk_api, "If checked: query MusicBrainz.\nIf unchecked: use cache only.")
         
         self.status_bar.pack(fill="x", side="bottom")
 
