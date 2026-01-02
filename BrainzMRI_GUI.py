@@ -26,6 +26,7 @@ import json
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 from datetime import datetime, timedelta, timezone
+from idlelib.tooltip import Hovertip
 import os
 import subprocess
 import sys
@@ -202,7 +203,18 @@ class BrainzMRIGUI:
             fg="white",
             width=16
         ).pack(side="left", padx=5)
-
+        
+        # Use AP or Cache Only For Enriched Artist Report
+        self.use_api_var = tk.BooleanVar(value=True)
+        
+        chk_api = tk.Checkbutton(
+            frm_inputs,
+            text="Do MusicBrainz Genre Lookup (Slow)?",
+            variable=self.use_api_var
+        )
+        chk_api.pack(anchor="w", pady=5)
+        Hovertip(chk_api, "If checked: query MusicBrainz.\nIf unchecked: use cache only.")
+        
         self.status_bar.pack(fill="x", side="bottom")
 
         # Table Viewer Frame
@@ -406,7 +418,11 @@ class BrainzMRIGUI:
                 mins=min_minutes,
                 tracks=min_tracks
             )
-            out_path, enriched = core.enrich_report_with_genres(artist_report, self.zip_path)
+            out_path, enriched = core.enrich_report_with_genres(
+                artist_report,
+                self.zip_path,
+                use_api=self.use_api_var.get()
+            )
 
             self.last_result = enriched
             self.last_meta = None
@@ -453,7 +469,7 @@ class BrainzMRIGUI:
         for widget in self.table_frame.winfo_children():
             widget.destroy()
 
-        # Create an inner frame to hold tree + scrollbar
+        # Create container frame for tree + scrollbar
         container = tk.Frame(self.table_frame)
         container.pack(fill="both", expand=True)
 
@@ -464,21 +480,54 @@ class BrainzMRIGUI:
         # Add scrollbar
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=tree.yview)
         scrollbar.pack(side="right", fill="y")
-
         tree.configure(yscrollcommand=scrollbar.set)
+
+        # Store sort state
+        tree._sort_state = {}
+
+        # Sorting function with indicators
+        def sort_column(col):
+            # Toggle sort direction
+            descending = tree._sort_state.get(col, False)
+            tree._sort_state[col] = not descending
+
+            # Extract data
+            data = [(tree.set(k, col), k) for k in tree.get_children("")]
+
+            # Try numeric sort first
+            try:
+                data = [(float(v), k) for v, k in data]
+            except ValueError:
+                pass  # fallback to string sort
+
+            # Sort
+            data.sort(reverse=tree._sort_state[col])
+
+            # Reorder rows
+            for index, (_, k) in enumerate(data):
+                tree.move(k, "", index)
+
+            # Update column headers with indicators
+            for c in df.columns:
+                indicator = ""
+                if c == col:
+                    indicator = " ▲" if not descending else " ▼"
+                tree.heading(c, text=c + indicator,
+                             command=lambda c=c: sort_column(c))
 
         # Setup columns
         tree["columns"] = list(df.columns)
 
         for col in df.columns:
             tree.heading(col, text=col,
-                         command=lambda c=col: self.sort_treeview(tree, c, False))
+                         command=lambda c=col: sort_column(c))
             tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
 
         # Insert rows
         for _, row in df.iterrows():
             tree.insert("", "end", values=list(row))
-    
+
+
     def sort_treeview(self, tree, col, reverse):
         """Sort table column when header is clicked."""
         # Extract values to sort

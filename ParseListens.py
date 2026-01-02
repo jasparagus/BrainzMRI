@@ -43,13 +43,14 @@ This module retrieves the following priority items from the listen objects.
 4. Recording_mbid for cross-linking likes with tracks
 
 
-ToDo - 
-* Clean up reports a bit
-  1. Remove total_duration_ms in favor of total_duration_hours throughout
-  2. Reorder (Album, Artist, or Track always as first column, for example)
-  
-* Add a Simple "table viewer" to the GUI instead of always writing to a text file.
-
+ToDo Items
+- Enable a log of specifically Artists (and URLs) for whom enrich_report_with_genres finds "Unknown"
+  - This should include a URL to visit at musicbrainz to add the genre
+- Build a graph of favorite N artists/albums/tracks vs. time as a stacked bar plot from the data    
+  - Should use TopN as the population to track, but should be capped at 20
+  - Plot should show the top N artists/albums/tracks as a function of time
+  - Plot should be a set of stacked bars, showing favorite(s) vs. time
+  - Each artist/album/track should have its own color
 
 """
 
@@ -569,7 +570,7 @@ def get_artist_genres(artist_name):
     return ["Unknown"]
 
 
-def enrich_report_with_genres(report_df, zip_path, report_name="Artists_Library"):
+def enrich_report_with_genres(report_df, zip_path, report_name="Artists_Library", use_api=True):
     """
     Add genre information to an artist report and save it as a CSV.
 
@@ -613,12 +614,16 @@ def enrich_report_with_genres(report_df, zip_path, report_name="Artists_Library"
                     g = genre_cache[artist]
                     cache_hits += 1
                 else:
-                    g = get_artist_genres(artist)
-                    time.sleep(1.2)
-                    if not g or g == ["Unknown"]:
-                        api_failures += 1
+                    if use_api:
+                        g = get_artist_genres(artist)
+                        time.sleep(1.2)
+                        if not g or g == ["Unknown"]:
+                            api_failures += 1
+                        else:
+                            api_hits += 1
                     else:
-                        api_hits += 1
+                        g = ["Unknown"]
+                        api_failures += 1
 
                     genre_cache[artist] = g
                     save_genre_cache(genre_cache, cache_path)
@@ -649,6 +654,7 @@ def enrich_report_with_genres(report_df, zip_path, report_name="Artists_Library"
 
     enriched = report_df.copy()
     enriched["Genres"] = genres
+    enriched = enriched.reset_index()
     return out_path, enriched
 
 
