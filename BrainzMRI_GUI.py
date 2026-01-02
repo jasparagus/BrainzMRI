@@ -471,12 +471,31 @@ class BrainzMRIGUI:
         tree["columns"] = list(df.columns)
 
         for col in df.columns:
-            tree.heading(col, text=col)
+            tree.heading(col, text=col,
+                         command=lambda c=col: self.sort_treeview(tree, c, False))
             tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
 
         # Insert rows
         for _, row in df.iterrows():
             tree.insert("", "end", values=list(row))
+    
+    def sort_treeview(self, tree, col, reverse):
+        """Sort table column when header is clicked."""
+        # Extract values to sort
+        data = [(tree.set(k, col), k) for k in tree.get_children("")]
+
+        # Try numeric sort first, fallback to string
+        try:
+            data.sort(key=lambda t: float(t[0]), reverse=reverse)
+        except ValueError:
+            data.sort(key=lambda t: t[0].lower(), reverse=reverse)
+
+        # Reorder rows
+        for index, (_, k) in enumerate(data):
+            tree.move(k, "", index)
+
+        # Toggle sort direction next click
+        tree.heading(col, command=lambda: self.sort_treeview(tree, col, not reverse))
 
 
 # ------------------------------------------------------------
