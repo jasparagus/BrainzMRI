@@ -485,29 +485,28 @@ class BrainzMRIGUI:
         # Store sort state
         tree._sort_state = {}
 
+        # Keep reference for copy handler
+        self.tree = tree
+        tree.bind("<Control-c>", self.copy_selection_to_clipboard)
+        tree.bind("<Control-C>", self.copy_selection_to_clipboard)
+
         # Sorting function with indicators
         def sort_column(col):
-            # Toggle sort direction
             descending = tree._sort_state.get(col, False)
             tree._sort_state[col] = not descending
 
-            # Extract data
             data = [(tree.set(k, col), k) for k in tree.get_children("")]
 
-            # Try numeric sort first
             try:
                 data = [(float(v), k) for v, k in data]
             except ValueError:
-                pass  # fallback to string sort
+                pass
 
-            # Sort
             data.sort(reverse=tree._sort_state[col])
 
-            # Reorder rows
             for index, (_, k) in enumerate(data):
                 tree.move(k, "", index)
 
-            # Update column headers with indicators
             for c in df.columns:
                 indicator = ""
                 if c == col:
@@ -526,30 +525,30 @@ class BrainzMRIGUI:
         # Insert rows
         for _, row in df.iterrows():
             tree.insert("", "end", values=list(row))
+            
+    def copy_selection_to_clipboard(self, event=None):
+        tree = self.tree  # stored reference from show_table
+        selected = tree.selection()
+
+        if not selected:
+            return "break"
+
+        rows = []
+        for item in selected:
+            values = tree.item(item, "values")
+            rows.append("\t".join(str(v) for v in values))
+
+        text = "\n".join(rows)
+
+        # Copy to clipboard
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.root.update()  # keeps clipboard after app closes
+
+        return "break"
 
 
-    def sort_treeview(self, tree, col, reverse):
-        """Sort table column when header is clicked."""
-        # Extract values to sort
-        data = [(tree.set(k, col), k) for k in tree.get_children("")]
-
-        # Try numeric sort first, fallback to string
-        try:
-            data.sort(key=lambda t: float(t[0]), reverse=reverse)
-        except ValueError:
-            data.sort(key=lambda t: t[0].lower(), reverse=reverse)
-
-        # Reorder rows
-        for index, (_, k) in enumerate(data):
-            tree.move(k, "", index)
-
-        # Toggle sort direction next click
-        tree.heading(col, command=lambda: self.sort_treeview(tree, col, not reverse))
-
-
-# ------------------------------------------------------------
 # Run GUI
-# ------------------------------------------------------------
 if __name__ == "__main__":
     root = tk.Tk()
     app = BrainzMRIGUI(root)
