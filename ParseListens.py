@@ -47,7 +47,6 @@ ToDo -
 * Clean up reports a bit
   1. Remove total_duration_ms in favor of total_duration_hours throughout
   2. Reorder (Album, Artist, or Track always as first column, for example)
-  3. Deal with redundancy of last_listened_dt and last_listened; probably skip the string one
   
 * Add a Simple "table viewer" to the GUI instead of always writing to a text file.
 
@@ -356,18 +355,22 @@ def report_artists_threshold(df, mins=30, tracks=15):
         Artists meeting the threshold, sorted by total tracks.
     """
     grouped = df.groupby("artist").agg(
-    total_tracks=("artist", "count"),
-    total_duration_ms=("duration_ms", "sum"),
-    last_listened=("listened_at", "max")
+        total_tracks=("artist", "count"),
+        total_duration_hours=("duration_ms", lambda x: (x.sum() / (1000*60*60))),
+        last_listened=("listened_at", "max")
     )
-    grouped["total_duration_hours"] = (grouped["total_duration_ms"] / (1000 * 60 * 60)).round(1)
-    grouped["last_listened"] = grouped["last_listened"].dt.strftime("%Y-%m-%d")
     
+    grouped["total_duration_hours"] = grouped["total_duration_hours"].round(1)
     
-    filtered = grouped[(grouped.total_tracks > tracks) | (grouped.total_duration_ms > mins*60*1000)]
+    # Apply thresholds
+    filtered = grouped[
+        (grouped.total_tracks > tracks) |
+        (grouped.total_duration_hours > mins/60)
+    ]
+    
     return filtered.sort_values("total_tracks", ascending=False)[
         ["total_tracks", "total_duration_hours", "last_listened"]
-        ]
+    ]
 
 def report_top(df, group_col="artist", days=None, by="total_tracks", topn=100):
     """

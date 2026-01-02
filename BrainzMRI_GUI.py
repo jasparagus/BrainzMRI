@@ -22,14 +22,13 @@ This GUI:
 - Calls your existing functions without modifying them
 ============================================================
 """
+import json
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 from datetime import datetime, timedelta, timezone
 import os
 import subprocess
 import sys
-
-
 
 import ParseListens as core
 
@@ -42,9 +41,7 @@ def open_file_default(path):
     else:
         subprocess.Popen(["xdg-open", path])
 
-# ------------------------------------------------------------
 # GUI Application
-# ------------------------------------------------------------
 class BrainzMRIGUI:
     def __init__(self, root):
         self.root = root
@@ -63,21 +60,46 @@ class BrainzMRIGUI:
         self.last_result = None
         self.last_meta = None
         self.last_mode = None
+        
+        # Status Bar
+        self.status_var = tk.StringVar()
+        self.status_var.set("Ready.")
 
-        # -----------------------------
+        self.status_bar = tk.Label(
+            root,
+            textvariable=self.status_var,
+            bd=1,
+            relief="sunken",
+            anchor="center",          # center the text
+            font=("Segoe UI", 11)     # larger, cleaner font
+        )
+        
+        
         # ZIP File Selection
-        # -----------------------------
         frm_zip = tk.Frame(root)
         frm_zip.pack(pady=10)
-        
+
         tk.Button(frm_zip, text="Select ListenBrainz ZIP", command=self.select_zip).pack()
-        
+
+        # Create the zip display
         self.lbl_zip = tk.Label(frm_zip, text="No file selected", fg="gray")
         self.lbl_zip.pack(pady=5)
 
-        # -----------------------------
+        # Try to auto-load last ZIP
+        last = self.load_config().get("last_zip")
+        if last and os.path.exists(last):
+            self.zip_path = last
+            self.lbl_zip.config(text=os.path.basename(last), fg="black")
+
+            user_info, feedback, listens = core.parse_listenbrainz_zip(last)
+            self.feedback = feedback
+            self.df = core.normalize_listens(listens, last)
+
+            self.set_status(f"Auto-loaded: {os.path.basename(last)}")
+        else:
+            self.set_status("Ready.")
+        
         # Input Fields
-        # -----------------------------
         frm_inputs = tk.Frame(root)
         frm_inputs.pack(pady=10)
 
@@ -90,20 +112,56 @@ class BrainzMRIGUI:
             ent.pack(side="left")
             return ent
 
-        self.ent_time_start = add_labeled_entry(frm_inputs, "Time Range Start (days ago, e.g. 0):", 0)
-        self.ent_time_end   = add_labeled_entry(frm_inputs, "Time Range End (days ago, e.g. 365):", 0)
+        # Time Range
+        frm_time = tk.Frame(frm_inputs)
+        frm_time.pack(fill="x", pady=5)
 
-        self.ent_last_start = add_labeled_entry(frm_inputs, "Last Listened Start (days ago, e.g. 180):", 0)
-        self.ent_last_end   = add_labeled_entry(frm_inputs, "Last Listened End (days ago, e.g. 365):", 0)
+        lbl_time = tk.Label(frm_time, text="Time Range")
+        lbl_time.pack(anchor="center")   # <-- centers the label
+
+        row_time = tk.Frame(frm_time)
+        row_time.pack(anchor="center")   # <-- centers the Start/End row
+
+        tk.Label(row_time, text="Start:", width=8).pack(side="left")
+        self.ent_time_start = tk.Entry(row_time, width=10)
+        self.ent_time_start.pack(side="left", padx=5)
+
+        tk.Label(row_time, text="End:", width=8).pack(side="left")
+        self.ent_time_end = tk.Entry(row_time, width=10)
+        self.ent_time_end.pack(side="left", padx=5)
+        
+        self.ent_time_start.insert(0, "0")
+        self.ent_time_end.insert(0, "365")
+
+        
+        # Last Listened
+        frm_last = tk.Frame(frm_inputs)
+        frm_last.pack(fill="x", pady=5)
+
+        lbl_last = tk.Label(frm_last, text="Last Listened")
+        lbl_last.pack(anchor="center")
+
+        row_last = tk.Frame(frm_last)
+        row_last.pack(anchor="center")
+
+        tk.Label(row_last, text="Start:", width=8).pack(side="left")
+        self.ent_last_start = tk.Entry(row_last, width=10)
+        self.ent_last_start.pack(side="left", padx=5)
+
+        tk.Label(row_last, text="End:", width=8).pack(side="left")
+        self.ent_last_end = tk.Entry(row_last, width=10)
+        self.ent_last_end.pack(side="left", padx=5)
+        
+        self.ent_last_start.insert(0, "0")
+        self.ent_last_end.insert(0, "0")
+
         
         self.ent_topn       = add_labeled_entry(frm_inputs, "Top N (Number Of Results, e.g. 100):", 200)
         
         self.ent_min_tracks   = add_labeled_entry(frm_inputs, "Min. Tracks Listened Threshold:", 15)
         self.ent_min_minutes  = add_labeled_entry(frm_inputs, "Min. Minutes Listened Threshold:", 30)
 
-        # -----------------------------
         # Dropdown for report type
-        # -----------------------------
         frm_type = tk.Frame(root)
         frm_type.pack(pady=10)
 
@@ -123,9 +181,7 @@ class BrainzMRIGUI:
         self.report_type.current(0)
         self.report_type.pack(side="left")       
         
-        # -----------------------------
         # Analyze / Save Buttons
-        # -----------------------------
         btn_frame = tk.Frame(root)
         btn_frame.pack(pady=10)
 
@@ -146,49 +202,58 @@ class BrainzMRIGUI:
             fg="white",
             width=16
         ).pack(side="left", padx=5)
-        
-        
-        # -----------------------------
-        # Status Bar
-        # -----------------------------
-        self.status_var = tk.StringVar()
-        self.status_var.set("Ready.")
-
-        self.status_bar = tk.Label(
-            root,
-            textvariable=self.status_var,
-            bd=1,
-            relief="sunken",
-            anchor="center",          # center the text
-            font=("Segoe UI", 11)     # larger, cleaner font
-        )
 
         self.status_bar.pack(fill="x", side="bottom")
 
-        # -----------------------------
         # Table Viewer Frame
-        # -----------------------------
         self.table_frame = tk.Frame(root)
         self.table_frame.pack(fill="both", expand=True)
         self.table_frame.pack_propagate(False)
-
-
 
     def set_status(self, text):
         self.status_var.set(text)
         self.status_bar.update_idletasks()
     
+    def load_config(self):
+        """Load config.json if present, else return empty dict."""
+        try:
+            if os.path.exists("config.json"):
+                with open("config.json", "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except:
+            pass
+        return {}
+
+    def save_config(self, data):
+        """Write config.json with the provided dictionary."""
+        try:
+            with open("config.json", "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except:
+            pass    
+    
     def select_zip(self):
-        path = filedialog.askopenfilename(title="Select ListenBrainz ZIP", filetypes=[("ZIP files", "*.zip")])
+        path = filedialog.askopenfilename(
+            title="Select ListenBrainz ZIP",
+            filetypes=[("ZIP files", "*.zip")]
+        )
         if not path:
             return
-        self.zip_path = path
+
+        # Save to config
+        cfg = self.load_config()
+        cfg["last_zip"] = path
+        self.save_config(cfg)
+
+        # Update label
         self.lbl_zip.config(text=os.path.basename(path), fg="black")
 
         # Load data
         user_info, feedback, listens = core.parse_listenbrainz_zip(path)
         self.feedback = feedback
         self.df = core.normalize_listens(listens, path)
+
+        self.zip_path = path
         self.set_status("Zip loaded.")
 
     def apply_recency_filter(self, result):
@@ -403,7 +468,8 @@ class BrainzMRIGUI:
         for col in df.columns:
             tree.heading(col, text=col)
             tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
-            tree.pack(fill="both", expand=True)
+        
+        tree.pack(fill="both", expand=True)
         
         # Insert rows
         for _, row in df.iterrows():

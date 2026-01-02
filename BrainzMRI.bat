@@ -26,4 +26,6 @@ echo Starting BrainzMRI GUI...
 python BrainzMRI_GUI.py
 goto end
 
+
 :end
+pause

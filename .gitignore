@@ -3,3 +3,4 @@
 *listenbrainz*.zip
 __pycache__/
 *.pyc
+config.json
