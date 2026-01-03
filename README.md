@@ -206,3 +206,55 @@ BrainzMRI/
 ├── reports/                # Auto-created report output folder
 └── README.md               # This file
 ```
+
+# TODO (Future Improvements)
+ 1. Filter-By-Column Enhancement
+    Add a "Filter By" dropdown next to the filter entry.
+    Options: "All" + list of current table column headers.
+    Behavior:
+       - If "All": apply regex across all columns (current behavior).
+       - Else: apply regex only to the selected column.
+    Requirements:
+       - Populate dropdown after show_table() builds the Treeview.
+       - Update apply_filter() to respect the selected column.
+
+ 2. UI Layout Abstraction
+    Several UI sections repeat the same pattern (Frame + Label + Entry).
+    Create helper functions to reduce boilerplate and improve readability.
+
+ 3. show_table() Decomposition
+    show_table() currently handles:
+       - clearing the frame
+       - building the filter bar
+       - building the table container
+       - creating the Treeview
+       - wiring sorting
+       - inserting rows
+    Break into smaller helpers:
+       build_filter_bar(), build_table_container(), populate_table()
+
+ 4. run_report() Decomposition
+    run_report() still handles multiple responsibilities:
+       - parsing inputs
+       - applying time filters
+       - dispatching report functions
+       - applying recency filters
+       - saving state
+       - rendering the table
+    Consider splitting into:
+       parse_time_range(), parse_thresholds(),
+       generate_report(), finalize_report()
+
+ 5. Hybrid ZIP + API Mode (ListenBrainz + Last.fm)
+    Add an optional "Hybrid Mode" that:
+       - Loads full history from a ListenBrainz ZIP if available.
+       - Fetches new listens from ListenBrainz API (timestamp-based).
+       - Fetches new listens from Last.fm API (page-based).
+       - Merges all sources into a unified local archive.
+       - Deduplicates listens using recording_mbid, timestamps, and metadata.
+    UI Requirements:
+       - Add checkboxes to enable/disable LB API and Last.fm API ingestion.
+       - Add a "Sync New Listens" button.
+    Long-term Goal:
+       - Maintain a persistent local archive that updates incrementally
+         without requiring repeated ZIP downloads.

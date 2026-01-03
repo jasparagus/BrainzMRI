@@ -21,41 +21,6 @@ This GUI:
 - Saves output using your existing save_report() function
 - Calls your existing functions without modifying them
 ============================================================
-# TODO (Future Improvements)
-# 1. Filter-By-Column Enhancement
-#    Add a "Filter By" dropdown next to the filter entry.
-#    Options: "All" + list of current table column headers.
-#    Behavior:
-#       - If "All": apply regex across all columns (current behavior).
-#       - Else: apply regex only to the selected column.
-#    Requirements:
-#       - Populate dropdown after show_table() builds the Treeview.
-#       - Update apply_filter() to respect the selected column.
-# 2. UI Layout Abstraction
-#    Several UI sections repeat the same pattern (Frame + Label + Entry).
-#    Create helper functions to reduce boilerplate and improve readability.
-# 3. show_table() Decomposition
-#    show_table() currently handles:
-#       - clearing the frame
-#       - building the filter bar
-#       - building the table container
-#       - creating the Treeview
-#       - wiring sorting
-#       - inserting rows
-#    Break into smaller helpers:
-#       build_filter_bar(), build_table_container(), populate_table()
-# 4. run_report() Decomposition
-#    run_report() still handles multiple responsibilities:
-#       - parsing inputs
-#       - applying time filters
-#       - dispatching report functions
-#       - applying recency filters
-#       - saving state
-#       - rendering the table
-#    Consider splitting into:
-#       parse_time_range(), parse_thresholds(),
-#       generate_report(), finalize_report()
-============================================================
 """
 import json
 import tkinter as tk
