@@ -440,13 +440,9 @@ def report_top(df, group_col="artist", days=None, by="total_tracks", topn=100):
     if group_col == "artist":
         grouped = grouped[["artist", "total_tracks", "total_duration_hours", "last_listened"]]
     if group_col == "album":
-        grouped["album"] = grouped["artist"] + " | " + grouped["album"]
-        grouped = grouped.drop(columns=["artist"])
-        grouped = grouped[["album", "total_tracks", "total_duration_hours", "last_listened"]]
+        grouped = grouped[["artist", "album", "total_tracks", "total_duration_hours", "last_listened"]]
     if group_col == "track":
-        grouped["track"] = grouped["artist"] + " | " + grouped["track_name"]
-        grouped = grouped.drop(columns=["artist", "track_name"])
-        grouped = grouped[["track", "total_tracks", "total_duration_hours", "last_listened"]]
+        grouped = grouped[["artist", "track_name", "total_tracks", "total_duration_hours", "last_listened"]]
     
     key = by
     result = grouped.sort_values(key, ascending=False).head(topn)
