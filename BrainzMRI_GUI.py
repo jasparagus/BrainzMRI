@@ -21,6 +21,41 @@ This GUI:
 - Saves output using your existing save_report() function
 - Calls your existing functions without modifying them
 ============================================================
+# TODO (Future Improvements)
+# 1. Filter-By-Column Enhancement
+#    Add a "Filter By" dropdown next to the filter entry.
+#    Options: "All" + list of current table column headers.
+#    Behavior:
+#       - If "All": apply regex across all columns (current behavior).
+#       - Else: apply regex only to the selected column.
+#    Requirements:
+#       - Populate dropdown after show_table() builds the Treeview.
+#       - Update apply_filter() to respect the selected column.
+# 2. UI Layout Abstraction
+#    Several UI sections repeat the same pattern (Frame + Label + Entry).
+#    Create helper functions to reduce boilerplate and improve readability.
+# 3. show_table() Decomposition
+#    show_table() currently handles:
+#       - clearing the frame
+#       - building the filter bar
+#       - building the table container
+#       - creating the Treeview
+#       - wiring sorting
+#       - inserting rows
+#    Break into smaller helpers:
+#       build_filter_bar(), build_table_container(), populate_table()
+# 4. run_report() Decomposition
+#    run_report() still handles multiple responsibilities:
+#       - parsing inputs
+#       - applying time filters
+#       - dispatching report functions
+#       - applying recency filters
+#       - saving state
+#       - rendering the table
+#    Consider splitting into:
+#       parse_time_range(), parse_thresholds(),
+#       generate_report(), finalize_report()
+============================================================
 """
 import json
 import tkinter as tk
@@ -44,11 +79,15 @@ def open_file_default(path):
 
 # GUI Application
 class BrainzMRIGUI:
+    """
+    Tkinter GUI wrapper for ParseListens.py.
+    Handles ZIP selection, report generation, filtering, and table display.
+    """
     def __init__(self, root):
         self.root = root
-        self.root.title("BrainzMRI Report Generator")
+        self.root.title("BrainzMRI - ListenBrainz Metadata Review Instrument")
         
-        # Fix window size and prevent auto-resizing
+        # Build Main Window
         self.root.geometry("1000x700")
         self.root.minsize(1000, 700)
         self.root.resizable(True, True)
@@ -104,18 +143,15 @@ class BrainzMRIGUI:
             font=("Segoe UI", 11)     # larger, cleaner font
         )
         
-        
         # ZIP File Selection
         frm_zip = tk.Frame(root)
         frm_zip.pack(pady=10)
 
         tk.Button(frm_zip, text="Select ListenBrainz ZIP", command=self.select_zip).pack()
 
-        # Create the zip display
         self.lbl_zip = tk.Label(frm_zip, text="No file selected", fg="gray")
         self.lbl_zip.pack(pady=5)
 
-        # Try to auto-load last ZIP
         last = self.load_config().get("last_zip")
         if last and os.path.exists(last):
             self.zip_path = last
@@ -308,21 +344,23 @@ class BrainzMRIGUI:
 
             # (0,0) => All time, skip recency filter
             if rec_start == 0 and rec_end == 0:
-                return
+                return result
 
             now = datetime.now(timezone.utc)
             min_dt = now - timedelta(days=rec_end)
             max_dt = now - timedelta(days=rec_start)
 
             mask = (result["last_listened"] >= min_dt) & (result["last_listened"] <= max_dt)
-            result.drop(result[~mask].index, inplace=True)
+            return result[mask].copy()
 
         except ValueError:
             messagebox.showerror("Error", "Last listened range must be numeric.")
             self.set_status("Error: Last listened range must be numeric.")
+            return result
         except Exception as e:
             messagebox.showerror("Unexpected Error in Last Listened", f"{type(e).__name__}: {e}")
             self.set_status("Error: Unexpected Error in Last Listened.")
+            return result
 
     def run_report(self):
         if self.df is None:
@@ -364,12 +402,6 @@ class BrainzMRIGUI:
 
         mode = self.report_type.get()
         topn = int(self.ent_topn.get())
-
-
-        # TODO: the artist/album/track cases are quite redundant.
-        # These should be combined into one case and should use 
-        # a context-sensitive value from the "mode" input.
-        # The "set_status" output can also be derived accordingly.
         
         mode = self.report_type.get()
         handler = self.report_handlers.get(mode)
@@ -409,7 +441,7 @@ class BrainzMRIGUI:
                 result, meta = func(df, **kwargs)
 
         # Apply recency filter
-        self.apply_recency_filter(result)
+        result = self.apply_recency_filter(result)
 
         # Save state
         self.last_result = result
@@ -482,15 +514,13 @@ class BrainzMRIGUI:
             command=self.clear_filter
         ).pack(side="left", padx=5)
 
-        # Create container frame for tree + scrollbar
+        # Tree + Scrollbar Frame
         container = tk.Frame(self.table_frame)
         container.pack(fill="both", expand=True)
 
-        # Create Treeview
         tree = ttk.Treeview(container, show="headings")
         tree.pack(side="left", fill="both", expand=True)
 
-        # Add scrollbar
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=tree.yview)
         scrollbar.pack(side="right", fill="y")
         tree.configure(yscrollcommand=scrollbar.set)
@@ -503,44 +533,54 @@ class BrainzMRIGUI:
         tree.bind("<Control-c>", self.copy_selection_to_clipboard)
         tree.bind("<Control-C>", self.copy_selection_to_clipboard)
 
-        # Sorting function with indicators
-        def sort_column(col):
-            descending = tree._sort_state.get(col, False)
-            tree._sort_state[col] = not descending
-
-            data = [(tree.set(k, col), k) for k in tree.get_children("")]
-
-            try:
-                data = [(float(v), k) for v, k in data]
-            except ValueError:
-                pass
-
-            data.sort(reverse=tree._sort_state[col])
-
-            for index, (_, k) in enumerate(data):
-                tree.move(k, "", index)
-
-            for c in df.columns:
-                indicator = ""
-                if c == col:
-                    indicator = " ▲" if not descending else " ▼"
-                tree.heading(c, text=c + indicator,
-                             command=lambda c=c: sort_column(c))
-
         # Setup columns
         tree["columns"] = list(df.columns)
-
+        
+        # Bind column headers to sort to method
         for col in df.columns:
             tree.heading(col, text=col,
-                         command=lambda c=col: sort_column(c))
+                         command=lambda c=col: self.sort_column(tree, df, c))
+        
+        for col in df.columns:
             tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
 
         # Insert rows
         for _, row in df.iterrows():
             tree.insert("", "end", values=list(row))
-            
-    
+        
+    def sort_column(self, tree, df, col):
+        """
+        Sort the Treeview by the given column.
+        Preserves ascending/descending toggle state.
+        """
+        descending = tree._sort_state.get(col, False)
+        tree._sort_state[col] = not descending
+
+        # Extract values for sorting
+        data = [(tree.set(k, col), k) for k in tree.get_children("")]
+
+        # Try numeric sort first
+        try:
+            data = [(float(v), k) for v, k in data]
+        except ValueError:
+            pass
+
+        data.sort(reverse=tree._sort_state[col])
+
+        # Reorder rows
+        for index, (_, k) in enumerate(data):
+            tree.move(k, "", index)
+
+        # Update column headers with sort indicators
+        for c in df.columns:
+            indicator = ""
+            if c == col:
+                indicator = " ▲" if not descending else " ▼"
+            tree.heading(c, text=c + indicator,
+                         command=lambda c=c: self.sort_column(tree, df, c))        
+
     def apply_filter(self):
+        """Apply a regex filter to the current report dataframe."""
         import re
         pattern = self.filter_entry.get().strip()
         if not pattern:
