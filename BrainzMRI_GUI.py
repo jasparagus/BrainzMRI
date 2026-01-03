@@ -191,7 +191,7 @@ class BrainzMRIGUI:
         self.ent_min_minutes  = add_labeled_entry(frm_inputs, "Min. Minutes Listened Threshold:", 30)
 
         # Use AP or Cache Only For Enriched Artist Report
-        self.use_api_var = tk.BooleanVar(value=True)
+        self.use_api_var = tk.BooleanVar(value=False)
         chk_api = tk.Checkbutton(
             frm_inputs,
             text="Do MusicBrainz Genre Lookup (Slow)?",

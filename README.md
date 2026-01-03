@@ -71,10 +71,6 @@ pip install pandas tqdm
 
 # Running BrainzMRI
 
-You can run the tool in **GUI mode** or **CLI mode**.
-
----
-
 ## Windows
 Double-click:
 
@@ -170,11 +166,12 @@ BrainzMRI/
 ```
 
 # TODO (Future Improvements)
- 1. UI Layout Abstraction
+
+## UI Layout Abstraction
     Several UI sections repeat the same pattern (Frame + Label + Entry).
     Create helper functions to reduce boilerplate and improve readability.
 
- 2. show_table() Decomposition
+## show_table() Decomposition
     show_table() currently handles:
        - clearing the frame
        - building the filter bar
@@ -185,7 +182,7 @@ BrainzMRI/
     Break into smaller helpers:
        build_filter_bar(), build_table_container(), populate_table()
 
- 3. run_report() Decomposition
+## run_report() Decomposition
     run_report() still handles multiple responsibilities:
        - parsing inputs
        - applying time filters
@@ -197,7 +194,7 @@ BrainzMRI/
        parse_time_range(), parse_thresholds(),
        generate_report(), finalize_report()
 
- 4. Hybrid ZIP + API Mode (ListenBrainz + Last.fm)
+## Hybrid ZIP + API Mode (ListenBrainz + Last.fm)
     Add an optional "Hybrid Mode" that:
        - Loads full history from a ListenBrainz ZIP if available.
        - Fetches new listens from ListenBrainz API (timestamp-based).
@@ -210,3 +207,35 @@ BrainzMRI/
     Long-term Goal:
        - Maintain a persistent local archive that updates incrementally
          without requiring repeated ZIP downloads.
+		 
+		 
+## Convert "Enriched Artist Report" into a generic enrichment option
+
+Goal:
+    Simplify the report type dropdown and make enrichment a post-processing step
+    instead of a separate report type. This will also prepare the codebase for
+    future enrichment of album and track reports.
+
+Planned Changes:
+    1. Remove "Enriched Artist Report" from the report type dropdown.
+    2. Add a new checkbox: "Enrich report with genres".
+    3. Repurpose the existing "Use MusicBrainz API (slow)" checkbox so that:
+           - If enrichment is enabled:
+                 - API checkbox determines API vs. cache-only behavior.
+           - If enrichment is disabled:
+                 - API checkbox is ignored.
+    4. Update run_report() so that:
+           - It generates the base report (artist/album/track/liked).
+           - If enrichment checkbox is enabled:
+                 - Apply genre enrichment to the result.
+    5. Keep threshold logic (mins/tracks) tied to enrichment unless later separated.
+    6. Ensure the GUI layout accommodates the new checkbox cleanly.
+    7. Update README to reflect:
+           - Fewer report types in the dropdown.
+           - Enrichment as an optional enhancement step.
+           - Future support for album/track enrichment.
+
+Rationale:
+    - Reduces cognitive load in the UI.
+    - Makes enrichment behavior explicit and consistent.
+    - Sets the foundation for enriching album and track reports later.
