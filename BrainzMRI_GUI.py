@@ -62,6 +62,35 @@ class BrainzMRIGUI:
         self.last_meta = None
         self.last_mode = None
         
+        # Define a lookup dictionary for reporting
+        self.report_handlers = {
+            "By Artist": {
+                "func": core.report_top,
+                "kwargs": {"group_col": "artist", "by": "total_tracks"},
+                "status": "Artist report generated."
+            },
+            "By Album": {
+                "func": core.report_top,
+                "kwargs": {"group_col": "album", "by": "total_tracks"},
+                "status": "Album report generated."
+            },
+            "By Track": {
+                "func": core.report_top,
+                "kwargs": {"group_col": "track", "by": "total_tracks"},
+                "status": "Track report generated."
+            },
+            "All Liked Artists": {
+                "func": core.report_artists_with_likes,
+                "kwargs": {},  # special case handled below
+                "status": "Liked artists report generated."
+            },
+            "Enriched Artist Report": {
+                "func": "enriched",  # special case
+                "kwargs": {},
+                "status": "Enriched artist report (with genres) generated."
+            }
+        }
+        
         # Status Bar
         self.status_var = tk.StringVar()
         self.status_var.set("Ready.")
@@ -219,6 +248,10 @@ class BrainzMRIGUI:
         self.table_frame.pack(fill="both", expand=True)
         self.table_frame.pack_propagate(False)
 
+        # Filter state
+        self.original_df = None
+        self.filtered_df = None
+
     def set_status(self, text):
         self.status_var.set(text)
         self.status_bar.update_idletasks()
@@ -338,78 +371,16 @@ class BrainzMRIGUI:
         # a context-sensitive value from the "mode" input.
         # The "set_status" output can also be derived accordingly.
         
-        # By Artist
-        if mode == "By Artist":
-            result, meta = core.report_top(
-                df,
-                group_col="artist",
-                days=time_range,
-                by="total_tracks",
-                topn=topn
-            )
-            self.apply_recency_filter(result)
+        mode = self.report_type.get()
+        handler = self.report_handlers.get(mode)
 
-            self.last_result = result
-            self.last_meta = meta
-            self.last_mode = "By Artist"
-
-            self.show_table(result)
-            self.set_status("Artist report generated.")
+        if handler is None:
+            messagebox.showerror("Error", "Unsupported report type.")
+            self.set_status("Error: Unsupported report type.")
             return
 
-        # By Album
-        elif mode == "By Album":
-            result, meta = core.report_top(
-                df,
-                group_col="album",
-                days=time_range,
-                by="total_tracks",
-                topn=topn
-            )
-            self.apply_recency_filter(result)
-
-            self.last_result = result
-            self.last_meta = meta
-            self.last_mode = "By Album"
-
-            self.show_table(result)
-            self.set_status("Album report generated.")
-            return
-            
-        # By Track
-        elif mode == "By Track":
-            result, meta = core.report_top(
-                df,
-                group_col="track",
-                days=time_range,
-                by="total_tracks",
-                topn=topn
-            )
-            self.apply_recency_filter(result)
-
-            self.last_result = result
-            self.last_meta = meta
-            self.last_mode = "By Track"
-
-            self.show_table(result)
-            self.set_status("Track report generated.")
-            return
-            
-            
-        # All liked artists
-        elif mode == "All Liked Artists":
-            result, meta = core.report_artists_with_likes(df, self.feedback)
-
-            self.last_result = result
-            self.last_meta = meta
-            self.last_mode = "All Liked Artists"
-
-            self.show_table(result)
-            self.set_status("Liked artists report generated.")
-            return
-
-        # Enriched artist report (threshold + genres)
-        elif mode == "Enriched Artist Report":
+        # Special case: enriched report
+        if handler["func"] == "enriched":
             artist_report = core.report_artists_threshold(
                 df,
                 mins=min_minutes,
@@ -420,19 +391,39 @@ class BrainzMRIGUI:
                 self.zip_path,
                 use_api=self.use_api_var.get()
             )
-
-            self.last_result = enriched
-            self.last_meta = None
-            self.last_mode = "Enriched Artist Report"
-
-            self.show_table(enriched)
-            self.set_status("Enriched artist report (with genres) generated.")
-            return
+            result = enriched
+            meta = None
 
         else:
-            messagebox.showerror("Error", "Unsupported report type.")
-            self.set_status("Error: Unsupported report type.")
-            return
+            # Normal reports
+            func = handler["func"]
+            kwargs = handler["kwargs"].copy()
+
+            # Add shared parameters
+            if func is core.report_top:
+                kwargs.update({"days": time_range, "topn": topn})
+
+            if func is core.report_artists_with_likes:
+                result, meta = func(df, self.feedback)
+            else:
+                result, meta = func(df, **kwargs)
+
+        # Apply recency filter
+        self.apply_recency_filter(result)
+
+        # Save state
+        self.last_result = result
+        self.last_meta = meta
+        self.last_mode = mode
+
+        # Initialize filter state
+        self.original_df = result.copy()
+        self.filtered_df = result.copy()
+
+        # Display
+        self.show_table(result)
+        self.set_status(handler["status"])
+        return
             
     def save_report(self):
         if self.last_result is None:
@@ -462,9 +453,34 @@ class BrainzMRIGUI:
             self.set_status("Error: Failed to save report.")
     
     def show_table(self, df):
-        # Clear old table
+
+        # Clear old table + filter bar
         for widget in self.table_frame.winfo_children():
             widget.destroy()
+
+        # Filter bar
+        filter_frame = tk.Frame(self.table_frame)
+        filter_frame.pack(fill="x", pady=5)
+
+        tk.Label(
+            filter_frame,
+            text='Filter Results (Supports Regex; Use ".*" for Wildcards or "|" for OR):'
+        ).pack(side="left", padx=5)
+
+        self.filter_entry = tk.Entry(filter_frame, width=40)
+        self.filter_entry.pack(side="left", padx=5)
+
+        tk.Button(
+            filter_frame,
+            text="Filter",
+            command=self.apply_filter
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            filter_frame,
+            text="Clear Filter",
+            command=self.clear_filter
+        ).pack(side="left", padx=5)
 
         # Create container frame for tree + scrollbar
         container = tk.Frame(self.table_frame)
@@ -522,6 +538,34 @@ class BrainzMRIGUI:
         # Insert rows
         for _, row in df.iterrows():
             tree.insert("", "end", values=list(row))
+            
+    
+    def apply_filter(self):
+        import re
+        pattern = self.filter_entry.get().strip()
+        if not pattern:
+            return
+
+        try:
+            regex = re.compile(pattern, re.IGNORECASE)
+        except re.error:
+            messagebox.showerror("Invalid Regex", "Your regex pattern is invalid.")
+            return
+
+        df = self.original_df.copy()
+
+        # Match ANY column in the row
+        mask = df.apply(
+            lambda row: row.astype(str).str.contains(regex).any(),
+            axis=1
+        )
+
+        self.filtered_df = df[mask]
+        self.show_table(self.filtered_df)
+
+    def clear_filter(self):
+        self.filtered_df = self.original_df.copy()
+        self.show_table(self.original_df)
             
     def copy_selection_to_clipboard(self, event=None):
         tree = self.tree  # stored reference from show_table
