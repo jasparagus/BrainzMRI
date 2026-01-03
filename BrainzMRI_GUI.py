@@ -452,6 +452,11 @@ class BrainzMRIGUI:
             self.set_status("Error: Failed to save report.")
     
     def show_table(self, df):
+        # Preserve any existing filter text
+        try:
+            current_filter = self.filter_entry.get()
+        except AttributeError as e:
+            current_filter = ""
 
         # Clear old table + filter bar
         for widget in self.table_frame.winfo_children():
@@ -484,6 +489,10 @@ class BrainzMRIGUI:
 
         self.filter_entry = tk.Entry(filter_frame, width=40)
         self.filter_entry.pack(side="left", padx=5)
+        
+        # Restore previous filter text
+        if current_filter:
+            self.filter_entry.insert(0, current_filter)
 
         tk.Button(
             filter_frame,
@@ -496,6 +505,8 @@ class BrainzMRIGUI:
             text="Clear Filter",
             command=self.clear_filter
         ).pack(side="left", padx=5)
+
+        self.filter_entry.bind("<Return>", lambda e: self.apply_filter())
 
         # Tree + Scrollbar Frame
         container = tk.Frame(self.table_frame)
@@ -580,14 +591,14 @@ class BrainzMRIGUI:
 
         if col_choice == "All":
             mask = df.apply(
-                lambda row: row.astype(str).str.contains(regex).any(),
+                lambda row: row.astype(str).str.contains(regex, regex=True).any(),
                 axis=1
             )
         else:
             if col_choice not in df.columns:
                 messagebox.showerror("Error", f"Column '{col_choice}' not found.")
                 return
-            mask = df[col_choice].astype(str).str.contains(regex)
+            mask = df[col_choice].astype(str).str.contains(regex, regex=True)
 
         self.filtered_df = df[mask]
         self.show_table(self.filtered_df)
@@ -595,6 +606,8 @@ class BrainzMRIGUI:
     def clear_filter(self):
         self.filtered_df = self.original_df.copy()
         self.show_table(self.original_df)
+        self.filter_entry.delete(0, tk.END)
+
             
     def copy_selection_to_clipboard(self, event=None):
         tree = self.tree  # stored reference from show_table

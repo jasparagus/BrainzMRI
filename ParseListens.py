@@ -656,6 +656,7 @@ def enrich_report_with_genres(report_df, zip_path, report_name="Artists_Library"
 
 
 if __name__ == "__main__":
+    # This is for debugging / testing only
     zip_path = select_zip_file()
     user_info, feedback, listens = parse_listenbrainz_zip(zip_path)
     df = normalize_listens(listens, zip_path)

@@ -6,18 +6,18 @@ echo   BrainzMRI Launcher
 echo ============================================
 echo.
 echo   1. Run BrainzMRI GUI
-echo   2. Run ParseListens (CLI mode)
+echo   2. Debug
 echo.
-echo   (Default = GUI, opening in 2 seconds...)
+echo   (Default = GUI, opening in 1 second...)
 echo.
 
-choice /C 12 /N /T 2 /D 1 >nul
+choice /C 12 /N /T 1 /D 1 >nul
 
-if errorlevel 2 goto CLI
+if errorlevel 2 goto DEBUG
 if errorlevel 1 goto GUI
 
-:CLI
-echo Starting ParseListens CLI...
+:DEBUG
+echo Starting ParseListens DEBUG...
 python ParseListens.py
 goto end
 
