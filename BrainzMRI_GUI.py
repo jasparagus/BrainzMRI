@@ -252,6 +252,7 @@ class BrainzMRIGUI:
         # Filter state
         self.original_df = None
         self.filtered_df = None
+        self.filter_by_var = tk.StringVar(value="All")
 
     def set_status(self, text):
         self.status_var.set(text)
@@ -458,10 +459,26 @@ class BrainzMRIGUI:
         # Filter bar
         filter_frame = tk.Frame(self.table_frame)
         filter_frame.pack(fill="x", pady=5)
+        
+        # Filter dropdown
+        tk.Label(filter_frame, text="Filter By:").pack(side="left", padx=(5,2))
+        self.filter_by_dropdown = ttk.Combobox(
+            filter_frame,
+            textvariable=self.filter_by_var,
+            state="readonly",
+            width=18
+        )
+        self.filter_by_dropdown.pack(side="left", padx=(0,10))
 
+        cols = list(df.columns)
+        self.filter_by_dropdown["values"] = ["All"] + cols
+        if self.filter_by_var.get() not in ["All"] + cols:
+            self.filter_by_var.set("All")
+
+        # Filter box, etc.
         tk.Label(
             filter_frame,
-            text='Filter Results (Supports Regex; Use ".*" for Wildcards or "|" for OR):'
+            text='Filter (Supports Regex; Use ".*" for Wildcards or "|" for OR):'
         ).pack(side="left", padx=5)
 
         self.filter_entry = tk.Entry(filter_frame, width=40)
@@ -559,11 +576,18 @@ class BrainzMRIGUI:
 
         df = self.original_df.copy()
 
-        # Match ANY column in the row
-        mask = df.apply(
-            lambda row: row.astype(str).str.contains(regex).any(),
-            axis=1
-        )
+        col_choice = self.filter_by_var.get()
+
+        if col_choice == "All":
+            mask = df.apply(
+                lambda row: row.astype(str).str.contains(regex).any(),
+                axis=1
+            )
+        else:
+            if col_choice not in df.columns:
+                messagebox.showerror("Error", f"Column '{col_choice}' not found.")
+                return
+            mask = df[col_choice].astype(str).str.contains(regex)
 
         self.filtered_df = df[mask]
         self.show_table(self.filtered_df)
