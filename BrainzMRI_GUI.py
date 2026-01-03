@@ -30,6 +30,7 @@ from idlelib.tooltip import Hovertip
 import os
 import subprocess
 import sys
+import re
 
 import ParseListens as core
 
@@ -563,7 +564,6 @@ class BrainzMRIGUI:
 
     def apply_filter(self):
         """Apply a regex filter to the current report dataframe."""
-        import re
         pattern = self.filter_entry.get().strip()
         if not pattern:
             return

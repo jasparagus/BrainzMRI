@@ -15,6 +15,7 @@ It provides a **GUI application** for generating rich reports about your listeni
 ---
 
 ## **Features**
+<img src="Example.png" alt="GUI Example" width="400">
 
 ### GUI Application (BrainzMRI_GUI.py)
 - Load a ListenBrainz export ZIP  
