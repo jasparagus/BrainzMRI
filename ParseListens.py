@@ -501,18 +501,21 @@ def report_top(
         grouped = df.groupby(["artist", "album"]).agg(
             total_tracks=("album", "count"),
             total_duration_ms=("duration_ms", "sum"),
+            first_listened=("listened_at", "min"),
             last_listened=("listened_at", "max"),
         )
     elif group_col == "track":
         grouped = df.groupby(["artist", "track_name"]).agg(
             total_tracks=("track_name", "count"),
             total_duration_ms=("duration_ms", "sum"),
+            first_listened=("listened_at", "min"),
             last_listened=("listened_at", "max"),
         )
     else:  # artist
         grouped = df.groupby("artist").agg(
             total_tracks=("artist", "count"),
             total_duration_ms=("duration_ms", "sum"),
+            first_listened=("listened_at", "min"),
             last_listened=("listened_at", "max"),
         )
 
@@ -523,21 +526,18 @@ def report_top(
 
     if group_col == "artist":
         grouped = grouped[
-            ["artist", "total_tracks", "total_duration_hours", "last_listened"]
+            ["artist", "total_tracks", "total_duration_hours",
+             "first_listened", "last_listened"]
         ]
     elif group_col == "album":
         grouped = grouped[
-            ["artist", "album", "total_tracks", "total_duration_hours", "last_listened"]
+            ["artist", "album", "total_tracks", "total_duration_hours",
+             "first_listened", "last_listened"]
         ]
     else:  # track
         grouped = grouped[
-            [
-                "artist",
-                "track_name",
-                "total_tracks",
-                "total_duration_hours",
-                "last_listened",
-            ]
+            ["artist", "track_name", "total_tracks", "total_duration_hours",
+             "first_listened", "last_listened"]
         ]
 
     # Apply unified thresholds
