@@ -188,10 +188,10 @@ class BrainzMRIGUI:
             frm_inputs, "Top N (Number Of Results, Default: 200):", 200
         )
         self.ent_min_listens = add_labeled_entry(
-            frm_inputs, "Min. Listens Threshold:", 15
+            frm_inputs, "Minimum Listens Threshold:", 10
         )
         self.ent_min_minutes = add_labeled_entry(
-            frm_inputs, "Min. Minutes Listened Threshold:", 30
+            frm_inputs, "Minimum Time Listened Threshold (Mins):", 15
         )
 
         # Enrichment controls
@@ -232,7 +232,8 @@ class BrainzMRIGUI:
         Hovertip(
             self.cmb_enrich_source,
             "Choose whether to use the local cache only or query the MusicBrainz API.\n"
-            "API lookups are slower due to rate limiting.",
+            "API lookups are slower due to rate limiting.\n"
+            "Cache is only available for items pulled previously via API.",
         )
 
         def toggle_enrich_source(*_):

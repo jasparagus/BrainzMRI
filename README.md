@@ -178,177 +178,44 @@ BrainzMRI/
 └── config.json             # Auto-created settings file
 ```
 
-# TODO (Future Improvements)
+# TODO (Items for Future Improvements)
 
-## UI Layout Abstraction
-    Several UI sections repeat the same pattern (Frame + Label + Entry).
-    Create helper functions to reduce boilerplate and improve readability.
-
-## show_table() Decomposition
-    show_table() currently handles:
-       - clearing the frame
-       - building the filter bar
-       - building the table container
-       - creating the Treeview
-       - wiring sorting
-       - inserting rows
-    Break into smaller helpers:
-       build_filter_bar(), build_table_container(), populate_table()
-
-## run_report() Decomposition
-    run_report() still handles multiple responsibilities:
-       - parsing inputs
-       - applying time and recency filters
-       - dispatching report functions
-       - applying thresholds
-       - running optional enrichment
-       - saving state
-       - rendering the table
-    Consider splitting into:
-       parse_time_range(), parse_thresholds(),
-       generate_report(), finalize_report()
-
-## Hybrid ZIP + API Mode (ListenBrainz + Last.fm)
-    Add an optional "Hybrid Mode" that:
-       - Loads full history from a ListenBrainz ZIP if available.
-       - Fetches new listens from ListenBrainz API (timestamp-based).
-       - Fetches new listens from Last.fm API (page-based).
-       - Merges all sources into a unified local archive.
-       - Deduplicates listens using recording_mbid, timestamps, and metadata.
-    UI Requirements:
-       - Add checkboxes to enable/disable LB API and Last.fm API ingestion.
-       - Add a "Sync New Listens" button.
-    Long-term Goal:
-       - Maintain a persistent local archive that updates incrementally
-         without requiring repeated ZIP downloads.
-
-## Unify Enrichment and Threshold Logic Across All Reports
-
-### Goal
-Convert enrichment from a special-case “Enriched Artist Report” into a generic, optional post-processing step that can be applied to *any* report (Artist, Album, Track, Liked Artists). Standardize threshold and Top-N behavior across all report types, transition all saved reports to CSV format, and introduce a structured, entity-aware genre cache. This phase implements artist-based enrichment only; album and track enrichment will be added in a later patch.
-
-### Planned Changes
-
-1. **Remove “Enriched Artist Report” from the report type dropdown.**  
-   - Report types become: **Artist**, **Album**, **Track**, **Liked Artists Only**.
-
-2. **Add a new checkbox: “Perform Genre Lookup (Enrich Report)”.**
-   - When checked, enrichment is applied *after* all filtering and sorting.  
-   - When unchecked, no enrichment occurs.
-   - Tooltip:
-     ```text
-     Add genre information to the report using MusicBrainz.
-     Runs after all filters and sorting.
-     May be slow if API lookup is enabled.
-     ```
-
-3. **Add a new dropdown: “Genre Enrichment Source”.**  
-   - Options: **Cache** and **Query API (Slow)**.  
-   - Only enabled when “Perform Genre Lookup” is checked.
-
-4. **Remove checkbox “Do MusicBrainz Genre Lookup (Slow)?”.**
-   - Fully replaced by:
-     - “Perform Genre Lookup (Enrich Report)”  
-     - “Genre Enrichment Source” (Cache / Query API)
-
-5. **Rename “Min. Tracks Listened Threshold” → “Min. Listens Threshold”.**  
-   - Update variable names, labels, and parser arguments.  
-   - Threshold meaning:  
-     - Artist report → minimum listens per artist  
-     - Album report → minimum listens per album  
-     - Track report → minimum listens per track  
-     - Liked Artists report → **threshold by liked listens only** (do not join back to full listens)
-
-6. **Apply thresholds *before* Top N for all report types.**  
-   New processing pipeline:
-
-   ```text
-   raw data
-     → time range filter
-     → recency filter
-     → threshold filter (min_listens, min_minutes)
-     → sort
-     → Top N
-     → enrichment (optional)
-     → display/save
-   ```
-
-7. **Modify all report generators to accept unified filter parameters:**  
-   - `min_listens`  
-   - `min_minutes`  
-   - `top_n`  
-   Apply these consistently across Artist, Album, Track, and Liked Artists reports.  
-   - For Liked Artists: thresholds apply to **liked listens only**.
-
-8. **Refactor enrichment into a generic function:**  
-   ```text
-   enrich_report(df, report_type, source, zip_path)
-   ```
-   Behavior:
-   - Artist reports → use MusicBrainz **Artist** API/cache  
-   - Album reports → **use artist genres only (incremental scope)**  
-   - Track reports → **use artist genres only (incremental scope)**  
-   - No internal thresholding; enrichment acts only on the DataFrame it receives.  
-   - Album/track MBID-based enrichment will be added in a future patch.
-
-9. **Redesign the genre cache to support multiple entity types.**  
-   Replace string-keyed entries with structured objects:
-
-   ```json
-   [
-     {
-       "entity": "artist",
-       "artist": "Burial",
-       "album": null,
-       "track": null,
-       "artist_mbid": "9ddce51c-2b75-4b3e-ac8c-1db09e7c89c6",
-       "genres": ["dubstep", "electronic"]
-     },
-     {
-       "entity": "album",
-       "artist": "Burial",
-       "album": "Untrue",
-       "track": null,
-       "release_mbid": "e08c3db9-fc33-4d4e-b8b7-818d34228bef",
-       "genres": ["dubstep"]
-     },
-     {
-       "entity": "track",
-       "artist": "Burial",
-       "album": "Untrue",
-       "track": "Etched Headplate",
-       "recording_mbid": "1eacb3ca-e8e1-4588-920d-1187dcb8ca79",
-       "genres": ["dubstep"]
-     }
-   ]
-   ```
-
-   **Lookup rules:**
-   - Prefer MBID matching when available  
-   - Fall back to name-based matching  
-   - If multiple matches exist, use the most recent or merge genres  
-
-10. **Transition all saved reports to CSV format.**  
-    - Standard (non-enriched) reports → CSV  
-    - Enriched reports → CSV  
-    - Update documentation accordingly  
-    - GUI table remains the primary human-readable view
-
-11. **Update README to reflect the new system:**  
-    - New enrichment checkbox and source dropdown  
-    - Removal of “Enriched Artist Report”  
-    - Unified threshold behavior  
-    - Liked Artists thresholds apply to liked listens only  
-    - Artist-only enrichment for now (album/track enrichment in future patch)  
-    - CSV output for all reports  
-    - Updated terminology (“Min. Listens Threshold”)
-
-### Rationale
-
-- Eliminates hidden or special-case logic  
-- Makes enrichment predictable, consistent, and extensible  
-- Provides a clean migration path for album/track enrichment  
-- Produces a cleaner, more intuitive UI  
-- Simplifies debugging and future maintenance  
-- CSV output improves interoperability with spreadsheets and analysis tools
-```
+## UI Improvements
+- Abstract repeated UI patterns (Frame + Label + Entry)
+- Break show_table() into helper functions:
+  - build_filter_bar()
+  - build_table_container()
+  - populate_table()
+- Break run_report() into:
+  - parse_time_range()
+  - parse_thresholds()
+  - generate_report()
+  - apply_enrichment()
+  - finalize_report()
+## Enrichment Enhancements
+- Add album-level enrichment using release MBIDs
+- Add track-level enrichment using recording MBIDs
+- Expand genre cache to store and merge multiple entries per entity
+- Add a “missing genre” log with MusicBrainz URLs for manual tagging
+## Hybrid Mode (ListenBrainz + Last.fm APIs for Data)
+- Add optional API ingestion for new listens
+- Merge ZIP + API data into a persistent local archive
+- Deduplicate listens using MBIDs + timestamps
+- Add UI controls for enabling/disabling ingestion
+- Add “Sync New Listens” button
+## Visualization Features
+- Add stacked bar charts for top artists/albums/tracks over time
+- Limit to Top N (max 20)
+- Use matplotlib or seaborn
+- Add “Export Chart” option
+## MusicBrainz Contribution
+- Enable a log of Artists (and URLs) for whom enrichment fails (e.g. "Unknown")
+- Generate a URL to visit at MusicBrainz for each artist in said list
+- Provide a link to MusicBrainz best practices for metadata contribution
+- Build a minimal UI popout for linking to Metadata editing
+## New Visualizations
+- Build a graph of favorite N artists/albums/tracks vs. time as a stacked bar plot from the data
+- Should use TopN as the population to track, but should be capped at 20
+- Plot should show the top N artists/albums/tracks as a function of time
+- Plot should be a set of stacked bars, showing favorite(s) vs. time
+- Each artist/album/track should have its own color

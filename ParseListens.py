@@ -40,15 +40,6 @@ This module retrieves the following priority items from the listen objects.
 2. Album name, e.g. "Untrue" (given by "release_name" from the json object)
 3. Track duration (given by "duration_ms", in milliseconds, or "duration", in s, from within "additional_info")
 4. recording_mbid for cross-linking likes with tracks
-
-ToDo Items
-- Enable a log of specifically Artists (and URLs) for whom enrich_report_with_genres finds "Unknown"
-  - This should include a URL to visit at MusicBrainz to add the genre
-- Build a graph of favorite N artists/albums/tracks vs. time as a stacked bar plot from the data
-  - Should use TopN as the population to track, but should be capped at 20
-  - Plot should show the top N artists/albums/tracks as a function of time
-  - Plot should be a set of stacked bars, showing favorite(s) vs. time
-  - Each artist/album/track should have its own color
 """
 
 
