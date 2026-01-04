@@ -1,0 +1,185 @@
+import pandas as pd
+from datetime import datetime, timezone, timedelta
+import time
+import os
+
+
+def filter_by_days(df, col: str, start_days: int = 0, end_days: int = 365):
+    """Filter a DataFrame by a datetime column using a 'days ago' range."""
+    now = datetime.now(timezone.utc)
+    start_dt = now - timedelta(days=end_days)
+    end_dt = now - timedelta(days=start_days)
+    return df[(df[col] >= start_dt) & (df[col] <= end_dt)]
+
+
+def report_artists_with_likes(df, feedback, min_listens=0, min_minutes=0.0, topn=None):
+    """Generate a report of artists with liked recordings."""
+    liked_mbids = feedback
+    liked_listens = df[df["recording_mbid"].isin(liked_mbids)]
+
+    if liked_listens.empty:
+        empty_df = pd.DataFrame(
+            columns=[
+                "artist",
+                "unique_likes",
+                "total_liked_listens",
+                "liked_duration_hours",
+            ]
+        )
+        meta = {
+            "entity": "Artists",
+            "topn": "Liked",
+            "days": None,
+            "metric": "Likes",
+        }
+        return empty_df, meta
+
+
+    grouped = liked_listens.groupby("artist").agg(
+        unique_likes=("recording_mbid", "nunique"),
+        total_liked_listens=("recording_mbid", "count"),
+        liked_duration_ms=("duration_ms", "sum"),
+    )
+    grouped["liked_duration_hours"] = (
+        grouped["liked_duration_ms"] / (1000 * 60 * 60)
+    ).round(1)
+    grouped = grouped.drop(columns=["liked_duration_ms"])
+
+    if min_listens > 0:
+        grouped = grouped[grouped["total_liked_listens"] >= min_listens]
+
+    if min_minutes > 0:
+        grouped = grouped[grouped["liked_duration_hours"] >= (min_minutes / 60.0)]
+
+    result = grouped.reset_index().sort_values(
+        ["unique_likes", "total_liked_listens"], ascending=[False, False]
+    )
+
+    if topn and topn > 0:
+        result = result.head(topn)
+
+    meta = {
+        "entity": "Artists",
+        "topn": "Liked" if topn is None else topn,
+        "days": None,
+        "metric": "Likes",
+    }
+
+    return result, meta
+
+
+def report_top(
+    df,
+    group_col="artist",
+    days=None,
+    by="total_tracks",
+    topn=100,
+    min_listens=0,
+    min_minutes=0.0,
+):
+    """Generate a Top-N report for artists, albums, or tracks."""
+    if days is not None:
+        if isinstance(days, tuple):
+            start_days, end_days = days
+            if not (start_days == 0 and end_days == 0):
+                df = filter_by_days(df, "listened_at", start_days, end_days)
+        else:
+            if days != 0:
+                df = filter_by_days(df, "listened_at", 0, days)
+
+    if group_col == "album":
+        grouped = df.groupby(["artist", "album"]).agg(
+            total_tracks=("album", "count"),
+            total_duration_ms=("duration_ms", "sum"),
+            first_listened=("listened_at", "min"),
+            last_listened=("listened_at", "max"),
+        )
+    elif group_col == "track":
+        grouped = df.groupby(["artist", "track_name"]).agg(
+            total_tracks=("track_name", "count"),
+            total_duration_ms=("duration_ms", "sum"),
+            first_listened=("listened_at", "min"),
+            last_listened=("listened_at", "max"),
+        )
+    else:
+        grouped = df.groupby("artist").agg(
+            total_tracks=("artist", "count"),
+            total_duration_ms=("duration_ms", "sum"),
+            first_listened=("listened_at", "min"),
+            last_listened=("listened_at", "max"),
+        )
+
+    grouped["total_duration_hours"] = (
+        grouped["total_duration_ms"] / (1000 * 60 * 60)
+    ).round(1)
+    grouped = grouped.drop(columns=["total_duration_ms"]).reset_index()
+
+    if group_col == "artist":
+        grouped = grouped[
+            ["artist", "total_tracks", "total_duration_hours", "first_listened", "last_listened"]
+        ]
+    elif group_col == "album":
+        grouped = grouped[
+            ["artist", "album", "total_tracks", "total_duration_hours", "first_listened", "last_listened"]
+        ]
+    else:
+        grouped = grouped[
+            ["artist", "track_name", "total_tracks", "total_duration_hours", "first_listened", "last_listened"]
+        ]
+
+    if min_listens > 0 or min_minutes > 0:
+        grouped = grouped[
+            (grouped["total_tracks"] >= min_listens)
+            | (grouped["total_duration_hours"] >= (min_minutes / 60.0))
+        ]
+
+    sorted_df = grouped.sort_values(by, ascending=False)
+
+    if topn is None or topn == 0:
+        result = sorted_df
+    else:
+        result = sorted_df.head(topn)
+
+    entity = (
+        "Artists" if group_col == "artist" else "Albums" if group_col == "album" else "Tracks"
+    )
+    meta = {
+        "entity": entity,
+        "topn": topn,
+        "days": days,
+        "metric": "tracks" if by == "total_tracks" else "duration",
+    }
+
+    return result, meta
+
+
+def save_report(df, zip_path, meta=None, report_name=None):
+    """Save a report to /reports as CSV."""
+    base_dir = os.path.dirname(zip_path)
+    reports_dir = os.path.join(base_dir, "reports")
+    os.makedirs(reports_dir, exist_ok=True)
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+    if report_name:
+        filename = f"{timestamp}_{report_name}.csv"
+    else:
+        entity = meta["entity"]
+        topn = meta["topn"]
+        days = meta.get("days")
+        metric = meta["metric"]
+
+        if days is None:
+            range_str = "AllTime"
+        elif isinstance(days, tuple):
+            range_str = f"Range{days[0]}-{days[1]}days"
+        else:
+            range_str = f"Last{days}days"
+
+        metric_str = "By" + metric.capitalize()
+        filename = f"{timestamp}_{entity}_Top{topn}_{range_str}_{metric_str}.csv"
+
+    filepath = os.path.join(reports_dir, filename)
+    df.to_csv(filepath, index=False)
+    print(f"Report saved to {filepath}")
+    return filepath

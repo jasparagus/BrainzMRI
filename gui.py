@@ -1,25 +1,6 @@
 """
-BrainzMRI_GUI.py
-============================================================
-Tkinter GUI wrapper for ParseListens.py.
-
-This GUI:
-- Lets the user select a ListenBrainz ZIP file
-- Lets the user enter:
-    - Time Range (days ago)
-    - Minimum listens
-    - Minimum minutes
-    - Last-listened range (days ago)
-    - Top N
-- Lets the user choose:
-    - By Artist
-    - By Album
-    - By Track
-    - All Liked Artists
-- Optionally performs genre enrichment using MusicBrainz
-- Runs the appropriate report
-- Saves output using save_report() as CSV
-============================================================
+gui.py
+Tkinter GUI for BrainzMRI, using parsing/reporting/enrichment modules.
 """
 
 import json
@@ -32,7 +13,9 @@ import subprocess
 import sys
 import re
 
-import ParseListens as core
+import parsing
+import reporting
+import enrichment
 
 
 def open_file_default(path: str) -> None:
@@ -47,7 +30,7 @@ def open_file_default(path: str) -> None:
 
 class BrainzMRIGUI:
     """
-    Tkinter GUI wrapper for ParseListens.py.
+    Tkinter GUI wrapper for BrainzMRI.
     Handles ZIP selection, report generation, filtering, and table display.
     """
 
@@ -74,22 +57,22 @@ class BrainzMRIGUI:
         # Report handlers
         self.report_handlers = {
             "By Artist": {
-                "func": core.report_top,
+                "func": reporting.report_top,
                 "kwargs": {"group_col": "artist", "by": "total_tracks"},
                 "status": "Artist report generated.",
             },
             "By Album": {
-                "func": core.report_top,
+                "func": reporting.report_top,
                 "kwargs": {"group_col": "album", "by": "total_tracks"},
                 "status": "Album report generated.",
             },
             "By Track": {
-                "func": core.report_top,
+                "func": reporting.report_top,
                 "kwargs": {"group_col": "track", "by": "total_tracks"},
                 "status": "Track report generated.",
             },
             "All Liked Artists": {
-                "func": core.report_artists_with_likes,
+                "func": reporting.report_artists_with_likes,
                 "kwargs": {},
                 "status": "Liked artists report generated.",
             },
@@ -120,9 +103,9 @@ class BrainzMRIGUI:
             self.zip_path = last
             self.lbl_zip.config(text=os.path.basename(last), fg="black")
 
-            user_info, feedback, listens = core.parse_listenbrainz_zip(last)
+            user_info, feedback, listens = parsing.parse_listenbrainz_zip(last)
             self.feedback = feedback
-            self.df = core.normalize_listens(listens, last)
+            self.df = parsing.normalize_listens(listens, last)
 
             self.set_status(f"Auto-loaded: {os.path.basename(last)}")
         else:
@@ -340,9 +323,9 @@ class BrainzMRIGUI:
 
         self.lbl_zip.config(text=os.path.basename(path), fg="black")
 
-        user_info, feedback, listens = core.parse_listenbrainz_zip(path)
+        user_info, feedback, listens = parsing.parse_listenbrainz_zip(path)
         self.feedback = feedback
-        self.df = core.normalize_listens(listens, path)
+        self.df = parsing.normalize_listens(listens, path)
 
         self.zip_path = path
         self.set_status("Zip loaded.")
@@ -377,7 +360,7 @@ class BrainzMRIGUI:
             time_start = min(t_start, t_end)
             time_end = max(t_start, t_end)
             if not (time_start == 0 and time_end == 0):
-                df = core.filter_by_days(df, "listened_at", time_start, time_end)
+                df = reporting.filter_by_days(df, "listened_at", time_start, time_end)
         except ValueError:
             messagebox.showerror("Error", "Time range must be numeric.")
             self.set_status("Error: Time range must be numeric.")
@@ -401,7 +384,6 @@ class BrainzMRIGUI:
                 min_dt = now - timedelta(days=rec_end)
                 max_dt = now - timedelta(days=rec_start)
 
-                # Compute true last-listened per entity BEFORE filtering
                 true_last = (
                     df.groupby(entity_cols)["listened_at"]
                     .max()
@@ -409,13 +391,11 @@ class BrainzMRIGUI:
                     .rename(columns={"listened_at": "true_last_listened"})
                 )
 
-                # Keep only entities whose true last listen is inside the window
                 allowed = true_last[
                     (true_last["true_last_listened"] >= min_dt)
                     & (true_last["true_last_listened"] <= max_dt)
                 ]
 
-                # Merge back to filter df
                 df = df.merge(allowed[entity_cols], on=entity_cols, how="inner")
 
         except ValueError:
@@ -449,9 +429,7 @@ class BrainzMRIGUI:
         func = handler["func"]
         kwargs = handler["kwargs"].copy()
 
-        # Assemble report based on mode
-        if func is core.report_top:
-            # GUI applies time/recency already; no additional 'days' filter needed here
+        if func is reporting.report_top:
             kwargs.update(
                 {
                     "days": None,
@@ -461,16 +439,16 @@ class BrainzMRIGUI:
                 }
             )
             result, meta = func(df, **kwargs)
-        elif func is core.report_artists_with_likes:
+        elif func is reporting.report_artists_with_likes:
+            liked_mbids = parsing.load_feedback(self.feedback)
             result, meta = func(
                 df,
-                self.feedback,
+                liked_mbids,
                 min_listens=min_listens,
                 min_minutes=min_minutes,
                 topn=topn,
             )
         else:
-            # Fallback (should not happen with current handlers)
             result, meta = func(df, **kwargs)
 
         # Optional enrichment
@@ -494,7 +472,7 @@ class BrainzMRIGUI:
                 return
 
             source = self.enrich_source_var.get()
-            result = core.enrich_report(result, report_type_key, source, self.zip_path)
+            result = enrichment.enrich_report(result, report_type_key, source, self.zip_path)
             self.last_enriched = True
 
         # Save state
@@ -524,13 +502,13 @@ class BrainzMRIGUI:
         try:
             if self.last_meta is None:
                 report_name = self.last_mode.replace(" ", "_")
-                filepath = core.save_report(
+                filepath = reporting.save_report(
                     self.last_result,
                     self.zip_path,
                     report_name=report_name,
                 )
             else:
-                filepath = core.save_report(
+                filepath = reporting.save_report(
                     self.last_result,
                     self.zip_path,
                     meta=self.last_meta,
@@ -625,16 +603,12 @@ class BrainzMRIGUI:
             tree.insert("", "end", values=list(row))
 
     def sort_column(self, tree: ttk.Treeview, df, col: str) -> None:
-        """
-        Sort the Treeview by the given column.
-        Preserves ascending/descending toggle state.
-        """
+        """Sort the Treeview by the given column."""
         descending = tree._sort_state.get(col, False)
         tree._sort_state[col] = not descending
 
         data = [(tree.set(k, col), k) for k in tree.get_children("")]
 
-        # Try numeric sort first
         try:
             data = [(float(v), k) for v, k in data]
         except ValueError:

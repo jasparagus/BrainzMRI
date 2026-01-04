@@ -18,12 +18,12 @@ if errorlevel 1 goto GUI
 
 :DEBUG
 echo Starting ParseListens DEBUG...
-python ParseListens.py
+python parsing.py
 goto end
 
 :GUI
 echo Starting BrainzMRI GUI...
-python BrainzMRI_GUI.py
+python gui.py
 goto end
 
 
