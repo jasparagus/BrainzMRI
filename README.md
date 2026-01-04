@@ -7,7 +7,7 @@ It provides a **GUI application** for generating rich reports about your listeni
 - Top artists, albums, and tracks  
 - "Time Range" filter for listens enables looking across arbitrary time windows (by "days ago")
 - "Last Played" filter enables digging up "old favorites" and more (by "days ago")
-- Liked-artist reports (list of artists whom you have liked)
+- Liked-artist reports (list of artists whose tracks you have liked)
 - Optional genre enrichment with **MusicBrainz genre lookups**
 - Fully sortable, filterable tables in the GUI (using regex)
 - Exportable CSV reports  
@@ -18,20 +18,12 @@ This project was developed with assistance from Microsoft Copilot as a fun test 
 ---
 
 ## **Features**
-<img src="example.png" alt="GUI Example" width="700">
+<img src="example.png" alt="GUI Example" width="600">
 
 ### GUI Application (BrainzMRI_GUI.py)
 - Load a ListenBrainz export ZIP  
-- Configure:
-  - Time Range (as a window; days ago)
-  - Last-listened Range (as a window; days ago)
-  - Minimum listens / minutes thresholds
-  - Top-N limits  
-- Choose report type:
-  - By Artist  
-  - By Album  
-  - By Track  
-  - All Liked Artists  
+- Configure Report filters
+- Choose report type (Artist, Album, Likes, and more)
 - Optionally enrich any report with MusicBrainz genre data  
 - View results in a sortable, fully filterable table  
 - Save reports to disk as CSV  
@@ -40,8 +32,8 @@ This project was developed with assistance from Microsoft Copilot as a fun test 
 
 ### Launcher Script (BrainzMRI.bat)
 - Simple menu to launch either:
-  - GUI mode
-  - Debug mode
+  - GUI mode (starts by default)
+  - Debug mode (available for tinkering)
 
 ---
 
@@ -110,30 +102,28 @@ The app will automatically parse:
 You can set:
 
 - **Time Range (days ago)**  
-  Restrict listens to a specific window (by listened date).
+  Restrict listens to a specific window (by listened date). Applied at the listen level.
 
 - **Last Listened (days ago)**  
-  Filter by recency (based on when listens occurred).
+  Filter by recency (based on when listens occurred). Applied at the entity level (artist/album/track) based on each entity’s true last listen.
 
 - **Top N**  
   Limit the number of results.
 
-- **Minimum Listens / Minutes**  
+- **Thresholds for Minimum Listens / Time Listened**  
   Apply thresholds to filter out low-activity artists, albums, tracks, or liked artists:
   - Min. Listens Threshold (per entity)
-  - Min. Minutes Listened Threshold (per entity, based on total duration)
+  - Minimum Time Listened Threshold (per entity, based on total duration)
 
 ### 3. Configure enrichment (optional)
 - **Perform Genre Lookup (Enrich Report)**  
   When checked, the report is enriched with genre information after all filtering and sorting.
-
-  Tooltip:
-  > Add genre information to the report using MusicBrainz.  
-  > Runs after all filters and sorting.  
-  > May be slow if API lookup is enabled.
+  - Genre information comes from MusicBrainz (currently artists only).
+  - Runs after all filters and sorting.  
+  - May be slow if API lookup is enabled (1.2s per entity)
 
 - **Genre Enrichment Source**  
-  - **Cache** — use only the local genre cache  
+  - **Cache** — uses only the local genre cache, built from past API lookups.
   - **Query API (Slow)** — query MusicBrainz and update the cache (subject to rate limiting)  
   - Enabled only when enrichment is turned on
 
@@ -180,6 +170,15 @@ BrainzMRI/
 
 # TODO (Items for Future Improvements)
 
+## New Visualizations
+- Build a graph of favorite N artists/albums/tracks vs. time as a stacked bar plot from the data
+	- Should use the filtered data as the population to track, but should be capped at 20 artists/albums/tracks for visual clarity
+	- Plot should show the top N artists/albums/tracks as a function of time
+	- Plot should be a set of stacked bars, showing favorite(s) vs. time
+	- Each artist/album/track should have its own color
+- A report of "Top New (Artists/Albums/Tracks) by Year
+- A report of "Percent New Artists/Albums/Tracks" By Year
+- A count of distinct Artists, Albums, and Tracks By Year
 ## UI Improvements
 - Abstract repeated UI patterns (Frame + Label + Entry)
 - Break show_table() into helper functions:
@@ -213,9 +212,3 @@ BrainzMRI/
 - Generate a URL to visit at MusicBrainz for each artist in said list
 - Provide a link to MusicBrainz best practices for metadata contribution
 - Build a minimal UI popout for linking to Metadata editing
-## New Visualizations
-- Build a graph of favorite N artists/albums/tracks vs. time as a stacked bar plot from the data
-- Should use TopN as the population to track, but should be capped at 20
-- Plot should show the top N artists/albums/tracks as a function of time
-- Plot should be a set of stacked bars, showing favorite(s) vs. time
-- Each artist/album/track should have its own color

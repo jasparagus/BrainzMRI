@@ -303,11 +303,21 @@ def normalize_listens(listens, zip_path: str | None = None) -> pd.DataFrame:
             "lastfm_recording_mbid"
         ):
             recording_mbid = meta["additional_info"]["lastfm_recording_mbid"]
-
+        
+        # Build a mapping of artist → MBID (1:1)
+        artist_mbid_map = {}
+        if "artists" in mbid_mapping and mbid_mapping["artists"]:
+            for a in mbid_mapping["artists"]:
+                name = a.get("artist_credit_name")
+                mbid = a.get("artist_mbid")
+                if name:
+                    artist_mbid_map[name] = mbid
+        
         for artist in artists:
             records.append(
                 {
                     "artist": artist,
+                    "artist_mbid": artist_mbid_map.get(artist),
                     "album": album_name,
                     "track_name": meta.get("track_name", "Unknown"),
                     "duration_ms": duration_ms or 0,
@@ -701,11 +711,31 @@ def enrich_report_with_genres(report_df: pd.DataFrame, zip_path: str, use_api: b
                 else:
                     g = ["Unknown"]
                     api_failures += 1
-
+                
                 entry = _get_or_create_artist_entry(genre_cache, artist)
+                # Store MBID in cache if available
+                if "artist_mbid" in work_df.columns:
+                    mbid = work_df.loc[artist, "artist_mbid"]
+                    if mbid:
+                        entry["artist_mbid"] = mbid
                 entry["genres"] = g
                 save_genre_cache(genre_cache, cache_path)
+            
+            # Missing genre logging
+            if g == ["Unknown"]:
+                missing_log_path = os.path.join(reports_dir, "missing_genres.txt")
 
+                # Build MusicBrainz URL if MBID exists
+                mbid = entry.get("artist_mbid") or None
+                if mbid:
+                    url = f"https://musicbrainz.org/artist/{mbid}"
+                else:
+                    url = "(no MBID available)"
+
+                # Append to log (avoid duplicates)
+                with open(missing_log_path, "a", encoding="utf-8") as f:
+                    f.write(f"{artist}\t{mbid or 'None'}\t{url}\n")
+            
             genre_str = "|".join(g)
             genres.append(genre_str)
 
