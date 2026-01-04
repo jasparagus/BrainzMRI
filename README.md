@@ -179,6 +179,12 @@ BrainzMRI/
 - A report of "Top New (Artists/Albums/Tracks) by Year
 - A report of "Percent New Artists/Albums/Tracks" By Year
 - A count of distinct Artists, Albums, and Tracks By Year
+## Report Presets
+- Presets (from a dropdown) for common report filters/types. Examples:
+  - Forgotten favorites
+  - Your All-Time Top 10
+  - Favorite New Discoveries (will need to start tracking FIRST listened as well)
+  - Etc.
 ## UI Improvements
 - Abstract repeated UI patterns (Frame + Label + Entry)
 - Break show_table() into helper functions:
