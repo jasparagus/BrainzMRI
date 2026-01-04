@@ -208,34 +208,127 @@ BrainzMRI/
        - Maintain a persistent local archive that updates incrementally
          without requiring repeated ZIP downloads.
 		 
-		 
-## Convert "Enriched Artist Report" into a generic enrichment option
+## Unify Enrichment and Threshold Logic Across All Reports
 
-Goal:
-    Simplify the report type dropdown and make enrichment a post-processing step
-    instead of a separate report type. This will also prepare the codebase for
-    future enrichment of album and track reports.
+### Goal
+Convert enrichment from a special-case “Enriched Artist Report” into a generic, optional post-processing step that can be applied to *any* report (Artist, Album, Track, Liked Artists). Standardize threshold and Top-N behavior across all report types, and introduce a structured, entity-aware genre cache.
 
-Planned Changes:
-    1. Remove "Enriched Artist Report" from the report type dropdown.
-    2. Add a new checkbox: "Enrich report with genres".
-    3. Repurpose the existing "Use MusicBrainz API (slow)" checkbox so that:
-           - If enrichment is enabled:
-                 - API checkbox determines API vs. cache-only behavior.
-           - If enrichment is disabled:
-                 - API checkbox is ignored.
-    4. Update run_report() so that:
-           - It generates the base report (artist/album/track/liked).
-           - If enrichment checkbox is enabled:
-                 - Apply genre enrichment to the result.
-    5. Keep threshold logic (mins/tracks) tied to enrichment unless later separated.
-    6. Ensure the GUI layout accommodates the new checkbox cleanly.
-    7. Update README to reflect:
-           - Fewer report types in the dropdown.
-           - Enrichment as an optional enhancement step.
-           - Future support for album/track enrichment.
+### Planned Changes
 
-Rationale:
-    - Reduces cognitive load in the UI.
-    - Makes enrichment behavior explicit and consistent.
-    - Sets the foundation for enriching album and track reports later.
+1. **Remove “Enriched Artist Report” from the report type dropdown.**  
+   - Report types become: **Artist**, **Album**, **Track**, **Liked Artists Only**.
+
+2. **Add a new checkbox: “Perform Genre Lookup (Enrich Report)”.**
+   - When checked, enrichment is applied *after* all filtering and sorting.  
+   - When unchecked, no enrichment occurs.
+   - Add a tooltip (with similar behavior to previous MusicBrainz Lookup checkbox): 
+		```
+		Add genre information to the report using MusicBrainz. 
+		Runs after all filters and sorting. 
+		May be slow if API lookup is enabled.
+		```
+
+3. **Add a new dropdown: “Genre Enrichment Source”.**  
+   - Options: **Cache** and **Query API (Slow)**.  
+   - Only enabled when “Perform Genre Lookup” is checked.
+   - Add a tooltip (similar to 
+
+4. **Remove checkbox “Do MusicBrainz Genre Lookup (Slow)?”.**
+   - Its functionality will be replaced by: “Perform Genre Lookup (Report Enrichment)” (checkbox) and “Genre Enrichment Source” (Cache / Query API)
+   - Its tooltip information 
+
+4. **Rename “Min. Tracks Listened Threshold” → “Min. Listens Threshold”.**  
+   - Update variable names, labels, and parser arguments.  
+   - Threshold meaning:  
+     - Artist report → minimum listens per artist  
+     - Album report → minimum listens per album  
+     - Track report → minimum listens per track  
+
+5. **Apply thresholds *before* Top N for all report types.**  
+   New processing pipeline:
+
+   ```
+   raw data
+     → time range filter
+     → recency filter
+     → threshold filter (min_listens, min_minutes)
+     → sort
+     → Top N
+     → enrichment (optional)
+     → display/save
+   ```
+
+6. **Modify all report generators to accept unified filter parameters:**  
+   - `min_listens`  
+   - `min_minutes`  
+   - `top_n`  
+   Apply these consistently across Artist, Album, Track, and Liked Artists reports.
+
+7. **Refactor enrichment into a generic function:**  
+   ```
+   enrich_report(df, report_type, source)
+   ```
+   Behavior:
+   - Artist reports → use MusicBrainz **Artist** API/cache  
+   - Album reports → use MusicBrainz **Release / Release-Group** API/cache
+   - Album reports → use MusicBrainz Release / Release-Group API/cache
+    (Release MBIDs come from ListenBrainz; genres are stored on Release Groups,
+     so enrichment must first resolve release → release-group → genres)
+   - Track reports → use MusicBrainz Recording API/cache
+    (Recording MBIDs come from ListenBrainz; genres are stored on Recordings,
+     so enrichment normally uses recording_mbid directly. If missing, fallback
+     to a Recording search using track name + artist.)
+   - No internal thresholding; enrichment acts only on the DataFrame it receives.
+
+8. **Redesign the genre cache to support multiple entity types.**  
+   Replace string-keyed entries with structured objects:
+
+   ```json
+   [
+     {
+       "entity": "artist",
+       "artist": "Burial",
+       "album": null,
+       "track": null,
+       "artist_mbid": "9ddce51c-2b75-4b3e-ac8c-1db09e7c89c6",
+       "genres": ["dubstep", "electronic"]
+     },
+     {
+       "entity": "album",
+       "artist": "Burial",
+       "album": "Untrue",
+       "track": null,
+       "release_mbid": "e08c3db9-fc33-4d4e-b8b7-818d34228bef",
+       "genres": ["dubstep"]
+     },
+     {
+       "entity": "track",
+       "artist": "Burial",
+       "album": "Untrue",
+       "track": "Etched Headplate",
+       "recording_mbid": "1eacb3ca-e8e1-4588-920d-1187dcb8ca79",
+       "genres": ["dubstep"]
+     }
+   ]
+   ```
+
+   **Lookup rules:**
+   - Prefer MBID matching when available  
+   - Fall back to name-based matching  
+   - If multiple matches exist, use the most recent or merge genres  
+
+9. **Update README to reflect the new system:**  
+   - New enrichment checkbox and source dropdown  
+   - Removal of “Enriched Artist Report”  
+   - Unified threshold behavior  
+   - Entity-specific enrichment logic  
+   - Updated terminology (“Min. Listens Threshold”)  
+
+### Rationale
+
+- Eliminates hidden or special-case logic  
+- Makes enrichment predictable, consistent, and extensible  
+- Enables future album and track enrichment  
+- Produces a cleaner, more intuitive UI  
+- Simplifies debugging and future maintenance  
+

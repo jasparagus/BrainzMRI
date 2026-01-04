@@ -186,7 +186,7 @@ class BrainzMRIGUI:
         self.ent_last_start.insert(0, "0")
         self.ent_last_end.insert(0, "0")
         
-        self.ent_topn         = add_labeled_entry(frm_inputs, "Top N (Number Of Results, e.g. 100):", 200)
+        self.ent_topn         = add_labeled_entry(frm_inputs, "Top N (Number Of Results, Default: 200):", 200)
         self.ent_min_tracks   = add_labeled_entry(frm_inputs, "Min. Tracks Listened Threshold:", 15)
         self.ent_min_minutes  = add_labeled_entry(frm_inputs, "Min. Minutes Listened Threshold:", 30)
 
