@@ -8,9 +8,9 @@ It provides a **GUI application** for generating rich reports about your listeni
 - "Time Range" filter for listens enables looking across arbitrary time windows (by "days ago")
 - "Last Played" filter enables digging up "old favorites" and more (by "days ago")
 - Liked-artist reports (list of artists whom you have liked)
-- Enriched artist reports with **MusicBrainz genre lookups**  
+- Optional genre enrichment with **MusicBrainz genre lookups**
 - Fully sortable, filterable tables in the GUI (using regex)
-- Exportable text and CSV reports  
+- Exportable CSV reports  
 
 ---
 
@@ -22,18 +22,18 @@ It provides a **GUI application** for generating rich reports about your listeni
 - Configure:
   - Time Range (as a window; days ago)
   - Last-listened Range (as a window; days ago)
-  - Minimum tracks / minutes thresholds (enriched report only for now)
+  - Minimum listens / minutes thresholds
   - Top-N limits  
 - Choose report type:
   - By Artist  
   - By Album  
   - By Track  
   - All Liked Artists  
-  - Enriched Artist Report (with genre lookup)  
+- Optionally enrich any report with MusicBrainz genre data  
 - View results in a sortable, fully filterable table  
-- Save reports to disk  
+- Save reports to disk as CSV  
 - Automatically remembers your last ZIP file  
-- Stores configuration info in a "config.json" file
+- Stores configuration info in a `config.json` file
 
 ### Launcher Script (BrainzMRI.bat)
 - Simple menu to launch either:
@@ -107,62 +107,72 @@ The app will automatically parse:
 You can set:
 
 - **Time Range (days ago)**  
-  Restrict listens to a specific window.
+  Restrict listens to a specific window (by listened date).
 
 - **Last Listened (days ago)**  
-  Filter by recency.
+  Filter by recency (based on when listens occurred).
 
 - **Top N**  
   Limit the number of results.
 
-- **Minimum Tracks / Minutes**  
-  Thresholds for enriched reports only, for now.
+- **Minimum Listens / Minutes**  
+  Apply thresholds to filter out low-activity artists, albums, tracks, or liked artists:
+  - Min. Listens Threshold (per entity)
+  - Min. Minutes Listened Threshold (per entity, based on total duration)
 
-- **Genre Lookup (API or cache)**  
-  Enable/disable MusicBrainz API calls (currently slow due to rate limit).
+### 3. Configure enrichment (optional)
+- **Perform Genre Lookup (Enrich Report)**  
+  When checked, the report is enriched with genre information after all filtering and sorting.
 
-### 3. Choose a report type
+  Tooltip:
+  > Add genre information to the report using MusicBrainz.  
+  > Runs after all filters and sorting.  
+  > May be slow if API lookup is enabled.
+
+- **Genre Enrichment Source**  
+  - **Cache** — use only the local genre cache  
+  - **Query API (Slow)** — query MusicBrainz and update the cache (subject to rate limiting)  
+  - Enabled only when enrichment is turned on
+
+### 4. Choose a report type
 From the dropdown:
 
 - **By Artist**
-	- Note: collaborating artists are counted separately
+  - Note: collaborating artists are counted separately
 - **By Album**  
 - **By Track**  
 - **All Liked Artists**  
-- **Enriched Artist Report**
 
-### 4. View results
+### 5. View results
 Results appear in a sortable, filterable table:
 
 - Click column headers to sort  
 - Use the filter bar to search (regex supported)  
-- Clear filter to restore the full dataset  
+- Clear the filter to restore the full dataset  
 
-### 5. Save reports
+### 6. Save reports
 Click **“Save Report”** to export:
 
-- Text reports (`.txt`) for standard reports  
-- CSV reports (`.csv`) for enriched reports  
+- CSV reports (`.csv`) for all report types (with or without enrichment)  
 
 Reports are saved in a `reports/` folder next to your ZIP file.
-
 
 ---
 
 # Project Structure
 
-```
+```text
 BrainzMRI/
 │
 ├── BrainzMRI.bat           # Windows launcher
 ├── BrainzMRI_GUI.py        # GUI application
 ├── LICENSE.txt             # License (GNU GPL)
-├── ParseListens.py         # Core parser for GUI
+├── ParseListens.py         # Core parser and report logic
 ├── README.md               # This file
 ├── example.png             # Example of GUI
 ├── requirements.txt        # Required Python modules
 ├── reports/                # Auto-created report output folder
-└── config.json             # Auto-created settigns file
+└── config.json             # Auto-created settings file
 ```
 
 # TODO (Future Improvements)
@@ -185,9 +195,10 @@ BrainzMRI/
 ## run_report() Decomposition
     run_report() still handles multiple responsibilities:
        - parsing inputs
-       - applying time filters
+       - applying time and recency filters
        - dispatching report functions
-       - applying recency filters
+       - applying thresholds
+       - running optional enrichment
        - saving state
        - rendering the table
     Consider splitting into:
@@ -207,11 +218,11 @@ BrainzMRI/
     Long-term Goal:
        - Maintain a persistent local archive that updates incrementally
          without requiring repeated ZIP downloads.
-		 
+
 ## Unify Enrichment and Threshold Logic Across All Reports
 
 ### Goal
-Convert enrichment from a special-case “Enriched Artist Report” into a generic, optional post-processing step that can be applied to *any* report (Artist, Album, Track, Liked Artists). Standardize threshold and Top-N behavior across all report types, and introduce a structured, entity-aware genre cache.
+Convert enrichment from a special-case “Enriched Artist Report” into a generic, optional post-processing step that can be applied to *any* report (Artist, Album, Track, Liked Artists). Standardize threshold and Top-N behavior across all report types, transition all saved reports to CSV format, and introduce a structured, entity-aware genre cache. This phase implements artist-based enrichment only; album and track enrichment will be added in a later patch.
 
 ### Planned Changes
 
@@ -221,33 +232,34 @@ Convert enrichment from a special-case “Enriched Artist Report” into a gener
 2. **Add a new checkbox: “Perform Genre Lookup (Enrich Report)”.**
    - When checked, enrichment is applied *after* all filtering and sorting.  
    - When unchecked, no enrichment occurs.
-   - Add a tooltip (with similar behavior to previous MusicBrainz Lookup checkbox): 
-		```
-		Add genre information to the report using MusicBrainz. 
-		Runs after all filters and sorting. 
-		May be slow if API lookup is enabled.
-		```
+   - Tooltip:
+     ```text
+     Add genre information to the report using MusicBrainz.
+     Runs after all filters and sorting.
+     May be slow if API lookup is enabled.
+     ```
 
 3. **Add a new dropdown: “Genre Enrichment Source”.**  
    - Options: **Cache** and **Query API (Slow)**.  
    - Only enabled when “Perform Genre Lookup” is checked.
-   - Add a tooltip (similar to 
 
 4. **Remove checkbox “Do MusicBrainz Genre Lookup (Slow)?”.**
-   - Its functionality will be replaced by: “Perform Genre Lookup (Report Enrichment)” (checkbox) and “Genre Enrichment Source” (Cache / Query API)
-   - Its tooltip information 
+   - Fully replaced by:
+     - “Perform Genre Lookup (Enrich Report)”  
+     - “Genre Enrichment Source” (Cache / Query API)
 
-4. **Rename “Min. Tracks Listened Threshold” → “Min. Listens Threshold”.**  
+5. **Rename “Min. Tracks Listened Threshold” → “Min. Listens Threshold”.**  
    - Update variable names, labels, and parser arguments.  
    - Threshold meaning:  
      - Artist report → minimum listens per artist  
      - Album report → minimum listens per album  
      - Track report → minimum listens per track  
+     - Liked Artists report → **threshold by liked listens only** (do not join back to full listens)
 
-5. **Apply thresholds *before* Top N for all report types.**  
+6. **Apply thresholds *before* Top N for all report types.**  
    New processing pipeline:
 
-   ```
+   ```text
    raw data
      → time range filter
      → recency filter
@@ -258,29 +270,25 @@ Convert enrichment from a special-case “Enriched Artist Report” into a gener
      → display/save
    ```
 
-6. **Modify all report generators to accept unified filter parameters:**  
+7. **Modify all report generators to accept unified filter parameters:**  
    - `min_listens`  
    - `min_minutes`  
    - `top_n`  
-   Apply these consistently across Artist, Album, Track, and Liked Artists reports.
+   Apply these consistently across Artist, Album, Track, and Liked Artists reports.  
+   - For Liked Artists: thresholds apply to **liked listens only**.
 
-7. **Refactor enrichment into a generic function:**  
-   ```
-   enrich_report(df, report_type, source)
+8. **Refactor enrichment into a generic function:**  
+   ```text
+   enrich_report(df, report_type, source, zip_path)
    ```
    Behavior:
    - Artist reports → use MusicBrainz **Artist** API/cache  
-   - Album reports → use MusicBrainz **Release / Release-Group** API/cache
-   - Album reports → use MusicBrainz Release / Release-Group API/cache
-    (Release MBIDs come from ListenBrainz; genres are stored on Release Groups,
-     so enrichment must first resolve release → release-group → genres)
-   - Track reports → use MusicBrainz Recording API/cache
-    (Recording MBIDs come from ListenBrainz; genres are stored on Recordings,
-     so enrichment normally uses recording_mbid directly. If missing, fallback
-     to a Recording search using track name + artist.)
-   - No internal thresholding; enrichment acts only on the DataFrame it receives.
+   - Album reports → **use artist genres only (incremental scope)**  
+   - Track reports → **use artist genres only (incremental scope)**  
+   - No internal thresholding; enrichment acts only on the DataFrame it receives.  
+   - Album/track MBID-based enrichment will be added in a future patch.
 
-8. **Redesign the genre cache to support multiple entity types.**  
+9. **Redesign the genre cache to support multiple entity types.**  
    Replace string-keyed entries with structured objects:
 
    ```json
@@ -317,18 +325,27 @@ Convert enrichment from a special-case “Enriched Artist Report” into a gener
    - Fall back to name-based matching  
    - If multiple matches exist, use the most recent or merge genres  
 
-9. **Update README to reflect the new system:**  
-   - New enrichment checkbox and source dropdown  
-   - Removal of “Enriched Artist Report”  
-   - Unified threshold behavior  
-   - Entity-specific enrichment logic  
-   - Updated terminology (“Min. Listens Threshold”)  
+10. **Transition all saved reports to CSV format.**  
+    - Standard (non-enriched) reports → CSV  
+    - Enriched reports → CSV  
+    - Update documentation accordingly  
+    - GUI table remains the primary human-readable view
+
+11. **Update README to reflect the new system:**  
+    - New enrichment checkbox and source dropdown  
+    - Removal of “Enriched Artist Report”  
+    - Unified threshold behavior  
+    - Liked Artists thresholds apply to liked listens only  
+    - Artist-only enrichment for now (album/track enrichment in future patch)  
+    - CSV output for all reports  
+    - Updated terminology (“Min. Listens Threshold”)
 
 ### Rationale
 
 - Eliminates hidden or special-case logic  
 - Makes enrichment predictable, consistent, and extensible  
-- Enables future album and track enrichment  
+- Provides a clean migration path for album/track enrichment  
 - Produces a cleaner, more intuitive UI  
 - Simplifies debugging and future maintenance  
-
+- CSV output improves interoperability with spreadsheets and analysis tools
+```
