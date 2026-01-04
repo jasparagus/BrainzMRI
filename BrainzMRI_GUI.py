@@ -359,6 +359,17 @@ class BrainzMRIGUI:
 
         df = self.df.copy()
 
+        # Determine entity column(s) for recency filtering
+        mode = self.report_type.get()
+        if mode == "By Artist":
+            entity_cols = ["artist"]
+        elif mode == "By Album":
+            entity_cols = ["artist", "album"]
+        elif mode == "By Track":
+            entity_cols = ["artist", "track_name"]
+        else:
+            entity_cols = ["artist"]  # Liked Artists uses artist only
+
         # Time range filter on raw listens
         try:
             t_start = int(self.ent_time_start.get())
@@ -378,7 +389,7 @@ class BrainzMRIGUI:
             self.set_status("Error: Unexpected Error in Time Range.")
             return
 
-        # Recency filter on raw listens
+        # Recency filter (entity-level exclusion)
         try:
             l_start = int(self.ent_last_start.get())
             l_end = int(self.ent_last_end.get())
@@ -389,10 +400,24 @@ class BrainzMRIGUI:
                 now = datetime.now(timezone.utc)
                 min_dt = now - timedelta(days=rec_end)
                 max_dt = now - timedelta(days=rec_start)
-                df = df[
-                    (df["listened_at"] >= min_dt)
-                    & (df["listened_at"] <= max_dt)
+
+                # Compute true last-listened per entity BEFORE filtering
+                true_last = (
+                    df.groupby(entity_cols)["listened_at"]
+                    .max()
+                    .reset_index()
+                    .rename(columns={"listened_at": "true_last_listened"})
+                )
+
+                # Keep only entities whose true last listen is inside the window
+                allowed = true_last[
+                    (true_last["true_last_listened"] >= min_dt)
+                    & (true_last["true_last_listened"] <= max_dt)
                 ]
+
+                # Merge back to filter df
+                df = df.merge(allowed[entity_cols], on=entity_cols, how="inner")
+
         except ValueError:
             messagebox.showerror("Error", "Last listened range must be numeric.")
             self.set_status("Error: Last listened range must be numeric.")
