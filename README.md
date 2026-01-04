@@ -12,6 +12,9 @@ It provides a **GUI application** for generating rich reports about your listeni
 - Fully sortable, filterable tables in the GUI (using regex)
 - Exportable CSV reports  
 
+## Attribution
+This project was developed with assistance from Microsoft Copilot as a fun test of "Vibe Coding".
+
 ---
 
 ## **Features**
