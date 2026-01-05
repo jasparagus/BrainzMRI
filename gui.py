@@ -274,84 +274,129 @@ class ReportTableView:
         self.container = container
         self.state = state
 
+        # Filter state
         self.filter_by_var = tk.StringVar(value="All")
         self.filter_entry: tk.Entry | None = None
+
+        # UI containers
+        self.filter_frame: tk.Frame | None = None
+        self.table_container: tk.Frame | None = None
+
+        # Treeview
         self.tree: ttk.Treeview | None = None
 
-    def show_table(self, df):
-        # Preserve existing filter text if any
-        current_filter = ""
-        if self.filter_entry is not None:
-            current_filter = self.filter_entry.get()
+        # Build initial filter bar
+        self.build_filter_bar()
 
-        # Clear previous contents
-        for widget in self.container.winfo_children():
-            widget.destroy()
+    # ------------------------------------------------------------
+    # Filter Bar Construction
+    # ------------------------------------------------------------
 
-        # Filter bar
-        filter_frame = tk.Frame(self.container)
-        filter_frame.pack(fill="x", pady=5)
+    def build_filter_bar(self):
+        """Create the filter bar UI and store widget references."""
 
-        tk.Label(filter_frame, text="Filter By:").pack(side="left", padx=(5, 2))
-        filter_by_dropdown = ttk.Combobox(
-            filter_frame,
+        # Destroy old filter bar if it exists
+        if self.filter_frame and self.filter_frame.winfo_exists():
+            self.filter_frame.destroy()
+
+        self.filter_frame = tk.Frame(self.container)
+        self.filter_frame.pack(fill="x", pady=5)
+
+        # Filter By dropdown
+        tk.Label(self.filter_frame, text="Filter By:").pack(side="left", padx=(5, 2))
+
+        self.filter_by_dropdown = ttk.Combobox(
+            self.filter_frame,
             textvariable=self.filter_by_var,
             state="readonly",
             width=18,
         )
-        filter_by_dropdown.pack(side="left", padx=(0, 10))
+        self.filter_by_dropdown.pack(side="left", padx=(0, 10))
 
-        cols = list(df.columns)
-        filter_by_dropdown["values"] = ["All"] + cols
-        if self.filter_by_var.get() not in ["All"] + cols:
-            self.filter_by_var.set("All")
-
+        # Filter entry
         tk.Label(
-            filter_frame,
+            self.filter_frame,
             text='Filter (Supports Regex; Use ".*" for wildcards or "|" for OR):',
         ).pack(side="left", padx=5)
 
-        self.filter_entry = tk.Entry(filter_frame, width=40)
+        self.filter_entry = tk.Entry(self.filter_frame, width=40)
         self.filter_entry.pack(side="left", padx=5)
 
-        if current_filter:
-            self.filter_entry.insert(0, current_filter)
-
-        tk.Button(filter_frame, text="Filter", command=self.apply_filter).pack(
+        tk.Button(self.filter_frame, text="Filter", command=self.apply_filter).pack(
             side="left", padx=5
         )
-        tk.Button(filter_frame, text="Clear Filter", command=self.clear_filter).pack(
+        tk.Button(self.filter_frame, text="Clear Filter", command=self.clear_filter).pack(
             side="left", padx=5
         )
 
         self.filter_entry.bind("<Return>", lambda e: self.apply_filter())
 
-        # Table container
-        table_container = tk.Frame(self.container)
-        table_container.pack(fill="both", expand=True)
+    # ------------------------------------------------------------
+    # Table Rendering
+    # ------------------------------------------------------------
 
-        tree = ttk.Treeview(table_container, show="headings")
+    def show_table(self, df):
+
+        # Ensure filter bar exists
+        if not self.filter_entry or not self.filter_entry.winfo_exists():
+            self.build_filter_bar()
+
+        # Preserve filter text
+        current_filter = ""
+        if self.filter_entry and self.filter_entry.winfo_exists():
+            current_filter = self.filter_entry.get()
+
+        # Update dropdown values
+        cols = list(df.columns)
+        self.filter_by_dropdown["values"] = ["All"] + cols
+        if self.filter_by_var.get() not in ["All"] + cols:
+            self.filter_by_var.set("All")
+
+        # Restore filter text
+        self.filter_entry.delete(0, tk.END)
+        if current_filter:
+            self.filter_entry.insert(0, current_filter)
+
+        # Recreate table_container if needed
+        if not self.table_container or not self.table_container.winfo_exists():
+            self.table_container = tk.Frame(self.container)
+            self.table_container.pack(fill="both", expand=True)
+        else:
+            # Clear existing table contents
+            for widget in self.table_container.winfo_children():
+                widget.destroy()
+
+        # Build Treeview
+        tree = ttk.Treeview(self.table_container, show="headings")
         tree.pack(side="left", fill="both", expand=True)
 
-        scrollbar = ttk.Scrollbar(table_container, orient="vertical", command=tree.yview)
+        scrollbar = ttk.Scrollbar(
+            self.table_container, orient="vertical", command=tree.yview
+        )
         scrollbar.pack(side="right", fill="y")
         tree.configure(yscrollcommand=scrollbar.set)
 
         tree._sort_state = {}
-
         self.tree = tree
+
         tree.bind("<Control-c>", self.copy_selection_to_clipboard)
         tree.bind("<Control-C>", self.copy_selection_to_clipboard)
 
-        tree["columns"] = list(df.columns)
-        for col in df.columns:
+        # Configure columns
+        tree["columns"] = cols
+        for col in cols:
             tree.heading(
                 col, text=col, command=lambda c=col: self.sort_column(tree, df, c)
             )
             tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
 
+        # Insert rows
         for _, row in df.iterrows():
             tree.insert("", "end", values=list(row))
+
+    # ------------------------------------------------------------
+    # Sorting
+    # ------------------------------------------------------------
 
     def sort_column(self, tree: ttk.Treeview, df, col: str) -> None:
         """Sort the Treeview by the given column."""
@@ -370,6 +415,7 @@ class ReportTableView:
         for index, (_, k) in enumerate(data):
             tree.move(k, "", index)
 
+        # Update sort indicators
         for c in df.columns:
             indicator = ""
             if c == col:
@@ -379,6 +425,10 @@ class ReportTableView:
                 text=c + indicator,
                 command=lambda c=c: self.sort_column(tree, df, c),
             )
+
+    # ------------------------------------------------------------
+    # Filtering
+    # ------------------------------------------------------------
 
     def apply_filter(self) -> None:
         """Apply a regex filter to the current report DataFrame."""
@@ -419,6 +469,10 @@ class ReportTableView:
         self.show_table(self.state.original_df)
         self.filter_entry.delete(0, tk.END)
 
+    # ------------------------------------------------------------
+    # Clipboard
+    # ------------------------------------------------------------
+
     def copy_selection_to_clipboard(self, event=None):
         if self.tree is None:
             return "break"
@@ -440,7 +494,6 @@ class ReportTableView:
         self.root.update()
 
         return "break"
-
 
 class BrainzMRIGUI:
     """

@@ -183,8 +183,8 @@ BrainzMRI/
 ## Report Presets
 - Dropdown presets for common report types:
   - Forgotten Favorites
-  - All‑Time Top 10
-  - Favorite New Discoveries (requires tracking first‑listen dates)
+  - All-Time Top 10
+  - Favorite New Discoveries (requires tracking first-listen dates)
   - Recently Neglected Artists
   - Etc.
 
@@ -204,10 +204,10 @@ BrainzMRI/
 - Add “Clear User Cache” utility
 
 ## Enrichment Enhancements
-- Album‑level enrichment using release MBIDs
-- Track‑level enrichment using recording MBIDs
+- Album-level enrichment using release MBIDs
+- Track-level enrichment using recording MBIDs
 - Expand genre cache to support multiple entries per entity
-- UI viewer for missing‑genre log (with MusicBrainz URLs)
+- UI viewer for missing-genre log (with MusicBrainz URLs)
 - Optional “Rebuild Genre Cache” tool
 
 ## Hybrid Mode (ListenBrainz + Last.fm APIs)
@@ -219,10 +219,37 @@ BrainzMRI/
 
 ## MusicBrainz Contribution Tools
 - Log artists with missing genres + direct MusicBrainz URLs
-- Provide link to MusicBrainz metadata best‑practices
-- Minimal UI pop‑out for metadata editing workflow
+- Provide link to MusicBrainz metadata best-practices
+- Minimal UI pop-out for metadata editing workflow
 
 ## Robustness & Edge Cases
-- Improve empty‑result handling across all report types
-- Add user‑friendly messages for invalid filters or regex errors
+- Improve empty-result handling across all report types
+- Add user-friendly messages for invalid filters or regex errors
 - Validate enrichment source availability (cache vs. API)
+
+## Multi-Source Ingestion & Fuzzy Deduplication
+- Support ingestion from heterogeneous sources (ListenBrainz, Last.fm, Spotify, Apple Music, YouTube Music, CSV exports)
+- Normalize entity names (artist/album/track) across sources using:
+  - Unicode normalization
+  - Case folding
+  - Punctuation/parenthetical stripping
+  - Fuzzy matching (Levenshtein/Jaro-Winkler)
+- Introduce a canonical entity resolver:
+  - Resolve missing MBIDs via MusicBrainz lookups
+  - Cache resolved entities globally
+  - Track resolver confidence scores
+- Handle timestamp precision differences:
+  - Second-precision, minute-precision, day-precision, and date-only sources
+  - Convert all timestamps to UTC
+  - Store precision metadata per listen
+- Implement probabilistic deduplication:
+  - Combine similarity scores for artist/album/track names
+  - Incorporate timestamp proximity windows based on source precision
+  - Use duration (if available) as a secondary signal
+  - Produce a final dedupe confidence score
+- Add provenance tracking to the canonical DataFrame:
+  - `source` (ZIP, API, CSV, etc.)
+  - `source_precision`
+  - `resolver_confidence`
+  - `mbid_confidence`
+- Provide UI tools for reviewing and resolving ambiguous matches

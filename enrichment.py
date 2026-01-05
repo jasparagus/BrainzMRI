@@ -10,22 +10,43 @@ from user import get_cache_root
 
 
 # ------------------------------------------------------------
-# Cache Helpers
+# Global Cache Helpers
 # ------------------------------------------------------------
 
-def _get_user_genre_cache_path(username: str) -> str:
+# Registry of global cache files (extensible)
+_GLOBAL_CACHE_FILES = {
+    "genres": "genres_cache.json",
+    # Future caches can be added here:
+    # "artists": "artist_cache.json",
+    # "albums": "album_cache.json",
+    # "tracks": "track_cache.json",
+    # "failures": "lookup_failures.json",
+}
+
+
+def get_global_cache_path(cache_type: str) -> str:
     """
-    Return the path to the user's genre cache file.
+    Return the full path to a global cache file of the given type.
+    Creates the global cache directory if needed.
     """
     cache_root = get_cache_root()
-    user_dir = os.path.join(cache_root, "users", username)
-    os.makedirs(user_dir, exist_ok=True)
-    return os.path.join(user_dir, "genres_cache.json")
+    global_dir = os.path.join(cache_root, "global")
+    os.makedirs(global_dir, exist_ok=True)
+
+    filename = _GLOBAL_CACHE_FILES.get(cache_type)
+    if filename is None:
+        raise ValueError(f"Unknown global cache type: {cache_type}")
+
+    return os.path.join(global_dir, filename)
 
 
-def load_genre_cache(cache_path: str):
+# ------------------------------------------------------------
+# Genre Cache Load/Save
+# ------------------------------------------------------------
+
+def load_genre_cache():
     """
-    Load the genre cache from disk.
+    Load the global genre cache.
 
     Returns
     -------
@@ -40,6 +61,8 @@ def load_genre_cache(cache_path: str):
         - recording_mbid
         - genres
     """
+    cache_path = get_global_cache_path("genres")
+
     if not os.path.exists(cache_path):
         return []
 
@@ -64,15 +87,19 @@ def load_genre_cache(cache_path: str):
             )
         return converted
 
-    # Newer list-based format
     return data
 
 
-def save_genre_cache(cache, cache_path: str):
-    """Save the genre cache to disk."""
+def save_genre_cache(cache):
+    """Save the global genre cache to disk."""
+    cache_path = get_global_cache_path("genres")
     with open(cache_path, "w", encoding="utf-8") as f:
         json.dump(cache, f, ensure_ascii=False, indent=2)
 
+
+# ------------------------------------------------------------
+# Cache Entry Helpers
+# ------------------------------------------------------------
 
 def _lookup_artist_entry(cache, artist_name: str):
     """Return the cache entry for the given artist, or None."""
@@ -133,7 +160,7 @@ def get_artist_genres(artist_name: str):
 # Enrichment Logic
 # ------------------------------------------------------------
 
-def enrich_report_with_genres(report_df: pd.DataFrame, username: str, use_api: bool = True):
+def enrich_report_with_genres(report_df: pd.DataFrame, use_api: bool = True):
     """
     Add genre information to an artist-based report.
 
@@ -141,8 +168,6 @@ def enrich_report_with_genres(report_df: pd.DataFrame, username: str, use_api: b
     ----------
     report_df : DataFrame
         Report DataFrame containing an "artist" column.
-    username : str
-        The username whose cache directory stores the genre cache.
     use_api : bool
         Whether to query MusicBrainz API for missing genres.
 
@@ -151,8 +176,7 @@ def enrich_report_with_genres(report_df: pd.DataFrame, username: str, use_api: b
     DataFrame
         Enriched DataFrame with a "Genres" column.
     """
-    cache_path = _get_user_genre_cache_path(username)
-    genre_cache = load_genre_cache(cache_path)
+    genre_cache = load_genre_cache()
 
     # Work with artist as index for convenience
     if "artist" in report_df.columns:
@@ -187,11 +211,14 @@ def enrich_report_with_genres(report_df: pd.DataFrame, username: str, use_api: b
                         entry["artist_mbid"] = mbid
 
                 entry["genres"] = g
-                save_genre_cache(genre_cache, cache_path)
+                save_genre_cache(genre_cache)
 
             # Log missing genres
             if g == ["Unknown"]:
-                missing_log_path = os.path.join(os.path.dirname(cache_path), "missing_genres.txt")
+                missing_log_path = os.path.join(
+                    os.path.dirname(get_global_cache_path("genres")),
+                    "missing_genres.txt"
+                )
                 mbid = entry.get("artist_mbid") or None
                 url = f"https://musicbrainz.org/artist/{mbid}" if mbid else "(no MBID available)"
                 with open(missing_log_path, "a", encoding="utf-8") as f:
@@ -234,9 +261,7 @@ def enrich_report(df: pd.DataFrame, report_type: str, source: str):
     if "_username" not in df.columns:
         raise ValueError("Missing _username column for enrichment.")
 
-    username = df["_username"].iloc[0]
-
     # Drop helper column before enrichment
     df = df.drop(columns=["_username"])
 
-    return enrich_report_with_genres(df, username, use_api=use_api)
+    return enrich_report_with_genres(df, use_api=use_api)
