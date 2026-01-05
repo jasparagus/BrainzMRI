@@ -12,6 +12,41 @@ def filter_by_days(df, col: str, start_days: int = 0, end_days: int = 365):
     return df[(df[col] >= start_dt) & (df[col] <= end_dt)]
 
 
+def report_raw_listens(df, topn=None):
+    """
+    Raw Listens report.
+    This is a simple passthrough of the listens DataFrame after time filtering.
+    No grouping, no thresholds, no enrichment.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Canonical listens DataFrame.
+    topn : int or None
+        Maximum number of rows to return. If None or 0, return all rows.
+
+    Returns
+    -------
+    result : DataFrame
+        Possibly truncated DataFrame.
+    meta : dict
+        Metadata for saving the report.
+    """
+    if topn is not None and topn > 0:
+        result = df.head(topn)
+    else:
+        result = df
+
+    meta = {
+        "entity": "RawListens",
+        "topn": topn if topn else "All",
+        "days": None,
+        "metric": "none",
+    }
+
+    return result, meta
+
+
 def report_artists_with_likes(df, feedback, min_listens=0, min_minutes=0.0, topn=None):
     """Generate a report of artists with liked recordings."""
     liked_mbids = feedback
@@ -33,7 +68,6 @@ def report_artists_with_likes(df, feedback, min_listens=0, min_minutes=0.0, topn
             "metric": "Likes",
         }
         return empty_df, meta
-
 
     grouped = liked_listens.groupby("artist").agg(
         unique_likes=("recording_mbid", "nunique"),

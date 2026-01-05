@@ -1,34 +1,43 @@
 import zipfile
 import json
-import pandas as pd
-import os
 from datetime import datetime, UTC
-from tkinter import Tk, filedialog
+from typing import Iterable, List, Tuple, Dict, Any, Set
+
+import pandas as pd
 
 
-def select_zip_file() -> str:
-    """Open a file dialog for selecting a ListenBrainz export ZIP file."""
-    root = Tk()
-    root.withdraw()
-    file_path = filedialog.askopenfilename(
-        title="Select ListenBrainz Export ZIP",
-        filetypes=[("ZIP files", "*.zip")],
-    )
-    return file_path
+def parse_listenbrainz_zip(zip_path: str) -> Tuple[Dict[str, Any], list, list]:
+    """
+    Parse a ListenBrainz export ZIP and extract user info, feedback, and listens.
 
+    Parameters
+    ----------
+    zip_path : str
+        Path to the ListenBrainz export ZIP file.
 
-def parse_listenbrainz_zip(zip_path: str):
-    """Parse ListenBrainz export ZIP and extract user info, feedback, and listens."""
+    Returns
+    -------
+    user_info : dict
+        User metadata from user.json.
+    feedback : list[dict]
+        Raw feedback entries from feedback.jsonl (may be empty).
+    listens : list[dict]
+        Raw listen entries from listens/*.jsonl.
+    """
     with zipfile.ZipFile(zip_path, "r") as z:
-        user_info = json.loads(z.read("user.json").decode("utf-8"))
+        # User info
+        user_info_bytes = z.read("user.json")
+        user_info = json.loads(user_info_bytes.decode("utf-8"))
 
-        feedback = []
+        # Feedback (optional file)
+        feedback: List[Dict[str, Any]] = []
         if "feedback.jsonl" in z.namelist():
             with z.open("feedback.jsonl") as f:
                 for line in f:
                     feedback.append(json.loads(line.decode("utf-8")))
 
-        listens = []
+        # Listens
+        listens: List[Dict[str, Any]] = []
         for name in z.namelist():
             if name.startswith("listens/") and name.endswith(".jsonl"):
                 with z.open(name) as f:
@@ -38,28 +47,46 @@ def parse_listenbrainz_zip(zip_path: str):
     return user_info, feedback, listens
 
 
-def normalize_listens(listens, zip_path: str | None = None) -> pd.DataFrame:
-    """Normalize raw ListenBrainz listen objects into a flat DataFrame."""
-    records = []
+def normalize_listens(
+    listens: Iterable[Dict[str, Any]],
+    origin: Iterable[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Normalize raw ListenBrainz listen objects into a flat canonical DataFrame.
 
-    log_file = None
-    if zip_path:
-        base_dir = os.path.dirname(zip_path)
-        reports_dir = os.path.join(base_dir, "reports")
-        os.makedirs(reports_dir, exist_ok=True)
-        log_file = os.path.join(reports_dir, "missing_album_info.txt")
+    Parameters
+    ----------
+    listens : iterable of dict
+        Raw listen objects as returned from parse_listenbrainz_zip.
+    origin : iterable of str, optional
+        One or more origin tags to attach to each listen.
+        For ListenBrainz ZIP imports this should be ["listenbrainz_zip"].
 
-        if os.path.exists(log_file):
-            with open(log_file, "w", encoding="utf-8") as f:
-                f.write("")
+    Returns
+    -------
+    df : pandas.DataFrame
+        Canonical listens table with at least these columns:
+        - artist (str)
+        - artist_mbid (str, optional)
+        - album (str)
+        - track_name (str)
+        - duration_ms (int)
+        - listened_at (datetime, UTC)
+        - recording_mbid (str, optional)
+        - release_mbid (str, optional, currently not populated)
+        - origin (list[str])
+    """
+    origin_list: List[str] = list(origin) if origin is not None else ["listenbrainz_zip"]
+    records: List[Dict[str, Any]] = []
 
     for l in listens:
-        meta = l.get("track_metadata", {})
+        meta = l.get("track_metadata", {}) or {}
         mbid_mapping = meta.get("mbid_mapping") or {}
+        additional_info = meta.get("additional_info", {}) or {}
 
         # Artist extraction
-        artists = []
-        if "artists" in mbid_mapping and mbid_mapping["artists"]:
+        artists: List[str] = []
+        if mbid_mapping.get("artists"):
             artists = [
                 a.get("artist_credit_name")
                 for a in mbid_mapping["artists"]
@@ -71,73 +98,120 @@ def normalize_listens(listens, zip_path: str | None = None) -> pd.DataFrame:
             else:
                 artists = ["Unknown"]
 
-        album_name = meta.get("release_name", "Unknown")
+        # Album
+        album_name = meta.get("release_name") or "Unknown"
 
-        if album_name == "Unknown" and log_file:
-            with open(log_file, "a", encoding="utf-8") as f:
-                f.write(
-                    f"[WARN] Unknown album- Artist='{artists[0]}', "
-                    f"Track='{meta.get('track_name','Unknown')}', Album='Unknown'\n"
-                )
+        # Duration in ms
+        duration_ms = additional_info.get("duration_ms")
+        if duration_ms is None and "duration" in additional_info:
+            try:
+                duration_ms = int(additional_info["duration"]) * 1000
+            except (TypeError, ValueError):
+                duration_ms = None
+        if duration_ms is None:
+            duration_ms = 0
 
-        # Duration
-        info = meta.get("additional_info", {}) or {}
-        duration_ms = info.get("duration_ms")
-        if duration_ms is None and "duration" in info:
-            duration_ms = info["duration"] * 1000
-
+        # Listened at (UTC)
         listened_at = l.get("listened_at")
         listened_dt = datetime.fromtimestamp(listened_at, UTC) if listened_at else None
 
         # Recording MBID
         recording_mbid = None
-        if meta.get("mbid_mapping"):
-            recording_mbid = meta["mbid_mapping"].get("recording_mbid")
-        elif meta.get("additional_info") and meta["additional_info"].get(
-            "lastfm_recording_mbid"
-        ):
-            recording_mbid = meta["additional_info"]["lastfm_recording_mbid"]
+        if mbid_mapping.get("recording_mbid"):
+            recording_mbid = mbid_mapping["recording_mbid"]
+        elif additional_info.get("lastfm_recording_mbid"):
+            recording_mbid = additional_info["lastfm_recording_mbid"]
 
-        # Artist → MBID map
-        artist_mbid_map = {}
-        if "artists" in mbid_mapping and mbid_mapping["artists"]:
+        # Artist MBID map
+        artist_mbid_map: Dict[str, str | None] = {}
+        if mbid_mapping.get("artists"):
             for a in mbid_mapping["artists"]:
                 name = a.get("artist_credit_name")
                 mbid = a.get("artist_mbid")
                 if name:
                     artist_mbid_map[name] = mbid
 
+        # Release MBID (not always present, keep for future use)
+        release_mbid = mbid_mapping.get("release_mbid")
+
+        track_name = meta.get("track_name") or "Unknown"
+
+        # One row per artist for multi artist credits
         for artist in artists:
             records.append(
                 {
                     "artist": artist,
                     "artist_mbid": artist_mbid_map.get(artist),
                     "album": album_name,
-                    "track_name": meta.get("track_name", "Unknown"),
-                    "duration_ms": duration_ms or 0,
+                    "track_name": track_name,
+                    "duration_ms": duration_ms,
                     "listened_at": listened_dt,
                     "recording_mbid": recording_mbid,
+                    "release_mbid": release_mbid,
+                    "origin": origin_list.copy(),
                 }
             )
 
-    return pd.DataFrame(records)
+    if not records:
+        # Return an empty DataFrame with the canonical columns
+        return pd.DataFrame(
+            columns=[
+                "artist",
+                "artist_mbid",
+                "album",
+                "track_name",
+                "duration_ms",
+                "listened_at",
+                "recording_mbid",
+                "release_mbid",
+                "origin",
+            ]
+        )
+
+    return pd.DataFrame.from_records(records)
 
 
-def load_feedback(feedback):
-    """Extract liked recording MBIDs from feedback entries."""
-    likes = set()
+def load_feedback(feedback: Iterable[Dict[str, Any]]) -> Set[str]:
+    """
+    Extract liked recording MBIDs from feedback entries.
+
+    Parameters
+    ----------
+    feedback : iterable of dict
+        Raw feedback entries as returned from parse_listenbrainz_zip.
+
+    Returns
+    -------
+    likes : set of str
+        Set of recording MBIDs that have a positive score.
+    """
+    likes: Set[str] = set()
     for row in feedback:
         if row.get("score") == 1 and row.get("recording_mbid"):
             likes.add(row["recording_mbid"])
     return likes
+    
+    
+def load_listens_from_zip(zip_path: str) -> tuple[pd.DataFrame, Set[str]]:
+    """
+    Convenience loader for the GUI.
 
+    Parse a ListenBrainz export ZIP, normalize listens into the canonical schema,
+    and extract liked recording MBIDs from feedback.
 
-# CLI entry point preserved
-if __name__ == "__main__":
-    zip_path = select_zip_file()
-    if not zip_path:
-        raise SystemExit("No ZIP file selected.")
+    Parameters
+    ----------
+    zip_path : str
+        Path to the ListenBrainz export ZIP file.
 
+    Returns
+    -------
+    df : pandas.DataFrame
+        Canonical listens DataFrame.
+    likes : set of str
+        Set of liked recording MBIDs from feedback.
+    """
     user_info, feedback, listens = parse_listenbrainz_zip(zip_path)
-    df = normalize_listens(listens, zip_path)
-    print(df.head())
+    df = normalize_listens(listens, origin=["listenbrainz_zip"])
+    likes = load_feedback(feedback)
+    return df, likes

@@ -1,6 +1,6 @@
 """
 gui.py
-Tkinter GUI for BrainzMRI, using parsing/reporting/enrichment modules.
+Tkinter GUI for BrainzMRI, using parsing, reporting, and enrichment modules.
 """
 
 import json
@@ -38,7 +38,6 @@ class BrainzMRIGUI:
         self.root = root
         self.root.title("BrainzMRI - ListenBrainz Metadata Review Instrument")
 
-        # Build main window
         self.root.geometry("1000x700")
         self.root.minsize(1000, 700)
         self.root.resizable(True, True)
@@ -76,6 +75,11 @@ class BrainzMRIGUI:
                 "kwargs": {},
                 "status": "Liked artists report generated.",
             },
+            "Raw Listens": {
+                "func": reporting.report_raw_listens,
+                "kwargs": {},
+                "status": "Raw listens displayed.",
+            },
         }
 
         # Status bar
@@ -103,9 +107,9 @@ class BrainzMRIGUI:
             self.zip_path = last
             self.lbl_zip.config(text=os.path.basename(last), fg="black")
 
-            user_info, feedback, listens = parsing.parse_listenbrainz_zip(last)
+            df, feedback = parsing.load_listens_from_zip(last)
+            self.df = df
             self.feedback = feedback
-            self.df = parsing.normalize_listens(listens, last)
 
             self.set_status(f"Auto-loaded: {os.path.basename(last)}")
         else:
@@ -239,6 +243,7 @@ class BrainzMRIGUI:
                 "By Album",
                 "By Track",
                 "All Liked Artists",
+                "Raw Listens",
             ],
             state="readonly",
         )
@@ -323,9 +328,9 @@ class BrainzMRIGUI:
 
         self.lbl_zip.config(text=os.path.basename(path), fg="black")
 
-        user_info, feedback, listens = parsing.parse_listenbrainz_zip(path)
+        df, feedback = parsing.load_listens_from_zip(path)
+        self.df = df
         self.feedback = feedback
-        self.df = parsing.normalize_listens(listens, path)
 
         self.zip_path = path
         self.set_status("Zip loaded.")
@@ -342,18 +347,9 @@ class BrainzMRIGUI:
 
         df = self.df.copy()
 
-        # Determine entity column(s) for recency filtering
         mode = self.report_type.get()
-        if mode == "By Artist":
-            entity_cols = ["artist"]
-        elif mode == "By Album":
-            entity_cols = ["artist", "album"]
-        elif mode == "By Track":
-            entity_cols = ["artist", "track_name"]
-        else:
-            entity_cols = ["artist"]  # Liked Artists uses artist only
 
-        # Time range filter on raw listens
+        # Time range filter
         try:
             t_start = int(self.ent_time_start.get())
             t_end = int(self.ent_time_end.get())
@@ -365,49 +361,47 @@ class BrainzMRIGUI:
             messagebox.showerror("Error", "Time range must be numeric.")
             self.set_status("Error: Time range must be numeric.")
             return
-        except Exception as e:
-            messagebox.showerror(
-                "Unexpected Error in Time Range", f"{type(e).__name__}: {e}"
-            )
-            self.set_status("Error: Unexpected Error in Time Range.")
-            return
 
-        # Recency filter (entity-level exclusion)
-        try:
-            l_start = int(self.ent_last_start.get())
-            l_end = int(self.ent_last_end.get())
-            rec_start = min(l_start, l_end)
-            rec_end = max(l_start, l_end)
+        # Recency filter (skip for Raw Listens)
+        if mode != "Raw Listens":
+            try:
+                l_start = int(self.ent_last_start.get())
+                l_end = int(self.ent_last_end.get())
+                rec_start = min(l_start, l_end)
+                rec_end = max(l_start, l_end)
 
-            if not (rec_start == 0 and rec_end == 0):
-                now = datetime.now(timezone.utc)
-                min_dt = now - timedelta(days=rec_end)
-                max_dt = now - timedelta(days=rec_start)
+                if not (rec_start == 0 and rec_end == 0):
+                    now = datetime.now(timezone.utc)
+                    min_dt = now - timedelta(days=rec_end)
+                    max_dt = now - timedelta(days=rec_start)
 
-                true_last = (
-                    df.groupby(entity_cols)["listened_at"]
-                    .max()
-                    .reset_index()
-                    .rename(columns={"listened_at": "true_last_listened"})
-                )
+                    if mode == "By Artist":
+                        entity_cols = ["artist"]
+                    elif mode == "By Album":
+                        entity_cols = ["artist", "album"]
+                    elif mode == "By Track":
+                        entity_cols = ["artist", "track_name"]
+                    else:
+                        entity_cols = ["artist"]
 
-                allowed = true_last[
-                    (true_last["true_last_listened"] >= min_dt)
-                    & (true_last["true_last_listened"] <= max_dt)
-                ]
+                    true_last = (
+                        df.groupby(entity_cols)["listened_at"]
+                        .max()
+                        .reset_index()
+                        .rename(columns={"listened_at": "true_last_listened"})
+                    )
 
-                df = df.merge(allowed[entity_cols], on=entity_cols, how="inner")
+                    allowed = true_last[
+                        (true_last["true_last_listened"] >= min_dt)
+                        & (true_last["true_last_listened"] <= max_dt)
+                    ]
 
-        except ValueError:
-            messagebox.showerror("Error", "Last listened range must be numeric.")
-            self.set_status("Error: Last listened range must be numeric.")
-            return
-        except Exception as e:
-            messagebox.showerror(
-                "Unexpected Error in Last Listened", f"{type(e).__name__}: {e}"
-            )
-            self.set_status("Error: Unexpected Error in Last Listened.")
-            return
+                    df = df.merge(allowed[entity_cols], on=entity_cols, how="inner")
+
+            except ValueError:
+                messagebox.showerror("Error", "Last listened range must be numeric.")
+                self.set_status("Error: Last listened range must be numeric.")
+                return
 
         # Thresholds and Top N
         try:
@@ -419,7 +413,6 @@ class BrainzMRIGUI:
             self.set_status("Error: Invalid numeric filter values.")
             return
 
-        mode = self.report_type.get()
         handler = self.report_handlers.get(mode)
         if handler is None:
             messagebox.showerror("Error", "Unsupported report type.")
@@ -439,6 +432,7 @@ class BrainzMRIGUI:
                 }
             )
             result, meta = func(df, **kwargs)
+
         elif func is reporting.report_artists_with_likes:
             liked_mbids = parsing.load_feedback(self.feedback)
             result, meta = func(
@@ -448,22 +442,27 @@ class BrainzMRIGUI:
                 min_minutes=min_minutes,
                 topn=topn,
             )
+
+        elif func is reporting.report_raw_listens:
+            result, meta = func(df, topn=topn)
+
         else:
             result, meta = func(df, **kwargs)
 
-        # Optional enrichment
+        # Optional enrichment (skip for Raw Listens)
         self.last_enriched = False
-        report_type_key = (
-            "artist"
-            if mode == "By Artist"
-            else "album"
-            if mode == "By Album"
-            else "track"
-            if mode == "By Track"
-            else "liked_artists"
-        )
+        if mode == "By Artist":
+            report_type_key = "artist"
+        elif mode == "By Album":
+            report_type_key = "album"
+        elif mode == "By Track":
+            report_type_key = "track"
+        elif mode == "All Liked Artists":
+            report_type_key = "liked_artists"
+        else:
+            report_type_key = "raw"
 
-        if self.do_enrich_var.get():
+        if self.do_enrich_var.get() and mode != "Raw Listens":
             if not self.zip_path:
                 messagebox.showerror(
                     "Error", "Cannot perform enrichment without a ZIP path."
@@ -481,11 +480,9 @@ class BrainzMRIGUI:
         self.last_mode = mode
         self.last_report_type_key = report_type_key
 
-        # Initialize filter state
         self.original_df = result.copy()
         self.filtered_df = result.copy()
 
-        # Display
         self.show_table(result)
         self.set_status(handler["status"])
 
