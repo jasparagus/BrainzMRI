@@ -41,6 +41,22 @@ def get_user_cache_dir(username: str) -> str:
     return user_dir
 
 
+def get_cached_usernames() -> list[str]:
+    """
+    Return a sorted list of cached usernames based on the user cache directory.
+    """
+    cache_root = get_cache_root()
+    users_root = os.path.join(cache_root, "users")
+    if not os.path.exists(users_root):
+        return []
+    names = []
+    for entry in os.listdir(users_root):
+        full = os.path.join(users_root, entry)
+        if os.path.isdir(full):
+            names.append(entry)
+    return sorted(names)
+
+
 @dataclass
 class User:
     """
