@@ -7,32 +7,53 @@ from tqdm import tqdm
 import pandas as pd
 
 
+# ------------------------------------------------------------
+# Cache Helpers
+# ------------------------------------------------------------
+
 def load_genre_cache(cache_path: str):
-    """Load the genre cache from disk."""
-    if os.path.exists(cache_path):
-        with open(cache_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+    """
+    Load the genre cache from disk.
 
-        if isinstance(data, dict):
-            converted = []
-            for artist, genres in data.items():
-                converted.append(
-                    {
-                        "entity": "artist",
-                        "artist": artist,
-                        "album": None,
-                        "track": None,
-                        "artist_mbid": None,
-                        "release_mbid": None,
-                        "recording_mbid": None,
-                        "genres": genres,
-                    }
-                )
-            return converted
+    Returns
+    -------
+    list[dict]
+        List of cache entries with fields:
+        - entity
+        - artist
+        - album
+        - track
+        - artist_mbid
+        - release_mbid
+        - recording_mbid
+        - genres
+    """
+    if not os.path.exists(cache_path):
+        return []
 
-        return data
+    with open(cache_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
 
-    return []
+    # Legacy format: { "Artist Name": ["genre1", "genre2"] }
+    if isinstance(data, dict):
+        converted = []
+        for artist, genres in data.items():
+            converted.append(
+                {
+                    "entity": "artist",
+                    "artist": artist,
+                    "album": None,
+                    "track": None,
+                    "artist_mbid": None,
+                    "release_mbid": None,
+                    "recording_mbid": None,
+                    "genres": genres,
+                }
+            )
+        return converted
+
+    # Newer list-based format
+    return data
 
 
 def save_genre_cache(cache, cache_path: str):
@@ -42,6 +63,7 @@ def save_genre_cache(cache, cache_path: str):
 
 
 def _lookup_artist_entry(cache, artist_name: str):
+    """Return the cache entry for the given artist, or None."""
     for entry in cache:
         if entry.get("entity") == "artist" and entry.get("artist") == artist_name:
             return entry
@@ -49,6 +71,7 @@ def _lookup_artist_entry(cache, artist_name: str):
 
 
 def _get_or_create_artist_entry(cache, artist_name: str):
+    """Return an existing cache entry or create a new one."""
     entry = _lookup_artist_entry(cache, artist_name)
     if entry is None:
         entry = {
@@ -65,8 +88,19 @@ def _get_or_create_artist_entry(cache, artist_name: str):
     return entry
 
 
+# ------------------------------------------------------------
+# API Lookup
+# ------------------------------------------------------------
+
 def get_artist_genres(artist_name: str):
-    """Query MusicBrainz for genre tags."""
+    """
+    Query MusicBrainz for genre tags.
+
+    Returns
+    -------
+    list[str]
+        List of genre names, or ["Unknown"] if unavailable.
+    """
     query = urllib.parse.quote(artist_name)
     url = f"https://musicbrainz.org/ws/2/artist/?query={query}&fmt=json"
 
@@ -83,8 +117,28 @@ def get_artist_genres(artist_name: str):
     return ["Unknown"]
 
 
+# ------------------------------------------------------------
+# Enrichment Logic
+# ------------------------------------------------------------
+
 def enrich_report_with_genres(report_df: pd.DataFrame, zip_path: str, use_api: bool = True):
-    """Add genre information to an artist-based report."""
+    """
+    Add genre information to an artist-based report.
+
+    Parameters
+    ----------
+    report_df : DataFrame
+        Report DataFrame containing an "artist" column.
+    zip_path : str
+        Path to the original ZIP (used to locate /reports folder).
+    use_api : bool
+        Whether to query MusicBrainz API for missing genres.
+
+    Returns
+    -------
+    DataFrame
+        Enriched DataFrame with a "Genres" column.
+    """
     base_dir = os.path.dirname(zip_path)
     reports_dir = os.path.join(base_dir, "reports")
     os.makedirs(reports_dir, exist_ok=True)
@@ -92,43 +146,42 @@ def enrich_report_with_genres(report_df: pd.DataFrame, zip_path: str, use_api: b
     cache_path = os.path.join(reports_dir, "genres_cache.json")
     genre_cache = load_genre_cache(cache_path)
 
+    # Work with artist as index for convenience
     if "artist" in report_df.columns:
         work_df = report_df.set_index("artist")
     else:
         work_df = report_df.copy()
 
     genres = []
-    cache_hits = 0
-    api_hits = 0
-    api_failures = 0
 
     with tqdm(total=len(work_df), desc="Enriching artists") as pbar:
         for artist in work_df.index:
             entry = _lookup_artist_entry(genre_cache, artist)
+
+            # Cache hit
             if entry is not None and entry.get("genres") and entry["genres"] != ["Unknown"]:
                 g = entry["genres"]
-                cache_hits += 1
+
+            # Cache miss
             else:
                 if use_api:
                     g = get_artist_genres(artist)
-                    time.sleep(1.2)
-                    if not g or g == ["Unknown"]:
-                        api_failures += 1
-                    else:
-                        api_hits += 1
+                    time.sleep(1.2)  # Rate limiting
                 else:
                     g = ["Unknown"]
-                    api_failures += 1
 
                 entry = _get_or_create_artist_entry(genre_cache, artist)
+
+                # Update MBID if available
                 if "artist_mbid" in work_df.columns:
                     mbid = work_df.loc[artist, "artist_mbid"]
                     if mbid:
                         entry["artist_mbid"] = mbid
+
                 entry["genres"] = g
                 save_genre_cache(genre_cache, cache_path)
 
-            # Missing genre logging
+            # Log missing genres
             if g == ["Unknown"]:
                 missing_log_path = os.path.join(reports_dir, "missing_genres.txt")
                 mbid = entry.get("artist_mbid") or None
@@ -147,7 +200,25 @@ def enrich_report_with_genres(report_df: pd.DataFrame, zip_path: str, use_api: b
 
 
 def enrich_report(df: pd.DataFrame, report_type: str, source: str, zip_path: str):
-    """Generic enrichment entry point."""
+    """
+    Generic enrichment entry point.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Report DataFrame.
+    report_type : str
+        Report type key ("artist", "album", "track", etc.).
+    source : str
+        "Cache" or "Query API (Slow)".
+    zip_path : str
+        Path to original ZIP.
+
+    Returns
+    -------
+    DataFrame
+        Enriched DataFrame.
+    """
     use_api = source == "Query API (Slow)"
 
     if "artist" not in df.columns:

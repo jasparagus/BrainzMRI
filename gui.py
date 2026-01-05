@@ -28,33 +28,41 @@ def open_file_default(path: str) -> None:
         subprocess.Popen(["xdg-open", path])
 
 
-class BrainzMRIGUI:
-    """
-    Tkinter GUI wrapper for BrainzMRI.
-    Handles ZIP selection, report generation, filtering, and table display.
-    """
+class GUIState:
+    """Centralized state for the BrainzMRI GUI."""
 
-    def __init__(self, root: tk.Tk):
-        self.root = root
-        self.root.title("BrainzMRI - ListenBrainz Metadata Review Instrument")
+    def __init__(self) -> None:
+        # Input data
+        self.zip_path: str | None = None
+        self.listens_df = None          # Canonical listens DataFrame
+        self.liked_mbids = None         # Set of liked MBIDs
 
-        self.root.geometry("1000x700")
-        self.root.minsize(1000, 700)
-        self.root.resizable(True, True)
-        self.root.update_idletasks()
-
-        self.zip_path = None
-        self.df = None
-        self.feedback = None
-
-        self.last_result = None
+        # Last generated report
+        self.last_report_df = None
         self.last_meta = None
-        self.last_mode = None
-        self.last_report_type_key = None
-        self.last_enriched = False
+        self.last_mode: str | None = None
+        self.last_report_type_key: str | None = None
+        self.last_enriched: bool = False
 
-        # Report handlers
-        self.report_handlers = {
+        # Table/filtering state
+        self.original_df = None
+        self.filtered_df = None
+
+
+class ReportEngine:
+    """
+    Encapsulates report generation logic.
+
+    Responsible for:
+    - Time range filtering
+    - Recency filtering
+    - Thresholding and Top N
+    - Calling reporting functions
+    - Optional enrichment
+    """
+
+    def __init__(self) -> None:
+        self._handlers = {
             "By Artist": {
                 "func": reporting.report_top,
                 "kwargs": {"group_col": "artist", "by": "total_tracks"},
@@ -82,6 +90,353 @@ class BrainzMRIGUI:
             },
         }
 
+    def get_status(self, mode: str) -> str:
+        handler = self._handlers.get(mode)
+        if not handler:
+            return "Report generated."
+        return handler.get("status", "Report generated.")
+
+    def generate_report(
+        self,
+        base_df,
+        mode: str,
+        liked_mbids,
+        zip_path: str | None,
+        *,
+        time_start_days: int,
+        time_end_days: int,
+        rec_start_days: int,
+        rec_end_days: int,
+        min_listens: int,
+        min_minutes: float,
+        topn: int,
+        do_enrich: bool,
+        enrich_source: str,
+    ):
+        """
+        Generate a report for the given mode and parameters.
+
+        Returns
+        -------
+        result_df : DataFrame
+        meta : dict | None
+        report_type_key : str
+        last_enriched : bool
+        status_text : str
+        """
+        if base_df is None:
+            raise ValueError("No listens data available.")
+
+        df = base_df.copy()
+
+        # Time range filter (on listens)
+        if not (time_start_days == 0 and time_end_days == 0):
+            df = reporting.filter_by_days(
+                df,
+                "listened_at",
+                time_start_days,
+                time_end_days,
+            )
+
+        # Recency filter (skip for Raw Listens)
+        if mode != "Raw Listens":
+            if not (rec_start_days == 0 and rec_end_days == 0):
+                now = datetime.now(timezone.utc)
+                min_dt = now - timedelta(days=rec_end_days)
+                max_dt = now - timedelta(days=rec_start_days)
+
+                if mode == "By Artist":
+                    entity_cols = ["artist"]
+                elif mode == "By Album":
+                    entity_cols = ["artist", "album"]
+                elif mode == "By Track":
+                    entity_cols = ["artist", "track_name"]
+                else:
+                    entity_cols = ["artist"]
+
+                true_last = (
+                    df.groupby(entity_cols)["listened_at"]
+                    .max()
+                    .reset_index()
+                    .rename(columns={"listened_at": "true_last_listened"})
+                )
+
+                allowed = true_last[
+                    (true_last["true_last_listened"] >= min_dt)
+                    & (true_last["true_last_listened"] <= max_dt)
+                ]
+
+                df = df.merge(allowed[entity_cols], on=entity_cols, how="inner")
+
+        handler = self._handlers.get(mode)
+        if handler is None:
+            raise ValueError(f"Unsupported report type: {mode}")
+
+        func = handler["func"]
+        kwargs = handler["kwargs"].copy()
+
+        # Call appropriate reporting function
+        if func is reporting.report_top:
+            kwargs.update(
+                {
+                    "days": None,
+                    "topn": topn,
+                    "min_listens": min_listens,
+                    "min_minutes": min_minutes,
+                }
+            )
+            result, meta = func(df, **kwargs)
+
+        elif func is reporting.report_artists_with_likes:
+            if liked_mbids is None:
+                liked_mbids = set()
+            result, meta = func(
+                df,
+                liked_mbids,
+                min_listens=min_listens,
+                min_minutes=min_minutes,
+                topn=topn,
+            )
+
+        elif func is reporting.report_raw_listens:
+            result, meta = func(df, topn=topn)
+
+        else:
+            result, meta = func(df, **kwargs)
+
+        # Determine report_type_key
+        if mode == "By Artist":
+            report_type_key = "artist"
+        elif mode == "By Album":
+            report_type_key = "album"
+        elif mode == "By Track":
+            report_type_key = "track"
+        elif mode == "All Liked Artists":
+            report_type_key = "liked_artists"
+        else:
+            report_type_key = "raw"
+
+        # Optional enrichment (skip for Raw Listens)
+        last_enriched = False
+        if do_enrich and mode != "Raw Listens":
+            if not zip_path:
+                raise ValueError("Cannot perform enrichment without a ZIP path.")
+            result = enrichment.enrich_report(
+                result,
+                report_type_key,
+                enrich_source,
+                zip_path,
+            )
+            last_enriched = True
+
+        status_text = self.get_status(mode)
+        return result, meta, report_type_key, last_enriched, status_text
+
+
+class ReportTableView:
+    """
+    Encapsulates table rendering, filtering, and sorting.
+
+    Responsible for:
+    - Rendering the DataFrame into a Treeview
+    - Managing filter widgets
+    - Applying regex filters
+    - Sorting columns
+    - Copying selection to clipboard
+    """
+
+    def __init__(self, root: tk.Tk, container: tk.Frame, state: GUIState) -> None:
+        self.root = root
+        self.container = container
+        self.state = state
+
+        self.filter_by_var = tk.StringVar(value="All")
+        self.filter_entry: tk.Entry | None = None
+        self.tree: ttk.Treeview | None = None
+
+    def show_table(self, df):
+        # Preserve existing filter text if any
+        current_filter = ""
+        if self.filter_entry is not None:
+            current_filter = self.filter_entry.get()
+
+        # Clear previous contents
+        for widget in self.container.winfo_children():
+            widget.destroy()
+
+        # Filter bar
+        filter_frame = tk.Frame(self.container)
+        filter_frame.pack(fill="x", pady=5)
+
+        tk.Label(filter_frame, text="Filter By:").pack(side="left", padx=(5, 2))
+        filter_by_dropdown = ttk.Combobox(
+            filter_frame,
+            textvariable=self.filter_by_var,
+            state="readonly",
+            width=18,
+        )
+        filter_by_dropdown.pack(side="left", padx=(0, 10))
+
+        cols = list(df.columns)
+        filter_by_dropdown["values"] = ["All"] + cols
+        if self.filter_by_var.get() not in ["All"] + cols:
+            self.filter_by_var.set("All")
+
+        tk.Label(
+            filter_frame,
+            text='Filter (Supports Regex; Use ".*" for wildcards or "|" for OR):',
+        ).pack(side="left", padx=5)
+
+        self.filter_entry = tk.Entry(filter_frame, width=40)
+        self.filter_entry.pack(side="left", padx=5)
+
+        if current_filter:
+            self.filter_entry.insert(0, current_filter)
+
+        tk.Button(filter_frame, text="Filter", command=self.apply_filter).pack(
+            side="left", padx=5
+        )
+        tk.Button(filter_frame, text="Clear Filter", command=self.clear_filter).pack(
+            side="left", padx=5
+        )
+
+        self.filter_entry.bind("<Return>", lambda e: self.apply_filter())
+
+        # Table container
+        table_container = tk.Frame(self.container)
+        table_container.pack(fill="both", expand=True)
+
+        tree = ttk.Treeview(table_container, show="headings")
+        tree.pack(side="left", fill="both", expand=True)
+
+        scrollbar = ttk.Scrollbar(table_container, orient="vertical", command=tree.yview)
+        scrollbar.pack(side="right", fill="y")
+        tree.configure(yscrollcommand=scrollbar.set)
+
+        tree._sort_state = {}
+
+        self.tree = tree
+        tree.bind("<Control-c>", self.copy_selection_to_clipboard)
+        tree.bind("<Control-C>", self.copy_selection_to_clipboard)
+
+        tree["columns"] = list(df.columns)
+        for col in df.columns:
+            tree.heading(
+                col, text=col, command=lambda c=col: self.sort_column(tree, df, c)
+            )
+            tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
+
+        for _, row in df.iterrows():
+            tree.insert("", "end", values=list(row))
+
+    def sort_column(self, tree: ttk.Treeview, df, col: str) -> None:
+        """Sort the Treeview by the given column."""
+        descending = tree._sort_state.get(col, False)
+        tree._sort_state[col] = not descending
+
+        data = [(tree.set(k, col), k) for k in tree.get_children("")]
+
+        try:
+            data = [(float(v), k) for v, k in data]
+        except ValueError:
+            pass
+
+        data.sort(reverse=tree._sort_state[col])
+
+        for index, (_, k) in enumerate(data):
+            tree.move(k, "", index)
+
+        for c in df.columns:
+            indicator = ""
+            if c == col:
+                indicator = " ▲" if not descending else " ▼"
+            tree.heading(
+                c,
+                text=c + indicator,
+                command=lambda c=c: self.sort_column(tree, df, c),
+            )
+
+    def apply_filter(self) -> None:
+        """Apply a regex filter to the current report DataFrame."""
+        if self.state.original_df is None or self.filter_entry is None:
+            return
+
+        pattern = self.filter_entry.get().strip()
+        if not pattern:
+            return
+
+        try:
+            regex = re.compile(pattern, re.IGNORECASE)
+        except re.error:
+            messagebox.showerror("Invalid Regex", "Your regex pattern is invalid.")
+            return
+
+        df = self.state.original_df.copy()
+        col_choice = self.filter_by_var.get()
+
+        if col_choice == "All":
+            mask = df.apply(
+                lambda row: row.astype(str).str.contains(regex, regex=True).any(),
+                axis=1,
+            )
+        else:
+            if col_choice not in df.columns:
+                messagebox.showerror("Error", f"Column '{col_choice}' not found.")
+                return
+            mask = df[col_choice].astype(str).str.contains(regex, regex=True)
+
+        self.state.filtered_df = df[mask]
+        self.show_table(self.state.filtered_df)
+
+    def clear_filter(self) -> None:
+        if self.state.original_df is None or self.filter_entry is None:
+            return
+        self.state.filtered_df = self.state.original_df.copy()
+        self.show_table(self.state.original_df)
+        self.filter_entry.delete(0, tk.END)
+
+    def copy_selection_to_clipboard(self, event=None):
+        if self.tree is None:
+            return "break"
+
+        tree = self.tree
+        selected = tree.selection()
+        if not selected:
+            return "break"
+
+        rows = []
+        for item in selected:
+            values = tree.item(item, "values")
+            rows.append("\t".join(str(v) for v in values))
+
+        text = "\n".join(rows)
+
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.root.update()
+
+        return "break"
+
+
+class BrainzMRIGUI:
+    """
+    Tkinter GUI wrapper for BrainzMRI.
+    Handles ZIP selection, report generation, filtering, and table display.
+    """
+
+    def __init__(self, root: tk.Tk):
+        self.root = root
+        self.root.title("BrainzMRI - ListenBrainz Metadata Review Instrument")
+
+        self.root.geometry("1000x700")
+        self.root.minsize(1000, 700)
+        self.root.resizable(True, True)
+        self.root.update_idletasks()
+
+        # Centralized state and engine
+        self.state = GUIState()
+        self.report_engine = ReportEngine()
+
         # Status bar
         self.status_var = tk.StringVar(value="Ready.")
         self.status_bar = tk.Label(
@@ -101,19 +456,6 @@ class BrainzMRIGUI:
 
         self.lbl_zip = tk.Label(frm_zip, text="No file selected", fg="gray")
         self.lbl_zip.pack(pady=5)
-
-        last = self.load_config().get("last_zip")
-        if last and os.path.exists(last):
-            self.zip_path = last
-            self.lbl_zip.config(text=os.path.basename(last), fg="black")
-
-            df, feedback = parsing.load_listens_from_zip(last)
-            self.df = df
-            self.feedback = feedback
-
-            self.set_status(f"Auto-loaded: {os.path.basename(last)}")
-        else:
-            self.set_status("Ready.")
 
         # Input fields container
         frm_inputs = tk.Frame(root)
@@ -274,15 +616,26 @@ class BrainzMRIGUI:
 
         self.status_bar.pack(fill="x", side="bottom")
 
-        # Table viewer frame
+        # Table viewer frame and view manager
         self.table_frame = tk.Frame(root)
         self.table_frame.pack(fill="both", expand=True)
         self.table_frame.pack_propagate(False)
 
-        # Filter state
-        self.original_df = None
-        self.filtered_df = None
-        self.filter_by_var = tk.StringVar(value="All")
+        self.table_view = ReportTableView(self.root, self.table_frame, self.state)
+
+        # Load last ZIP if available
+        last = self.load_config().get("last_zip")
+        if last and os.path.exists(last):
+            self.state.zip_path = last
+            self.lbl_zip.config(text=os.path.basename(last), fg="black")
+
+            df, feedback = parsing.load_listens_from_zip(last)
+            self.state.listens_df = df
+            self.state.liked_mbids = feedback
+
+            self.set_status(f"Auto-loaded: {os.path.basename(last)}")
+        else:
+            self.set_status("Ready.")
 
     # -----------------------
     # Utility methods
@@ -329,360 +682,139 @@ class BrainzMRIGUI:
         self.lbl_zip.config(text=os.path.basename(path), fg="black")
 
         df, feedback = parsing.load_listens_from_zip(path)
-        self.df = df
-        self.feedback = feedback
+        self.state.listens_df = df
+        self.state.liked_mbids = feedback
 
-        self.zip_path = path
+        self.state.zip_path = path
         self.set_status("Zip loaded.")
 
     # -----------------------
     # Report generation
     # -----------------------
 
+    def _parse_int_field(self, entry: tk.Entry, field_name: str) -> int:
+        value = entry.get().strip()
+        try:
+            return int(value)
+        except ValueError:
+            raise ValueError(f"{field_name} must be numeric.")
+
+    def _parse_float_field(self, entry: tk.Entry, field_name: str) -> float:
+        value = entry.get().strip()
+        try:
+            return float(value)
+        except ValueError:
+            raise ValueError(f"{field_name} must be numeric.")
+
     def run_report(self) -> None:
-        if self.df is None:
+        if self.state.listens_df is None:
             messagebox.showerror("Error", "Please select a ListenBrainz ZIP file first.")
             self.set_status("Error: Please select a ListenBrainz ZIP file first.")
             return
 
-        df = self.df.copy()
-
         mode = self.report_type.get()
 
-        # Time range filter
+        # Parse numeric inputs
         try:
-            t_start = int(self.ent_time_start.get())
-            t_end = int(self.ent_time_end.get())
+            t_start = self._parse_int_field(self.ent_time_start, "Time range")
+            t_end = self._parse_int_field(self.ent_time_end, "Time range")
             time_start = min(t_start, t_end)
             time_end = max(t_start, t_end)
-            if not (time_start == 0 and time_end == 0):
-                df = reporting.filter_by_days(df, "listened_at", time_start, time_end)
-        except ValueError:
-            messagebox.showerror("Error", "Time range must be numeric.")
-            self.set_status("Error: Time range must be numeric.")
+
+            l_start = self._parse_int_field(self.ent_last_start, "Last listened range")
+            l_end = self._parse_int_field(self.ent_last_end, "Last listened range")
+            rec_start = min(l_start, l_end)
+            rec_end = max(l_start, l_end)
+
+            min_listens = self._parse_int_field(self.ent_min_listens, "Minimum listens")
+            min_minutes = self._parse_float_field(
+                self.ent_min_minutes, "Minimum time listened"
+            )
+            topn = self._parse_int_field(self.ent_topn, "Top N")
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+            self.set_status(f"Error: {str(e)}")
             return
 
-        # Recency filter (skip for Raw Listens)
-        if mode != "Raw Listens":
-            try:
-                l_start = int(self.ent_last_start.get())
-                l_end = int(self.ent_last_end.get())
-                rec_start = min(l_start, l_end)
-                rec_end = max(l_start, l_end)
+        do_enrich = self.do_enrich_var.get()
+        enrich_source = self.enrich_source_var.get()
 
-                if not (rec_start == 0 and rec_end == 0):
-                    now = datetime.now(timezone.utc)
-                    min_dt = now - timedelta(days=rec_end)
-                    max_dt = now - timedelta(days=rec_start)
-
-                    if mode == "By Artist":
-                        entity_cols = ["artist"]
-                    elif mode == "By Album":
-                        entity_cols = ["artist", "album"]
-                    elif mode == "By Track":
-                        entity_cols = ["artist", "track_name"]
-                    else:
-                        entity_cols = ["artist"]
-
-                    true_last = (
-                        df.groupby(entity_cols)["listened_at"]
-                        .max()
-                        .reset_index()
-                        .rename(columns={"listened_at": "true_last_listened"})
-                    )
-
-                    allowed = true_last[
-                        (true_last["true_last_listened"] >= min_dt)
-                        & (true_last["true_last_listened"] <= max_dt)
-                    ]
-
-                    df = df.merge(allowed[entity_cols], on=entity_cols, how="inner")
-
-            except ValueError:
-                messagebox.showerror("Error", "Last listened range must be numeric.")
-                self.set_status("Error: Last listened range must be numeric.")
-                return
-
-        # Thresholds and Top N
+        # Generate report via engine
         try:
-            min_listens = int(self.ent_min_listens.get())
-            min_minutes = float(self.ent_min_minutes.get())
-            topn = int(self.ent_topn.get())
-        except Exception:
-            messagebox.showerror("Error", "Invalid numeric filter values.")
-            self.set_status("Error: Invalid numeric filter values.")
-            return
-
-        handler = self.report_handlers.get(mode)
-        if handler is None:
-            messagebox.showerror("Error", "Unsupported report type.")
-            self.set_status("Error: Unsupported report type.")
-            return
-
-        func = handler["func"]
-        kwargs = handler["kwargs"].copy()
-
-        if func is reporting.report_top:
-            kwargs.update(
-                {
-                    "days": None,
-                    "topn": topn,
-                    "min_listens": min_listens,
-                    "min_minutes": min_minutes,
-                }
-            )
-            result, meta = func(df, **kwargs)
-
-        elif func is reporting.report_artists_with_likes:
-            liked_mbids = parsing.load_feedback(self.feedback)
-            result, meta = func(
-                df,
-                liked_mbids,
-                min_listens=min_listens,
-                min_minutes=min_minutes,
-                topn=topn,
-            )
-
-        elif func is reporting.report_raw_listens:
-            result, meta = func(df, topn=topn)
-
-        else:
-            result, meta = func(df, **kwargs)
-
-        # Optional enrichment (skip for Raw Listens)
-        self.last_enriched = False
-        if mode == "By Artist":
-            report_type_key = "artist"
-        elif mode == "By Album":
-            report_type_key = "album"
-        elif mode == "By Track":
-            report_type_key = "track"
-        elif mode == "All Liked Artists":
-            report_type_key = "liked_artists"
-        else:
-            report_type_key = "raw"
-
-        if self.do_enrich_var.get() and mode != "Raw Listens":
-            if not self.zip_path:
-                messagebox.showerror(
-                    "Error", "Cannot perform enrichment without a ZIP path."
+            result, meta, report_type_key, last_enriched, status_text = (
+                self.report_engine.generate_report(
+                    self.state.listens_df,
+                    mode,
+                    self.state.liked_mbids,
+                    self.state.zip_path,
+                    time_start_days=time_start,
+                    time_end_days=time_end,
+                    rec_start_days=rec_start,
+                    rec_end_days=rec_end,
+                    min_listens=min_listens,
+                    min_minutes=min_minutes,
+                    topn=topn,
+                    do_enrich=do_enrich,
+                    enrich_source=enrich_source,
                 )
-                self.set_status("Error: No ZIP path for enrichment.")
-                return
-
-            source = self.enrich_source_var.get()
-            result = enrichment.enrich_report(result, report_type_key, source, self.zip_path)
-            self.last_enriched = True
+            )
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+            self.set_status(f"Error: {str(e)}")
+            return
+        except Exception as e:
+            messagebox.showerror(
+                "Unexpected Error", f"{type(e).__name__}: {e}"
+            )
+            self.set_status("Error: Unexpected error during report generation.")
+            return
 
         # Save state
-        self.last_result = result
-        self.last_meta = meta
-        self.last_mode = mode
-        self.last_report_type_key = report_type_key
+        self.state.last_report_df = result
+        self.state.last_meta = meta
+        self.state.last_mode = mode
+        self.state.last_report_type_key = report_type_key
+        self.state.last_enriched = last_enriched
 
-        self.original_df = result.copy()
-        self.filtered_df = result.copy()
+        self.state.original_df = result.copy()
+        self.state.filtered_df = result.copy()
 
-        self.show_table(result)
-        self.set_status(handler["status"])
+        # Display
+        self.table_view.show_table(result)
+        self.set_status(status_text)
 
     # -----------------------
     # Saving reports
     # -----------------------
 
     def save_report(self) -> None:
-        if self.last_result is None:
+        if self.state.last_report_df is None:
             messagebox.showerror("Error", "No report to save. Generate a report first.")
             self.set_status("Error: No report to save.")
             return
 
         try:
-            if self.last_meta is None:
-                report_name = self.last_mode.replace(" ", "_")
+            if self.state.last_meta is None:
+                report_name = (self.state.last_mode or "Report").replace(" ", "_")
                 filepath = reporting.save_report(
-                    self.last_result,
-                    self.zip_path,
+                    self.state.last_report_df,
+                    self.state.zip_path,
                     report_name=report_name,
                 )
             else:
                 filepath = reporting.save_report(
-                    self.last_result,
-                    self.zip_path,
-                    meta=self.last_meta,
+                    self.state.last_report_df,
+                    self.state.zip_path,
+                    meta=self.state.last_meta,
                 )
 
             open_file_default(filepath)
-            self.set_status(f"{self.last_mode} report saved and opened.")
+            self.set_status(f"{self.state.last_mode} report saved and opened.")
         except Exception as e:
             messagebox.showerror(
                 "Error", f"Failed to save report: {type(e).__name__}: {e}"
             )
             self.set_status("Error: Failed to save report.")
-
-    # -----------------------
-    # Table and filtering
-    # -----------------------
-
-    def show_table(self, df):
-        # Preserve existing filter text if any
-        try:
-            current_filter = self.filter_entry.get()
-        except AttributeError:
-            current_filter = ""
-
-        # Clear previous contents
-        for widget in self.table_frame.winfo_children():
-            widget.destroy()
-
-        # Filter bar
-        filter_frame = tk.Frame(self.table_frame)
-        filter_frame.pack(fill="x", pady=5)
-
-        tk.Label(filter_frame, text="Filter By:").pack(side="left", padx=(5, 2))
-        self.filter_by_dropdown = ttk.Combobox(
-            filter_frame,
-            textvariable=self.filter_by_var,
-            state="readonly",
-            width=18,
-        )
-        self.filter_by_dropdown.pack(side="left", padx=(0, 10))
-
-        cols = list(df.columns)
-        self.filter_by_dropdown["values"] = ["All"] + cols
-        if self.filter_by_var.get() not in ["All"] + cols:
-            self.filter_by_var.set("All")
-
-        tk.Label(
-            filter_frame,
-            text='Filter (Supports Regex; Use ".*" for wildcards or "|" for OR):',
-        ).pack(side="left", padx=5)
-
-        self.filter_entry = tk.Entry(filter_frame, width=40)
-        self.filter_entry.pack(side="left", padx=5)
-
-        if current_filter:
-            self.filter_entry.insert(0, current_filter)
-
-        tk.Button(filter_frame, text="Filter", command=self.apply_filter).pack(
-            side="left", padx=5
-        )
-        tk.Button(filter_frame, text="Clear Filter", command=self.clear_filter).pack(
-            side="left", padx=5
-        )
-
-        self.filter_entry.bind("<Return>", lambda e: self.apply_filter())
-
-        # Table container
-        container = tk.Frame(self.table_frame)
-        container.pack(fill="both", expand=True)
-
-        tree = ttk.Treeview(container, show="headings")
-        tree.pack(side="left", fill="both", expand=True)
-
-        scrollbar = ttk.Scrollbar(container, orient="vertical", command=tree.yview)
-        scrollbar.pack(side="right", fill="y")
-        tree.configure(yscrollcommand=scrollbar.set)
-
-        tree._sort_state = {}
-
-        self.tree = tree
-        tree.bind("<Control-c>", self.copy_selection_to_clipboard)
-        tree.bind("<Control-C>", self.copy_selection_to_clipboard)
-
-        tree["columns"] = list(df.columns)
-        for col in df.columns:
-            tree.heading(
-                col, text=col, command=lambda c=col: self.sort_column(tree, df, c)
-            )
-            tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
-
-        for _, row in df.iterrows():
-            tree.insert("", "end", values=list(row))
-
-    def sort_column(self, tree: ttk.Treeview, df, col: str) -> None:
-        """Sort the Treeview by the given column."""
-        descending = tree._sort_state.get(col, False)
-        tree._sort_state[col] = not descending
-
-        data = [(tree.set(k, col), k) for k in tree.get_children("")]
-
-        try:
-            data = [(float(v), k) for v, k in data]
-        except ValueError:
-            pass
-
-        data.sort(reverse=tree._sort_state[col])
-
-        for index, (_, k) in enumerate(data):
-            tree.move(k, "", index)
-
-        for c in df.columns:
-            indicator = ""
-            if c == col:
-                indicator = " ▲" if not descending else " ▼"
-            tree.heading(
-                c,
-                text=c + indicator,
-                command=lambda c=c: self.sort_column(tree, df, c),
-            )
-
-    def apply_filter(self) -> None:
-        """Apply a regex filter to the current report DataFrame."""
-        if self.original_df is None:
-            return
-
-        pattern = self.filter_entry.get().strip()
-        if not pattern:
-            return
-
-        try:
-            regex = re.compile(pattern, re.IGNORECASE)
-        except re.error:
-            messagebox.showerror("Invalid Regex", "Your regex pattern is invalid.")
-            return
-
-        df = self.original_df.copy()
-        col_choice = self.filter_by_var.get()
-
-        if col_choice == "All":
-            mask = df.apply(
-                lambda row: row.astype(str).str.contains(regex, regex=True).any(),
-                axis=1,
-            )
-        else:
-            if col_choice not in df.columns:
-                messagebox.showerror("Error", f"Column '{col_choice}' not found.")
-                return
-            mask = df[col_choice].astype(str).str.contains(regex, regex=True)
-
-        self.filtered_df = df[mask]
-        self.show_table(self.filtered_df)
-
-    def clear_filter(self) -> None:
-        if self.original_df is None:
-            return
-        self.filtered_df = self.original_df.copy()
-        self.show_table(self.original_df)
-        self.filter_entry.delete(0, tk.END)
-
-    def copy_selection_to_clipboard(self, event=None):
-        tree = self.tree
-        selected = tree.selection()
-        if not selected:
-            return "break"
-
-        rows = []
-        for item in selected:
-            values = tree.item(item, "values")
-            rows.append("\t".join(str(v) for v in values))
-
-        text = "\n".join(rows)
-
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-        self.root.update()
-
-        return "break"
 
 
 if __name__ == "__main__":

@@ -4,18 +4,44 @@ import time
 import os
 
 
+# ------------------------------------------------------------
+# Time Filtering
+# ------------------------------------------------------------
+
 def filter_by_days(df, col: str, start_days: int = 0, end_days: int = 365):
-    """Filter a DataFrame by a datetime column using a 'days ago' range."""
+    """
+    Filter a DataFrame by a datetime column using a 'days ago' range.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Input DataFrame.
+    col : str
+        Name of the datetime column.
+    start_days : int
+        Minimum age in days (0 = now).
+    end_days : int
+        Maximum age in days.
+
+    Returns
+    -------
+    DataFrame
+        Filtered DataFrame.
+    """
     now = datetime.now(timezone.utc)
     start_dt = now - timedelta(days=end_days)
     end_dt = now - timedelta(days=start_days)
     return df[(df[col] >= start_dt) & (df[col] <= end_dt)]
 
 
+# ------------------------------------------------------------
+# Raw Listens Report
+# ------------------------------------------------------------
+
 def report_raw_listens(df, topn=None):
     """
     Raw Listens report.
-    This is a simple passthrough of the listens DataFrame after time filtering.
+    A simple passthrough of the listens DataFrame after time filtering.
     No grouping, no thresholds, no enrichment.
 
     Parameters
@@ -28,9 +54,7 @@ def report_raw_listens(df, topn=None):
     Returns
     -------
     result : DataFrame
-        Possibly truncated DataFrame.
     meta : dict
-        Metadata for saving the report.
     """
     if topn is not None and topn > 0:
         result = df.head(topn)
@@ -47,9 +71,32 @@ def report_raw_listens(df, topn=None):
     return result, meta
 
 
-def report_artists_with_likes(df, feedback, min_listens=0, min_minutes=0.0, topn=None):
-    """Generate a report of artists with liked recordings."""
-    liked_mbids = feedback
+# ------------------------------------------------------------
+# Liked Artists Report
+# ------------------------------------------------------------
+
+def report_artists_with_likes(df, liked_mbids, min_listens=0, min_minutes=0.0, topn=None):
+    """
+    Generate a report of artists with liked recordings.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Canonical listens DataFrame.
+    liked_mbids : set[str]
+        Set of liked recording MBIDs.
+    min_listens : int
+        Minimum number of liked listens required.
+    min_minutes : float
+        Minimum liked duration (minutes).
+    topn : int or None
+        Maximum number of rows to return.
+
+    Returns
+    -------
+    result : DataFrame
+    meta : dict
+    """
     liked_listens = df[df["recording_mbid"].isin(liked_mbids)]
 
     if liked_listens.empty:
@@ -74,11 +121,14 @@ def report_artists_with_likes(df, feedback, min_listens=0, min_minutes=0.0, topn
         total_liked_listens=("recording_mbid", "count"),
         liked_duration_ms=("duration_ms", "sum"),
     )
+
     grouped["liked_duration_hours"] = (
         grouped["liked_duration_ms"] / (1000 * 60 * 60)
     ).round(1)
+
     grouped = grouped.drop(columns=["liked_duration_ms"])
 
+    # Thresholds
     if min_listens > 0:
         grouped = grouped[grouped["total_liked_listens"] >= min_listens]
 
@@ -86,7 +136,8 @@ def report_artists_with_likes(df, feedback, min_listens=0, min_minutes=0.0, topn
         grouped = grouped[grouped["liked_duration_hours"] >= (min_minutes / 60.0)]
 
     result = grouped.reset_index().sort_values(
-        ["unique_likes", "total_liked_listens"], ascending=[False, False]
+        ["unique_likes", "total_liked_listens"],
+        ascending=[False, False],
     )
 
     if topn and topn > 0:
@@ -102,6 +153,47 @@ def report_artists_with_likes(df, feedback, min_listens=0, min_minutes=0.0, topn
     return result, meta
 
 
+# ------------------------------------------------------------
+# Top-N Reports (Artist, Album, Track)
+# ------------------------------------------------------------
+
+def _group_listens(df, group_col):
+    """
+    Internal helper to group listens by artist, album, or track.
+
+    Returns a grouped DataFrame with:
+    - total_tracks
+    - total_duration_ms
+    - first_listened
+    - last_listened
+    """
+    if group_col == "album":
+        grouped = df.groupby(["artist", "album"]).agg(
+            total_tracks=("album", "count"),
+            total_duration_ms=("duration_ms", "sum"),
+            first_listened=("listened_at", "min"),
+            last_listened=("listened_at", "max"),
+        )
+
+    elif group_col == "track":
+        grouped = df.groupby(["artist", "track_name"]).agg(
+            total_tracks=("track_name", "count"),
+            total_duration_ms=("duration_ms", "sum"),
+            first_listened=("listened_at", "min"),
+            last_listened=("listened_at", "max"),
+        )
+
+    else:  # artist
+        grouped = df.groupby("artist").agg(
+            total_tracks=("artist", "count"),
+            total_duration_ms=("duration_ms", "sum"),
+            first_listened=("listened_at", "min"),
+            last_listened=("listened_at", "max"),
+        )
+
+    return grouped
+
+
 def report_top(
     df,
     group_col="artist",
@@ -111,7 +203,32 @@ def report_top(
     min_listens=0,
     min_minutes=0.0,
 ):
-    """Generate a Top-N report for artists, albums, or tracks."""
+    """
+    Generate a Top-N report for artists, albums, or tracks.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Canonical listens DataFrame.
+    group_col : str
+        "artist", "album", or "track".
+    days : int or tuple or None
+        Legacy parameter (GUI handles filtering now).
+    by : str
+        Sorting metric ("total_tracks" or "total_duration_hours").
+    topn : int
+        Number of rows to return.
+    min_listens : int
+        Minimum listens threshold.
+    min_minutes : float
+        Minimum duration threshold (minutes).
+
+    Returns
+    -------
+    result : DataFrame
+    meta : dict
+    """
+    # Legacy days filtering (kept for compatibility)
     if days is not None:
         if isinstance(days, tuple):
             start_days, end_days = days
@@ -121,33 +238,15 @@ def report_top(
             if days != 0:
                 df = filter_by_days(df, "listened_at", 0, days)
 
-    if group_col == "album":
-        grouped = df.groupby(["artist", "album"]).agg(
-            total_tracks=("album", "count"),
-            total_duration_ms=("duration_ms", "sum"),
-            first_listened=("listened_at", "min"),
-            last_listened=("listened_at", "max"),
-        )
-    elif group_col == "track":
-        grouped = df.groupby(["artist", "track_name"]).agg(
-            total_tracks=("track_name", "count"),
-            total_duration_ms=("duration_ms", "sum"),
-            first_listened=("listened_at", "min"),
-            last_listened=("listened_at", "max"),
-        )
-    else:
-        grouped = df.groupby("artist").agg(
-            total_tracks=("artist", "count"),
-            total_duration_ms=("duration_ms", "sum"),
-            first_listened=("listened_at", "min"),
-            last_listened=("listened_at", "max"),
-        )
+    grouped = _group_listens(df, group_col)
 
     grouped["total_duration_hours"] = (
         grouped["total_duration_ms"] / (1000 * 60 * 60)
     ).round(1)
+
     grouped = grouped.drop(columns=["total_duration_ms"]).reset_index()
 
+    # Column ordering
     if group_col == "artist":
         grouped = grouped[
             ["artist", "total_tracks", "total_duration_hours", "first_listened", "last_listened"]
@@ -156,11 +255,12 @@ def report_top(
         grouped = grouped[
             ["artist", "album", "total_tracks", "total_duration_hours", "first_listened", "last_listened"]
         ]
-    else:
+    else:  # track
         grouped = grouped[
             ["artist", "track_name", "total_tracks", "total_duration_hours", "first_listened", "last_listened"]
         ]
 
+    # Thresholds
     if min_listens > 0 or min_minutes > 0:
         grouped = grouped[
             (grouped["total_tracks"] >= min_listens)
@@ -169,14 +269,14 @@ def report_top(
 
     sorted_df = grouped.sort_values(by, ascending=False)
 
-    if topn is None or topn == 0:
-        result = sorted_df
-    else:
-        result = sorted_df.head(topn)
+    result = sorted_df if (topn is None or topn == 0) else sorted_df.head(topn)
 
     entity = (
-        "Artists" if group_col == "artist" else "Albums" if group_col == "album" else "Tracks"
+        "Artists" if group_col == "artist"
+        else "Albums" if group_col == "album"
+        else "Tracks"
     )
+
     meta = {
         "entity": entity,
         "topn": topn,
@@ -187,8 +287,26 @@ def report_top(
     return result, meta
 
 
+# ------------------------------------------------------------
+# Saving Reports
+# ------------------------------------------------------------
+
 def save_report(df, zip_path, meta=None, report_name=None):
-    """Save a report to /reports as CSV."""
+    """
+    Save a report to /reports as CSV.
+
+    Parameters
+    ----------
+    df : DataFrame
+    zip_path : str
+        Path to the original ZIP (used to locate /reports folder).
+    meta : dict or None
+    report_name : str or None
+
+    Returns
+    -------
+    filepath : str
+    """
     base_dir = os.path.dirname(zip_path)
     reports_dir = os.path.join(base_dir, "reports")
     os.makedirs(reports_dir, exist_ok=True)
