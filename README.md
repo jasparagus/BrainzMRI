@@ -171,50 +171,58 @@ BrainzMRI/
 # TODO (Items for Future Improvements)
 
 ## New Visualizations
-- Build a graph of favorite N artists/albums/tracks vs. time as a stacked bar plot from the data
-	- Should use the filtered data as the population to track, but should be capped at 20 artists/albums/tracks for visual clarity
-	- Plot should show the top N artists/albums/tracks as a function of time
-	- Plot should be a set of stacked bars, showing favorite(s) vs. time
-	- Each artist/album/track should have its own color
-- A report of "Top New (Artists/Albums/Tracks) by Year
-- A report of "Percent New Artists/Albums/Tracks" By Year
-- A count of distinct Artists, Albums, and Tracks By Year
+- Stacked bar charts of top N artists/albums/tracks over time  
+  - Use filtered data as the population  
+  - Cap at ~20 entities for clarity  
+  - Each entity receives a distinct color  
+- “Top New Artists/Albums/Tracks by Year”
+- “Percent New Artists/Albums/Tracks by Year”
+- Annual counts of distinct artists, albums, and tracks
+- Add “Export Chart” option (PNG/SVG)
+
 ## Report Presets
-- Presets (from a dropdown) for common report filters/types. Examples:
-  - Forgotten favorites
-  - Your All-Time Top 10
-  - Favorite New Discoveries (will need to start tracking FIRST listened as well)
+- Dropdown presets for common report types:
+  - Forgotten Favorites
+  - All‑Time Top 10
+  - Favorite New Discoveries (requires tracking first‑listen dates)
+  - Recently Neglected Artists
   - Etc.
+
 ## UI Improvements
 - Abstract repeated UI patterns (Frame + Label + Entry)
-- Break show_table() into helper functions:
-  - build_filter_bar()
-  - build_table_container()
-  - populate_table()
-- Break run_report() into:
-  - parse_time_range()
-  - parse_thresholds()
-  - generate_report()
-  - apply_enrichment()
-  - finalize_report()
+- Break `show_table()` into:
+  - `build_filter_bar()`
+  - `build_table_container()`
+  - `populate_table()`
+- Break `run_report()` into:
+  - `parse_time_range()`
+  - `parse_thresholds()`
+  - `generate_report()`
+  - `apply_enrichment()`
+  - `finalize_report()`
+- Add “Refresh Data” button for reloading user cache
+- Add “Clear User Cache” utility
+
 ## Enrichment Enhancements
-- Add album-level enrichment using release MBIDs
-- Add track-level enrichment using recording MBIDs
-- Expand genre cache to store and merge multiple entries per entity
-- Add a “missing genre” log with MusicBrainz URLs for manual tagging
-## Hybrid Mode (ListenBrainz + Last.fm APIs for Data)
-- Add optional API ingestion for new listens
+- Album‑level enrichment using release MBIDs
+- Track‑level enrichment using recording MBIDs
+- Expand genre cache to support multiple entries per entity
+- UI viewer for missing‑genre log (with MusicBrainz URLs)
+- Optional “Rebuild Genre Cache” tool
+
+## Hybrid Mode (ListenBrainz + Last.fm APIs)
+- Optional API ingestion for new listens
 - Merge ZIP + API data into a persistent local archive
 - Deduplicate listens using MBIDs + timestamps
-- Add UI controls for enabling/disabling ingestion
-- Add “Sync New Listens” button
-## Visualization Features
-- Add stacked bar charts for top artists/albums/tracks over time
-- Limit to Top N (max 20)
-- Use matplotlib or seaborn
-- Add “Export Chart” option
-## MusicBrainz Contribution
-- Enable a log of Artists (and URLs) for whom enrichment fails (e.g. "Unknown")
-- Generate a URL to visit at MusicBrainz for each artist in said list
-- Provide a link to MusicBrainz best practices for metadata contribution
-- Build a minimal UI popout for linking to Metadata editing
+- UI controls for enabling/disabling ingestion
+- “Sync New Listens” button
+
+## MusicBrainz Contribution Tools
+- Log artists with missing genres + direct MusicBrainz URLs
+- Provide link to MusicBrainz metadata best‑practices
+- Minimal UI pop‑out for metadata editing workflow
+
+## Robustness & Edge Cases
+- Improve empty‑result handling across all report types
+- Add user‑friendly messages for invalid filters or regex errors
+- Validate enrichment source availability (cache vs. API)
