@@ -1,6 +1,6 @@
 """
 gui.py
-Tkinter GUI for BrainzMRI, using parsing, reporting, and enrichment modules.
+Tkinter GUI for BrainzMRI, using reporting, enrichment, and user modules.
 """
 
 import json
@@ -13,9 +13,9 @@ import subprocess
 import sys
 import re
 
-import parsing
 import reporting
 import enrichment
+from user import User, get_cache_root
 
 
 def open_file_default(path: str) -> None:
@@ -28,14 +28,28 @@ def open_file_default(path: str) -> None:
         subprocess.Popen(["xdg-open", path])
 
 
+def get_cached_usernames() -> list[str]:
+    """
+    Return a sorted list of cached usernames based on the user cache directory.
+    """
+    cache_root = get_cache_root()
+    users_root = os.path.join(cache_root, "users")
+    if not os.path.exists(users_root):
+        return []
+    names = []
+    for entry in os.listdir(users_root):
+        full = os.path.join(users_root, entry)
+        if os.path.isdir(full):
+            names.append(entry)
+    return sorted(names)
+
+
 class GUIState:
     """Centralized state for the BrainzMRI GUI."""
 
     def __init__(self) -> None:
-        # Input data
-        self.zip_path: str | None = None
-        self.listens_df = None          # Canonical listens DataFrame
-        self.liked_mbids = None         # Set of liked MBIDs
+        # Current user
+        self.user: User | None = None
 
         # Last generated report
         self.last_report_df = None
@@ -101,7 +115,6 @@ class ReportEngine:
         base_df,
         mode: str,
         liked_mbids,
-        zip_path: str | None,
         *,
         time_start_days: int,
         time_end_days: int,
@@ -136,6 +149,16 @@ class ReportEngine:
                 "listened_at",
                 time_start_days,
                 time_end_days,
+            )
+
+        # After time-range filtering, protect against empty results
+        if df.empty:
+            return (
+                df,          # empty result
+                None,        # no meta
+                report_type_key,
+                False,       # not enriched
+                "No data available for the selected time range."
             )
 
         # Recency filter (skip for Raw Listens)
@@ -219,13 +242,14 @@ class ReportEngine:
         # Optional enrichment (skip for Raw Listens)
         last_enriched = False
         if do_enrich and mode != "Raw Listens":
-            if not zip_path:
-                raise ValueError("Cannot perform enrichment without a ZIP path.")
+            # Inject username into the report DataFrame
+            result = result.copy()
+            result["_username"] = base_df["_username"].iloc[0]
+
             result = enrichment.enrich_report(
                 result,
                 report_type_key,
                 enrich_source,
-                zip_path,
             )
             last_enriched = True
 
@@ -421,7 +445,7 @@ class ReportTableView:
 class BrainzMRIGUI:
     """
     Tkinter GUI wrapper for BrainzMRI.
-    Handles ZIP selection, report generation, filtering, and table display.
+    Handles user selection, report generation, filtering, and table display.
     """
 
     def __init__(self, root: tk.Tk):
@@ -448,14 +472,30 @@ class BrainzMRIGUI:
             font=("Segoe UI", 11),
         )
 
-        # ZIP selection
-        frm_zip = tk.Frame(root)
-        frm_zip.pack(pady=10)
+        # User selection and ingestion
+        frm_user = tk.Frame(root)
+        frm_user.pack(pady=10, fill="x")
 
-        tk.Button(frm_zip, text="Select ListenBrainz ZIP", command=self.select_zip).pack()
+        tk.Label(frm_user, text="User:").pack(side="left", padx=(10, 5))
 
-        self.lbl_zip = tk.Label(frm_zip, text="No file selected", fg="gray")
-        self.lbl_zip.pack(pady=5)
+        self.user_var = tk.StringVar()
+        self.user_dropdown = ttk.Combobox(
+            frm_user,
+            textvariable=self.user_var,
+            state="readonly",
+            width=30,
+        )
+        self.user_dropdown.pack(side="left", padx=(0, 10))
+        self.user_dropdown.bind("<<ComboboxSelected>>", self.on_user_selected)
+
+        tk.Button(
+            frm_user,
+            text="Load From ZIP",
+            command=self.load_from_zip,
+        ).pack(side="left")
+
+        self.lbl_user_status = tk.Label(frm_user, text="", fg="gray")
+        self.lbl_user_status.pack(side="left", padx=10)
 
         # Input fields container
         frm_inputs = tk.Frame(root)
@@ -623,17 +663,14 @@ class BrainzMRIGUI:
 
         self.table_view = ReportTableView(self.root, self.table_frame, self.state)
 
-        # Load last ZIP if available
-        last = self.load_config().get("last_zip")
-        if last and os.path.exists(last):
-            self.state.zip_path = last
-            self.lbl_zip.config(text=os.path.basename(last), fg="black")
-
-            df, feedback = parsing.load_listens_from_zip(last)
-            self.state.listens_df = df
-            self.state.liked_mbids = feedback
-
-            self.set_status(f"Auto-loaded: {os.path.basename(last)}")
+        # Initialize users and auto-load last user if available
+        self.refresh_user_list()
+        cfg = self.load_config()
+        last_user = cfg.get("last_user")
+        if last_user and last_user in self.user_dropdown["values"]:
+            self.user_var.set(last_user)
+            self.load_user_from_cache(last_user)
+            self.set_status(f"Auto-loaded user: {last_user}")
         else:
             self.set_status("Ready.")
 
@@ -663,11 +700,58 @@ class BrainzMRIGUI:
         except Exception:
             pass
 
+    def refresh_user_list(self) -> None:
+        """Refresh the list of cached users in the dropdown."""
+        users = get_cached_usernames()
+        self.user_dropdown["values"] = users
+        if not users:
+            self.user_var.set("")
+            self.lbl_user_status.config(text="No cached users found.", fg="gray")
+
     # -----------------------
-    # Data loading
+    # User loading
     # -----------------------
 
-    def select_zip(self) -> None:
+    def on_user_selected(self, event=None) -> None:
+        username = self.user_var.get().strip()
+        if not username:
+            return
+        self.load_user_from_cache(username)
+
+    def load_user_from_cache(self, username: str) -> None:
+        try:
+            user = User.from_cache(username)
+        except FileNotFoundError as e:
+            messagebox.showerror("Error", str(e))
+            self.set_status(f"Error: {str(e)}")
+            return
+        except Exception as e:
+            messagebox.showerror("Unexpected Error", f"{type(e).__name__}: {e}")
+            self.set_status("Error: Failed to load user from cache.")
+            return
+
+        self.state.user = user
+        self.lbl_user_status.config(text=f"Loaded user: {username}", fg="black")
+
+        cfg = self.load_config()
+        cfg["last_user"] = username
+        self.save_config(cfg)
+
+        # Clear previous report
+        self.state.last_report_df = None
+        self.state.last_meta = None
+        self.state.last_mode = None
+        self.state.last_report_type_key = None
+        self.state.last_enriched = False
+        self.state.original_df = None
+        self.state.filtered_df = None
+        for widget in self.table_frame.winfo_children():
+            widget.destroy()
+
+        self.set_status(f"User '{username}' loaded from cache.")
+
+    def load_from_zip(self) -> None:
+        """Create or update a user by ingesting a ListenBrainz ZIP."""
         path = filedialog.askopenfilename(
             title="Select ListenBrainz ZIP",
             filetypes=[("ZIP files", "*.zip")],
@@ -675,18 +759,40 @@ class BrainzMRIGUI:
         if not path:
             return
 
+        try:
+            user = User.from_listenbrainz_zip(path)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load ZIP: {type(e).__name__}: {e}")
+            self.set_status("Error: Failed to load ZIP.")
+            return
+
+        self.state.user = user
+        username = user.username
+
+        # Refresh dropdown and select this user
+        self.refresh_user_list()
+        if username not in self.user_dropdown["values"]:
+            users = list(self.user_dropdown["values"]) + [username]
+            self.user_dropdown["values"] = sorted(users)
+        self.user_var.set(username)
+        self.lbl_user_status.config(text=f"Loaded from ZIP: {username}", fg="black")
+
         cfg = self.load_config()
-        cfg["last_zip"] = path
+        cfg["last_user"] = username
         self.save_config(cfg)
 
-        self.lbl_zip.config(text=os.path.basename(path), fg="black")
+        # Clear previous report
+        self.state.last_report_df = None
+        self.state.last_meta = None
+        self.state.last_mode = None
+        self.state.last_report_type_key = None
+        self.state.last_enriched = False
+        self.state.original_df = None
+        self.state.filtered_df = None
+        for widget in self.table_frame.winfo_children():
+            widget.destroy()
 
-        df, feedback = parsing.load_listens_from_zip(path)
-        self.state.listens_df = df
-        self.state.liked_mbids = feedback
-
-        self.state.zip_path = path
-        self.set_status("Zip loaded.")
+        self.set_status(f"User '{username}' created/updated from ZIP.")
 
     # -----------------------
     # Report generation
@@ -707,9 +813,11 @@ class BrainzMRIGUI:
             raise ValueError(f"{field_name} must be numeric.")
 
     def run_report(self) -> None:
-        if self.state.listens_df is None:
-            messagebox.showerror("Error", "Please select a ListenBrainz ZIP file first.")
-            self.set_status("Error: Please select a ListenBrainz ZIP file first.")
+        if self.state.user is None:
+            messagebox.showerror(
+                "Error", "Please load a user first (via 'Load From ZIP' or selecting an existing user)."
+            )
+            self.set_status("Error: No user loaded.")
             return
 
         mode = self.report_type.get()
@@ -739,14 +847,17 @@ class BrainzMRIGUI:
         do_enrich = self.do_enrich_var.get()
         enrich_source = self.enrich_source_var.get()
 
+        base_df = self.state.user.get_listens().copy()
+        base_df["_username"] = self.state.user.username
+        liked_mbids = self.state.user.get_liked_mbids()
+
         # Generate report via engine
         try:
             result, meta, report_type_key, last_enriched, status_text = (
                 self.report_engine.generate_report(
-                    self.state.listens_df,
+                    base_df,
                     mode,
-                    self.state.liked_mbids,
-                    self.state.zip_path,
+                    liked_mbids,
                     time_start_days=time_start,
                     time_end_days=time_end,
                     rec_start_days=rec_start,
@@ -793,19 +904,26 @@ class BrainzMRIGUI:
             self.set_status("Error: No report to save.")
             return
 
+        if self.state.user is None:
+            messagebox.showerror("Error", "No user loaded to associate with this report.")
+            self.set_status("Error: No user loaded.")
+            return
+
         try:
             if self.state.last_meta is None:
                 report_name = (self.state.last_mode or "Report").replace(" ", "_")
                 filepath = reporting.save_report(
                     self.state.last_report_df,
-                    self.state.zip_path,
+                    user=self.state.user,
                     report_name=report_name,
+                    meta=None,
                 )
             else:
                 filepath = reporting.save_report(
                     self.state.last_report_df,
-                    self.state.zip_path,
+                    user=self.state.user,
                     meta=self.state.last_meta,
+                    report_name=None,
                 )
 
             open_file_default(filepath)

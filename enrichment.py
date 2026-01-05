@@ -6,10 +6,22 @@ import urllib.request
 from tqdm import tqdm
 import pandas as pd
 
+from user import get_cache_root
+
 
 # ------------------------------------------------------------
 # Cache Helpers
 # ------------------------------------------------------------
+
+def _get_user_genre_cache_path(username: str) -> str:
+    """
+    Return the path to the user's genre cache file.
+    """
+    cache_root = get_cache_root()
+    user_dir = os.path.join(cache_root, "users", username)
+    os.makedirs(user_dir, exist_ok=True)
+    return os.path.join(user_dir, "genres_cache.json")
+
 
 def load_genre_cache(cache_path: str):
     """
@@ -121,7 +133,7 @@ def get_artist_genres(artist_name: str):
 # Enrichment Logic
 # ------------------------------------------------------------
 
-def enrich_report_with_genres(report_df: pd.DataFrame, zip_path: str, use_api: bool = True):
+def enrich_report_with_genres(report_df: pd.DataFrame, username: str, use_api: bool = True):
     """
     Add genre information to an artist-based report.
 
@@ -129,8 +141,8 @@ def enrich_report_with_genres(report_df: pd.DataFrame, zip_path: str, use_api: b
     ----------
     report_df : DataFrame
         Report DataFrame containing an "artist" column.
-    zip_path : str
-        Path to the original ZIP (used to locate /reports folder).
+    username : str
+        The username whose cache directory stores the genre cache.
     use_api : bool
         Whether to query MusicBrainz API for missing genres.
 
@@ -139,11 +151,7 @@ def enrich_report_with_genres(report_df: pd.DataFrame, zip_path: str, use_api: b
     DataFrame
         Enriched DataFrame with a "Genres" column.
     """
-    base_dir = os.path.dirname(zip_path)
-    reports_dir = os.path.join(base_dir, "reports")
-    os.makedirs(reports_dir, exist_ok=True)
-
-    cache_path = os.path.join(reports_dir, "genres_cache.json")
+    cache_path = _get_user_genre_cache_path(username)
     genre_cache = load_genre_cache(cache_path)
 
     # Work with artist as index for convenience
@@ -183,7 +191,7 @@ def enrich_report_with_genres(report_df: pd.DataFrame, zip_path: str, use_api: b
 
             # Log missing genres
             if g == ["Unknown"]:
-                missing_log_path = os.path.join(reports_dir, "missing_genres.txt")
+                missing_log_path = os.path.join(os.path.dirname(cache_path), "missing_genres.txt")
                 mbid = entry.get("artist_mbid") or None
                 url = f"https://musicbrainz.org/artist/{mbid}" if mbid else "(no MBID available)"
                 with open(missing_log_path, "a", encoding="utf-8") as f:
@@ -199,7 +207,7 @@ def enrich_report_with_genres(report_df: pd.DataFrame, zip_path: str, use_api: b
     return enriched
 
 
-def enrich_report(df: pd.DataFrame, report_type: str, source: str, zip_path: str):
+def enrich_report(df: pd.DataFrame, report_type: str, source: str):
     """
     Generic enrichment entry point.
 
@@ -211,8 +219,6 @@ def enrich_report(df: pd.DataFrame, report_type: str, source: str, zip_path: str
         Report type key ("artist", "album", "track", etc.).
     source : str
         "Cache" or "Query API (Slow)".
-    zip_path : str
-        Path to original ZIP.
 
     Returns
     -------
@@ -224,4 +230,13 @@ def enrich_report(df: pd.DataFrame, report_type: str, source: str, zip_path: str
     if "artist" not in df.columns:
         return df
 
-    return enrich_report_with_genres(df, zip_path, use_api=use_api)
+    # The GUI injects the username into the DataFrame before calling this
+    if "_username" not in df.columns:
+        raise ValueError("Missing _username column for enrichment.")
+
+    username = df["_username"].iloc[0]
+
+    # Drop helper column before enrichment
+    df = df.drop(columns=["_username"])
+
+    return enrich_report_with_genres(df, username, use_api=use_api)

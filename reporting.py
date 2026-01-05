@@ -288,18 +288,18 @@ def report_top(
 
 
 # ------------------------------------------------------------
-# Saving Reports
+# Saving Reports (User-centric)
 # ------------------------------------------------------------
 
-def save_report(df, zip_path, meta=None, report_name=None):
+def save_report(df, user, meta=None, report_name=None):
     """
-    Save a report to /reports as CSV.
+    Save a report to the user's reports directory as CSV.
 
     Parameters
     ----------
     df : DataFrame
-    zip_path : str
-        Path to the original ZIP (used to locate /reports folder).
+    user : User
+        The User object whose cache directory will contain the report.
     meta : dict or None
     report_name : str or None
 
@@ -307,8 +307,7 @@ def save_report(df, zip_path, meta=None, report_name=None):
     -------
     filepath : str
     """
-    base_dir = os.path.dirname(zip_path)
-    reports_dir = os.path.join(base_dir, "reports")
+    reports_dir = os.path.join(user.cache_dir, "reports")
     os.makedirs(reports_dir, exist_ok=True)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
