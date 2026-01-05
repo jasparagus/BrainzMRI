@@ -151,16 +151,6 @@ class ReportEngine:
                 time_end_days,
             )
 
-        # After time-range filtering, protect against empty results
-        if df.empty:
-            return (
-                df,          # empty result
-                None,        # no meta
-                report_type_key,
-                False,       # not enriched
-                "No data available for the selected time range."
-            )
-
         # Recency filter (skip for Raw Listens)
         if mode != "Raw Listens":
             if not (rec_start_days == 0 and rec_end_days == 0):
@@ -238,6 +228,16 @@ class ReportEngine:
             report_type_key = "liked_artists"
         else:
             report_type_key = "raw"
+
+        # After time-range filtering, protect against empty results
+        if df.empty:
+            return (
+                df,          # empty result
+                None,        # no meta
+                report_type_key,
+                False,       # not enriched
+                "No data available for the selected time range."
+            )
 
         # Optional enrichment (skip for Raw Listens)
         last_enriched = False
