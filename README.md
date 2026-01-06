@@ -376,3 +376,12 @@ Important functions:
   - `resolver_confidence`
   - `mbid_confidence`
 - Provide UI tools for reviewing and resolving ambiguous matches
+
+## Smarter Way To Address Multi-Artist listens
+- Currently, each artist on a listen (collaborations, etc.) is counted as a row
+- Ideally, this would be true for per-artist reports, but not for per-album or per-track reports. Need to figure out how to do this.
+
+## Missing-Genre Log Improvements
+- Deduplicate entries in `missing_genres.txt`
+- Optionally timestamp each entry for auditability
+- Provide a lightweight cleanup/rotation mechanism
