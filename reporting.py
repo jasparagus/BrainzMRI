@@ -343,24 +343,24 @@ def report_new_music_by_year(df: pd.DataFrame) -> pd.DataFrame:
     for y in all_years:
         ua = artists_by_year.get(y, 0)
         na = new_artists_by_year.get(y, 0)
-        pa = (na / ua) if ua > 0 else np.nan
+        pa = (na / ua)*100 if ua > 0 else np.nan
 
         ub = albums_by_year.get(y, 0)
         nb = new_albums_by_year.get(y, 0)
-        pb = (nb / ub) if ub > 0 else np.nan
+        pb = (nb / ub)*100 if ub > 0 else np.nan
 
         ut = tracks_by_year.get(y, 0)
         nt = new_tracks_by_year.get(y, 0)
-        pt = (nt / ut) if ut > 0 else np.nan
+        pt = (nt / ut)*100 if ut > 0 else np.nan
 
         rows.append({
             "Year": y,
-            "Number of Unique Artists": ua,
-            "Percent New Artists": pa,
-            "Number of Unique Albums": ub,
-            "Percent New Albums": pb,
-            "Number of Unique Tracks": ut,
-            "Percent New Tracks": pt,
+            "Unique Artists": ua,
+            "Percent New Artists": pa.round(0).astype(int),
+            "Unique Albums": ub,
+            "Percent New Albums": pb.round(0).astype(int),
+            "Unique Tracks": ut,
+            "Percent New Tracks": pt.round(0).astype(int),
         })
 
     df_out = pd.DataFrame(rows)
