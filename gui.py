@@ -318,7 +318,7 @@ class BrainzMRIGUI:
 
         # User selection and ingestion
         frm_user = tk.Frame(root)
-        frm_user.pack(pady=10, fill="x")
+        frm_user.pack(pady=10)# , fill="x")
 
         tk.Label(frm_user, text="User:").pack(side="left", padx=(10, 5))
 
@@ -347,7 +347,7 @@ class BrainzMRIGUI:
 
         def add_labeled_entry(parent, label: str, default) -> tk.Entry:
             row = tk.Frame(parent)
-            row.pack(anchor="w")
+            row.pack(fill="x", pady=3)  # anchor="w"
             tk.Label(row, text=label, width=27, anchor="w").pack(side="left")
             ent = tk.Entry(row, width=8)
             ent.insert(0, str(default))
@@ -367,12 +367,12 @@ class BrainzMRIGUI:
             row.pack(anchor="center")
             
             tk.Label(row, text="Start:", width=8).pack(side="left")
-            ent1 = tk.Entry(row, width=10)
+            ent1 = tk.Entry(row, width=6)
             ent1.insert(0, str(default1))
             ent1.pack(side="left", padx=5)
             
             tk.Label(row, text="End:", width=8).pack(side="left")
-            ent2 = tk.Entry(row, width=10)
+            ent2 = tk.Entry(row, width=6)
             ent2.insert(0, str(default2))
             ent2.pack(side="left", padx=5)
             
@@ -387,24 +387,26 @@ class BrainzMRIGUI:
             self.last_frame) = add_labeled_double_entry(frm_inputs, 
             "Last Listened Date (Days Ago)", 0, 0)
         
-        Hovertip(
-            self.time_frame,
-            "Time range filtering. Excludes listens by date.\n"
-            "Example: [365, 730] will diplay listens from 1-2 years ago.\n"
-            "Set to [0, 0] to disable filtering.\n"
-            "Default: [0, 0] (days ago).",
-            hover_delay=500,
-        )
+        for widg in [self.ent_time_start, self.ent_time_end]:
+            Hovertip(
+                widg,
+                "Time range filtering. Excludes listens by date.\n"
+                "Example: [365, 730] will diplay listens from 1-2 years ago.\n"
+                "Set to [0, 0] to disable filtering.\n"
+                "Default: [0, 0] (days ago).",
+                hover_delay=500,
+            )
         
-        Hovertip(
-            self.last_frame,
-            "Recency filtering. Exclude entities by last listened.\n"
-            "Filters entities (Artist, Album, Track) by last listened date.\n"
-            "Example: [365, 99999] will diplay entities last listened >1 year ago.\n"
-            "Set to [0, 0] to disable filtering.\n"
-            "Default: [0, 0] (days ago).",
-            hover_delay=500,
-        )
+        for widg in [self.ent_last_start, self.ent_last_end]:
+            Hovertip(
+                widg,
+                "Recency filtering. Exclude entities by last listened.\n"
+                "Filters entities (Artist, Album, Track) by last listened date.\n"
+                "Example: [365, 99999] will diplay entities last listened >1 year ago.\n"
+                "Set to [0, 0] to disable filtering.\n"
+                "Default: [0, 0] (days ago).",
+                hover_delay=500,
+            )
 
         # Thresholds and Top N
         self.ent_topn = add_labeled_entry(
