@@ -27,7 +27,8 @@ It provides a **GUI application** for generating rich reports about your listeni
   - GUI mode (starts by default)
   - Debug mode (available for tinkering)
 
-<img src="example.png" alt="GUI Example" width="600">
+<img src="example_1.png" alt="GUI Example" width="600">
+<img src="example_2.png" alt="GUI Example" width="600">
 
 ---
 
