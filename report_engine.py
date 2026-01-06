@@ -44,6 +44,11 @@ class ReportEngine:
                 "kwargs": {},
                 "status": "Liked artists report generated.",
             },
+            "New Music by Year": {
+                "func": reporting.report_new_music_by_year,
+                "kwargs": {},
+                "status": "New Music by Year report generated.",
+            },
             "Raw Listens": {
                 "func": reporting.report_raw_listens,
                 "kwargs": {},
@@ -76,6 +81,9 @@ class ReportEngine:
         """
         Generate a report for the given mode and parameters.
 
+        Notes:
+        - "New Music by Year" report requires the unfiltered listens dataset
+        
         Returns
         -------
         result_df : DataFrame
@@ -131,6 +139,15 @@ class ReportEngine:
         handler = self._handlers.get(mode)
         if handler is None:
             raise ValueError(f"Unsupported report type: {mode}")
+
+        # Special case: New Music by Year ignores ALL filters, run now
+        if mode == "New Music by Year":
+            result = report_new_music_by_year(base_df)
+            meta = None
+            report_type_key = "new_music_by_year"
+            last_enriched = False
+            status_text = self.get_status(mode)
+            return result, meta, report_type_key, last_enriched, status_text
 
         func = handler["func"]
         kwargs = handler["kwargs"].copy()

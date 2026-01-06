@@ -468,6 +468,7 @@ class BrainzMRIGUI:
                 "By Artist",
                 "By Album",
                 "By Track",
+                "New Music By Year",
                 "All Liked Artists",
                 "Raw Listens",
             ],

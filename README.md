@@ -12,18 +12,10 @@ It provides a **GUI application** for generating rich reports about your listeni
 - Fully sortable, filterable tables in the GUI (using regex)
 - Exportable CSV reports  
 
-## Attribution
-This project was developed with assistance from Microsoft Copilot as a fun test of "Vibe Coding".
-
----
-
-## **Features**
-<img src="example.png" alt="GUI Example" width="600">
-
 ### GUI Application (BrainzMRI_GUI.py)
-- Load a ListenBrainz export ZIP  
-- Configure Report filters
-- Choose report type (Artist, Album, Likes, and more)
+- Load a zip file exported from your ListenBrainz account
+- Filter your data by time range, last listened date, and more
+- Choose report type (Top Artists, Top Albums, New Music By Year, and more)
 - Optionally enrich any report with MusicBrainz genre data  
 - View results in a sortable, fully filterable table  
 - Save reports to disk as CSV  
@@ -34,6 +26,13 @@ This project was developed with assistance from Microsoft Copilot as a fun test 
 - Simple menu to launch either:
   - GUI mode (starts by default)
   - Debug mode (available for tinkering)
+
+<img src="example.png" alt="GUI Example" width="600">
+
+---
+
+## Attribution
+This project was developed with assistance from Microsoft Copilot as a fun test/experiment with "Vibe Coding".
 
 ---
 
@@ -130,11 +129,14 @@ You can set:
 ### 4. Choose a report type
 From the dropdown:
 
-- **By Artist**
+- By Artist
   - Note: collaborating artists are counted separately
-- **By Album**  
-- **By Track**  
-- **All Liked Artists**  
+- By Album
+- By Track
+- All Liked Artists
+- New Music by Year
+- Raw Listens
+  - Note: shows all Raw Listens in selected time range
 
 ### 5. View results
 Results appear in a sortable, filterable table:
@@ -181,13 +183,14 @@ BrainzMRI/
 
 # **Major Modules & Classes**
 
-## gui.py:  Main Application Orchestrator
+## gui.py: Main Application Orchestrator
 Handles:
-- Window creation, layout, event wiring
-- User selection and ZIP loading
-- Report parameter parsing (thresholds, time ranges, recency)
+- Window creation, layout, and event wiring
+- User selection, ZIP ingestion, and cached‑user loading
+- Parsing all report parameters (thresholds, time ranges, recency)
 - Calling `ReportEngine.generate_report()`
 - Displaying results via `ReportTableView`
+- Managing UI state (last report, filters, enrichment flags)
 
 Important functions:
 - `run_report()`
@@ -196,13 +199,12 @@ Important functions:
 - `save_user_cache()`
 - `refresh_user_list()`
 
-
 ### Class: `ReportTableView`
 Responsible for:
-- Rendering DataFrames in a Treeview
-- Column sorting
-- Regex filtering
-- Clipboard copy
+- Rendering DataFrames in a Tkinter Treeview
+- Column sorting (ascending/descending)
+- Regex‑based filtering via a persistent filter bar
+- Clipboard copy of selected rows
 
 Key methods:
 - `show_table(df)`
@@ -213,15 +215,16 @@ Key methods:
 - `copy_selection_to_clipboard()`
 
 
-## report_engine.py: Pure Report Logic
+## report_engine.py: Central Report Routing & Filtering
 ### Class: `ReportEngine`
 Encapsulates:
-- Time-range filtering
-- Recency filtering
+- Time‑range filtering (`filter_by_days`)
+- Recency filtering (entity‑level last‑listened windows)
 - Thresholding (min listens, min minutes)
-- Top-N selection
-- Calling reporting functions
-- Optional enrichment
+- Top‑N selection
+- Dispatching to reporting functions
+- Optional enrichment (genre, metadata)
+- Special‑case handling for reports that bypass filters
 
 Key methods:
 - `generate_report(base_df, mode, liked_mbids, ...)`
@@ -233,17 +236,29 @@ Internal handler table maps:
 - `"By Track"` → `reporting.report_top`
 - `"All Liked Artists"` → `reporting.report_artists_with_likes`
 - `"Raw Listens"` → `reporting.report_raw_listens`
+- `"New Music by Year"` → `reporting.report_new_music_by_year`  
+  *(special case: bypasses all filters and enrichment)*
 
 
-## reporting.py: Aggregation & Report Helpers
+## reporting.py: Aggregation, Grouping & Report Helpers
+Implements all report‑level computations.
+
 Important functions:
-- `report_top(df, group_col, by, days, topn, min_listens, min_minutes)`
-- `report_artists_with_likes(df, liked_mbids, ...)`
-- `report_raw_listens(df, topn)`
-- `filter_by_days(df, column, start_days, end_days)`
+- `report_top(df, group_col, by, days, topn, min_listens, min_minutes)`  
+  Artist/Album/Track Top‑N reports.
+- `report_artists_with_likes(df, liked_mbids, ...)`  
+  Liked‑artists aggregation.
+- `report_raw_listens(df, topn)`  
+  Unfiltered passthrough of listens.
+- `report_new_music_by_year(df)`  
+  Year‑level unique‑entity counts and “percent new” metrics.
+- `filter_by_days(df, column, start_days, end_days)`  
+  Time‑range filtering helper.
 
 
 ## enrichment.py: Metadata & Genre Enrichment
+Handles optional metadata augmentation.
+
 Important functions:
 - `enrich_report(df, report_type_key, source)`
 - `load_genre_cache()`
@@ -252,21 +267,26 @@ Important functions:
 - `fetch_mb_metadata(mbid)`
 
 
-## user.py: User Cache Utilities
+## user.py: User Cache & Filesystem Utilities
+Manages per‑user storage and cached listen data.
+
 Important functions:
 - `get_cache_root()`
 - `get_user_cache_dir(username)`
 - `load_user_cache(username)`
 - `save_user_cache(username, df)`
-- `get_cached_usernames()`  ← recently moved here
+- `get_cached_usernames()`  
+  *(recently moved here for cohesion)*
 
 
 ## parsing.py: ListenBrainz ZIP Parsing & Canonicalization
+Transforms raw ListenBrainz exports into the canonical listens DataFrame.
+
 Important functions:
 - `parse_listens_zip(zip_path)`  
-  Load a ListenBrainz ZIP export and return a canonicalized DataFrame.
+  Load a ZIP export and extract all listens.
 - `parse_jsonl_stream(file_obj)`  
-  Stream‑parse JSONL listens safely and yield raw listen dicts.
+  Stream‑parse JSONL safely and yield raw listen dicts.
 - `canonicalize_listens(df)`  
   Normalize columns, MBIDs, timestamps, and naming conventions.
 - `convert_timestamps(df, column="listened_at")`  
@@ -279,15 +299,27 @@ Important functions:
 ---
 
 
-# TODO (Items for Future Improvements)
+# TODO Items
 
-## New Visualizations
+## Map Enter To "Generate Report"
+- Pressing Enter key inside any of the filter boxes should trigger the "Generate Report" button
+
+## Change "All Liked Artists" To A filter
+- Remove the "All Liked Artists" report
+- Add a Minimum Likes Threshold filter (minLikes: int)
+- Default value for minLikes should be 0 (disabled)
+- Filter should remove grouped items for which Likes < minLikes
+  - Example: artists [minLikes: 3] -> artists with 3 or more liked tracks
+  - Example: albums [minLikes: 2] -> return albums with 2 or more liked tracks
+  - Example: tracks [minLikes:1] -> return all liked tracks
+  - Example: tracks [minLikes:2] -> return no tracks, since no track can have multiple likes (confirm; expected behavior)
+
+## New Visualizations and Reports
 - Stacked bar charts of top N artists/albums/tracks over time  
   - Use filtered data as the population  
   - Cap at ~20 entities for clarity  
   - Each entity receives a distinct color  
-- “Top New Artists/Albums/Tracks by Year”
-- “Percent New Artists/Albums/Tracks by Year”
+- “Top New Artists/Albums/Tracks by Year”  
 - Annual counts of distinct artists, albums, and tracks
 - Add “Export Chart” option (PNG/SVG)
 

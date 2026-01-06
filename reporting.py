@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from datetime import datetime, timezone, timedelta
 import time
 import os
@@ -285,6 +286,85 @@ def report_top(
     }
 
     return result, meta
+
+
+# ------------------------------------------------------------
+# New Music by Year Report
+# ------------------------------------------------------------
+def report_new_music_by_year(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Produce a year-by-year summary of unique artists, albums, and tracks,
+    along with the percentage of each that were first listened in that year.
+
+    This report ignores all filters and operates on the full dataset.
+    """
+
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                "Year",
+                "Number of Unique Artists", "Percent New Artists",
+                "Number of Unique Albums",  "Percent New Albums",
+                "Number of Unique Tracks",  "Percent New Tracks",
+            ]
+        )
+
+    # Extract year from listen timestamp
+    df = df.copy()
+    df["year"] = df["listen_ts"].dt.year
+
+    # Determine continuous year range
+    min_year = int(df["year"].min())
+    max_year = int(df["year"].max())
+    all_years = list(range(min_year, max_year + 1))
+
+    # Identity keys (MBID fallback to name)
+    df["artist_id"] = df["artist_mbid"].fillna(df["artist_name"])
+    df["album_id"]  = df["release_mbid"].fillna(df["release_name"])
+    df["track_id"]  = df["recording_mbid"].fillna(df["track_name"])
+
+    # Compute first-listened year per entity
+    first_artist_year = df.groupby("artist_id")["listen_ts"].min().dt.year
+    first_album_year  = df.groupby("album_id")["listen_ts"].min().dt.year
+    first_track_year  = df.groupby("track_id")["listen_ts"].min().dt.year
+
+    # Compute unique entities per year
+    artists_by_year = df.groupby("year")["artist_id"].nunique()
+    albums_by_year  = df.groupby("year")["album_id"].nunique()
+    tracks_by_year  = df.groupby("year")["track_id"].nunique()
+
+    # Compute "new" entities per year
+    new_artists_by_year = first_artist_year.value_counts()
+    new_albums_by_year  = first_album_year.value_counts()
+    new_tracks_by_year  = first_track_year.value_counts()
+
+    # Build final rows
+    rows = []
+    for y in all_years:
+        ua = artists_by_year.get(y, 0)
+        na = new_artists_by_year.get(y, 0)
+        pa = (na / ua) if ua > 0 else np.nan
+
+        ub = albums_by_year.get(y, 0)
+        nb = new_albums_by_year.get(y, 0)
+        pb = (nb / ub) if ub > 0 else np.nan
+
+        ut = tracks_by_year.get(y, 0)
+        nt = new_tracks_by_year.get(y, 0)
+        pt = (nt / ut) if ut > 0 else np.nan
+
+        rows.append({
+            "Year": y,
+            "Number of Unique Artists": ua,
+            "Percent New Artists": pa,
+            "Number of Unique Albums": ub,
+            "Percent New Albums": pb,
+            "Number of Unique Tracks": ut,
+            "Percent New Tracks": pt,
+        })
+
+    df_out = pd.DataFrame(rows)
+    return df_out.sort_values("Year").reset_index(drop=True)
 
 
 # ------------------------------------------------------------
