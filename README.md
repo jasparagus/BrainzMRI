@@ -123,8 +123,8 @@ You can set:
   - May be slow if API lookup is enabled (1.2s per entity)
 
 - **Genre Enrichment Source**  
-  - **Cache** — uses only the local genre cache, built from past API lookups.
-  - **Query API (Slow)** — query MusicBrainz and update the cache (subject to rate limiting)  
+  - **Cache**: uses only the local genre cache, built from past API lookups.
+  - **Query API (Slow)**: query MusicBrainz and update the cache (subject to rate limiting)  
   - Enabled only when enrichment is turned on
 
 ### 4. Choose a report type
@@ -157,16 +157,139 @@ Reports are saved in a `reports/` folder next to your ZIP file.
 ```text
 BrainzMRI/
 │
-├── BrainzMRI.bat           # Windows launcher
-├── BrainzMRI_GUI.py        # GUI application
-├── LICENSE.txt             # License (GNU GPL)
-├── ParseListens.py         # Core parser and report logic
-├── README.md               # This file
-├── example.png             # Example of GUI
-├── requirements.txt        # Required Python modules
-├── reports/                # Auto-created report output folder
-└── config.json             # Auto-created settings file
+├── BrainzMRI.bat                 # Windows launcher
+├── BrainzMRI_GUI.py              # Main GUI entry point (tkinter)
+├── gui.py                        # Core GUI logic and orchestration
+├── report_table_view.py          # Table rendering, filtering, sorting UI
+├── report_engine.py              # Pure report-generation logic
+├── reporting.py                  # Aggregation, grouping, and report helpers
+├── enrichment.py                 # Genre/metadata enrichment logic
+├── user.py                       # User cache utilities and helpers
+├── parsing.py                    # data parsing and canonicalization
+│
+├── LICENSE.txt
+├── README.md
+├── requirements.txt			  # required python modules	
+├── example.png
+├── config.json                   # Auto-created settings file
+├── cache.json                    # Auto-created cache folder for enrichment data
+└── reports/                      # Auto-created report output folder
+
 ```
+
+---
+
+# **Major Modules & Classes**
+
+## gui.py:  Main Application Orchestrator
+Handles:
+- Window creation, layout, event wiring
+- User selection and ZIP loading
+- Report parameter parsing (thresholds, time ranges, recency)
+- Calling `ReportEngine.generate_report()`
+- Displaying results via `ReportTableView`
+
+Important functions:
+- `run_report()`
+- `load_from_zip()`
+- `load_user_cache()`
+- `save_user_cache()`
+- `refresh_user_list()`
+
+
+### Class: `ReportTableView`
+Responsible for:
+- Rendering DataFrames in a Treeview
+- Column sorting
+- Regex filtering
+- Clipboard copy
+
+Key methods:
+- `show_table(df)`
+- `build_filter_bar()`
+- `apply_filter()`
+- `clear_filter()`
+- `sort_column(tree, df, col)`
+- `copy_selection_to_clipboard()`
+
+
+## report_engine.py: Pure Report Logic
+### Class: `ReportEngine`
+Encapsulates:
+- Time-range filtering
+- Recency filtering
+- Thresholding (min listens, min minutes)
+- Top-N selection
+- Calling reporting functions
+- Optional enrichment
+
+Key methods:
+- `generate_report(base_df, mode, liked_mbids, ...)`
+- `get_status(mode)`
+
+Internal handler table maps:
+- `"By Artist"` → `reporting.report_top`
+- `"By Album"` → `reporting.report_top`
+- `"By Track"` → `reporting.report_top`
+- `"All Liked Artists"` → `reporting.report_artists_with_likes`
+- `"Raw Listens"` → `reporting.report_raw_listens`
+
+
+## reporting.py: Aggregation & Report Helpers
+Important functions:
+- `report_top(df, group_col, by, days, topn, min_listens, min_minutes)`
+- `report_artists_with_likes(df, liked_mbids, ...)`
+- `report_raw_listens(df, topn)`
+- `filter_by_days(df, column, start_days, end_days)`
+
+
+## enrichment.py: Metadata & Genre Enrichment
+Important functions:
+- `enrich_report(df, report_type_key, source)`
+- `load_genre_cache()`
+- `save_genre_cache()`
+- `lookup_genres(mbid)`
+- `fetch_mb_metadata(mbid)`
+
+
+## user.py: User Cache Utilities
+Important functions:
+- `get_cache_root()`
+- `get_user_cache_dir(username)`
+- `load_user_cache(username)`
+- `save_user_cache(username, df)`
+- `get_cached_usernames()`  ← recently moved here
+
+
+## parsing.py: ListenBrainz ZIP Parsing & Canonicalization
+Important functions:
+- `parse_listens_zip(zip_path)`  
+  Load a ListenBrainz ZIP export and return a canonicalized DataFrame.
+- `parse_jsonl_stream(file_obj)`  
+  Stream‑parse JSONL listens safely and yield raw listen dicts.
+- `canonicalize_listens(df)`  
+  Normalize columns, MBIDs, timestamps, and naming conventions.
+- `convert_timestamps(df, column="listened_at")`  
+  Convert raw timestamps to timezone‑aware UTC datetimes.
+- `normalize_columns(df)`  
+  Ensure all expected columns exist with consistent types.
+- `dedupe_listens(df)`  
+  Remove duplicate listens using MBIDs + precise timestamps.
+
+---
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # TODO (Items for Future Improvements)
 
