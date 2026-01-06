@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pandas as pd
 import numpy as np
 from typing import Optional, Dict, Any
@@ -155,8 +153,8 @@ class ReportEngine:
         if func is reporting.report_top:
             kwargs.update(
                 {
-                    "days": None,
-                    "topn": topn,
+                    "days": None,    # Legacy days filter
+                    "topn": topn,    
                     "min_listens": min_listens,
                     "min_minutes": min_minutes,
                 }

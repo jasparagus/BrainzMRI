@@ -348,63 +348,94 @@ class BrainzMRIGUI:
         def add_labeled_entry(parent, label: str, default) -> tk.Entry:
             row = tk.Frame(parent)
             row.pack(anchor="w")
-            tk.Label(row, text=label, width=32, anchor="w").pack(side="left")
-            ent = tk.Entry(row, width=10)
+            tk.Label(row, text=label, width=27, anchor="w").pack(side="left")
+            ent = tk.Entry(row, width=8)
             ent.insert(0, str(default))
             ent.pack(side="left")
             return ent
 
-        # Time Range
-        frm_time = tk.Frame(frm_inputs)
-        frm_time.pack(fill="x", pady=5)
-
-        lbl_time = tk.Label(frm_time, text="Time Range To Analyze (Days)")
-        lbl_time.pack(anchor="center")
-
-        row_time = tk.Frame(frm_time)
-        row_time.pack(anchor="center")
-
-        tk.Label(row_time, text="Start:", width=8).pack(side="left")
-        self.ent_time_start = tk.Entry(row_time, width=10)
-        self.ent_time_start.pack(side="left", padx=5)
-
-        tk.Label(row_time, text="End:", width=8).pack(side="left")
-        self.ent_time_end = tk.Entry(row_time, width=10)
-        self.ent_time_end.pack(side="left", padx=5)
-
-        self.ent_time_start.insert(0, "0")
-        self.ent_time_end.insert(0, "9999")
-
-        # Last Listened
-        frm_last = tk.Frame(frm_inputs)
-        frm_last.pack(fill="x", pady=5)
-
-        lbl_last = tk.Label(frm_last, text="Last Listened Date (Days Ago)")
-        lbl_last.pack(anchor="center")
-
-        row_last = tk.Frame(frm_last)
-        row_last.pack(anchor="center")
-
-        tk.Label(row_last, text="Start:", width=8).pack(side="left")
-        self.ent_last_start = tk.Entry(row_last, width=10)
-        self.ent_last_start.pack(side="left", padx=5)
-
-        tk.Label(row_last, text="End:", width=8).pack(side="left")
-        self.ent_last_end = tk.Entry(row_last, width=10)
-        self.ent_last_end.pack(side="left", padx=5)
-
-        self.ent_last_start.insert(0, "0")
-        self.ent_last_end.insert(0, "0")
+        def add_labeled_double_entry(parent, 
+            label: str, 
+            default1, default2) -> tk.Entry:
+                
+            frm = tk.Frame(parent)
+            frm.pack(fill="x", pady=5)
+            
+            tk.Label(frm, text=label).pack(anchor="center")
+            
+            row = tk.Frame(frm)
+            row.pack(anchor="center")
+            
+            tk.Label(row, text="Start:", width=8).pack(side="left")
+            ent1 = tk.Entry(row, width=10)
+            ent1.insert(0, str(default1))
+            ent1.pack(side="left", padx=5)
+            
+            tk.Label(row, text="End:", width=8).pack(side="left")
+            ent2 = tk.Entry(row, width=10)
+            ent2.insert(0, str(default2))
+            ent2.pack(side="left", padx=5)
+            
+            return ent1, ent2, frm
+        
+        # Built Range Filters
+        (self.ent_time_start, self.ent_time_end, 
+            self.time_frame) = add_labeled_double_entry(frm_inputs, 
+            "Time Range To Analyze (Days Ago)", 0, 0)
+            
+        (self.ent_last_start, self.ent_last_end, 
+            self.last_frame) = add_labeled_double_entry(frm_inputs, 
+            "Last Listened Date (Days Ago)", 0, 0)
+        
+        Hovertip(
+            self.time_frame,
+            "Time range filtering. Excludes listens by date.\n"
+            "Example: [365, 730] will diplay listens from 1-2 years ago.\n"
+            "Set to [0, 0] to disable filtering.\n"
+            "Default: [0, 0] (days ago).",
+            hover_delay=500,
+        )
+        
+        Hovertip(
+            self.last_frame,
+            "Recency filtering. Exclude entities by last listened.\n"
+            "Filters entities (Artist, Album, Track) by last listened date.\n"
+            "Example: [365, 99999] will diplay entities last listened >1 year ago.\n"
+            "Set to [0, 0] to disable filtering.\n"
+            "Default: [0, 0] (days ago).",
+            hover_delay=500,
+        )
 
         # Thresholds and Top N
         self.ent_topn = add_labeled_entry(
-            frm_inputs, "Top N (Number Of Results, Default: 200):", 200
+            frm_inputs, "Top N (Number Of Results):", 200
         )
         self.ent_min_listens = add_labeled_entry(
-            frm_inputs, "Minimum Listens Threshold:", 10
+            frm_inputs, "Number of Listens Threshold:", 10
         )
         self.ent_min_minutes = add_labeled_entry(
-            frm_inputs, "Minimum Time Listened Threshold (Mins):", 15
+            frm_inputs, "Minutes Listened Threshold:", 15
+        )
+
+        Hovertip(
+            self.ent_topn,
+            "Number of results to return.\n"
+            "Default: 200 (results)",
+            hover_delay=500,
+        )
+        Hovertip(
+            self.ent_min_listens,
+            "A threshold for minimum number of listens.\n"
+            "Works as an 'OR' with minimum Time listened.\n"
+            "Default: 10 (listens)",
+            hover_delay=500,
+        )
+        Hovertip(
+            self.ent_min_minutes,
+            "A threshold for minimum number of minutes listened.\n"
+            "Works as an 'OR' with minimum listens.\n"
+            "Default: 15 (minutes)",
+            hover_delay=500,
         )
 
         # Enrichment controls
@@ -419,6 +450,7 @@ class BrainzMRIGUI:
             "Add genre information to the report using MusicBrainz.\n"
             "Runs after all filters and sorting.\n"
             "May be slow if API lookup is enabled.",
+            hover_delay=500,
         )
         chk_enrich.pack(anchor="w", pady=5)
 
@@ -447,6 +479,7 @@ class BrainzMRIGUI:
             "Choose whether to use the local cache only or query the MusicBrainz API.\n"
             "API lookups are slower due to rate limiting.\n"
             "Cache is only available for items pulled previously via API.",
+            hover_delay=500,
         )
 
         def toggle_enrich_source(*_):

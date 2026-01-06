@@ -297,7 +297,7 @@ Important functions:
 ---
 
 
-# TODO Items
+# To-Do List
 
 ## Map Enter To "Generate Report"
 - Pressing Enter key inside any of the filter boxes should trigger the "Generate Report" button
