@@ -44,7 +44,7 @@ class ReportEngine:
                 "kwargs": {},
                 "status": "Liked artists report generated.",
             },
-            "New Music by Year": {
+            "New Music By Year": {
                 "func": reporting.report_new_music_by_year,
                 "kwargs": {},
                 "status": "New Music by Year report generated.",
@@ -137,6 +137,7 @@ class ReportEngine:
                 df = df.merge(allowed[entity_cols], on=entity_cols, how="inner")
 
         handler = self._handlers.get(mode)
+        print(handler)
         if handler is None:
             raise ValueError(f"Unsupported report type: {mode}")
 
