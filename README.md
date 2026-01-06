@@ -186,7 +186,7 @@ BrainzMRI/
 ## gui.py: Main Application Orchestrator
 Handles:
 - Window creation, layout, and event wiring
-- User selection, ZIP ingestion, and cached‑user loading
+- User selection, ZIP ingestion, and cached-user loading
 - Parsing all report parameters (thresholds, time ranges, recency)
 - Calling `ReportEngine.generate_report()`
 - Displaying results via `ReportTableView`
@@ -203,7 +203,7 @@ Important functions:
 Responsible for:
 - Rendering DataFrames in a Tkinter Treeview
 - Column sorting (ascending/descending)
-- Regex‑based filtering via a persistent filter bar
+- Regex-based filtering via a persistent filter bar
 - Clipboard copy of selected rows
 
 Key methods:
@@ -218,13 +218,13 @@ Key methods:
 ## report_engine.py: Central Report Routing & Filtering
 ### Class: `ReportEngine`
 Encapsulates:
-- Time‑range filtering (`filter_by_days`)
-- Recency filtering (entity‑level last‑listened windows)
+- Time-range filtering (`filter_by_days`)
+- Recency filtering (entity-level last-listened windows)
 - Thresholding (min listens, min minutes)
-- Top‑N selection
+- Top-N selection
 - Dispatching to reporting functions
 - Optional enrichment (genre, metadata)
-- Special‑case handling for reports that bypass filters
+- Special-case handling for reports that bypass filters
 
 Key methods:
 - `generate_report(base_df, mode, liked_mbids, ...)`
@@ -235,25 +235,23 @@ Internal handler table maps:
 - `"By Album"` → `reporting.report_top`
 - `"By Track"` → `reporting.report_top`
 - `"All Liked Artists"` → `reporting.report_artists_with_likes`
-- `"Raw Listens"` → `reporting.report_raw_listens`
 - `"New Music by Year"` → `reporting.report_new_music_by_year`  
-  *(special case: bypasses all filters and enrichment)*
-
+- `"Raw Listens"` → `reporting.report_raw_listens`
 
 ## reporting.py: Aggregation, Grouping & Report Helpers
-Implements all report‑level computations.
+Implements all report-level computations.
 
 Important functions:
 - `report_top(df, group_col, by, days, topn, min_listens, min_minutes)`  
-  Artist/Album/Track Top‑N reports.
+  Artist/Album/Track Top-N reports.
 - `report_artists_with_likes(df, liked_mbids, ...)`  
-  Liked‑artists aggregation.
+  Liked-artists aggregation.
 - `report_raw_listens(df, topn)`  
   Unfiltered passthrough of listens.
 - `report_new_music_by_year(df)`  
-  Year‑level unique‑entity counts and “percent new” metrics.
+  Year-level unique-entity counts and “percent new” metrics.
 - `filter_by_days(df, column, start_days, end_days)`  
-  Time‑range filtering helper.
+  Time-range filtering helper.
 
 
 ## enrichment.py: Metadata & Genre Enrichment
@@ -268,7 +266,7 @@ Important functions:
 
 
 ## user.py: User Cache & Filesystem Utilities
-Manages per‑user storage and cached listen data.
+Manages per-user storage and cached listen data.
 
 Important functions:
 - `get_cache_root()`
@@ -286,11 +284,11 @@ Important functions:
 - `parse_listens_zip(zip_path)`  
   Load a ZIP export and extract all listens.
 - `parse_jsonl_stream(file_obj)`  
-  Stream‑parse JSONL safely and yield raw listen dicts.
+  Stream-parse JSONL safely and yield raw listen dicts.
 - `canonicalize_listens(df)`  
   Normalize columns, MBIDs, timestamps, and naming conventions.
 - `convert_timestamps(df, column="listened_at")`  
-  Convert raw timestamps to timezone‑aware UTC datetimes.
+  Convert raw timestamps to timezone-aware UTC datetimes.
 - `normalize_columns(df)`  
   Ensure all expected columns exist with consistent types.
 - `dedupe_listens(df)`  

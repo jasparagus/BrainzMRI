@@ -157,7 +157,7 @@ class ReportTableView:
             for widget in self.table_container.winfo_children():
                 widget.destroy()
 
-        # Build Treeview
+        # Build Treeview (Table)
         tree = ttk.Treeview(self.table_container, show="headings")
         tree.pack(side="left", fill="both", expand=True)
 
@@ -468,8 +468,8 @@ class BrainzMRIGUI:
                 "By Artist",
                 "By Album",
                 "By Track",
-                "New Music By Year",
                 "All Liked Artists",
+                "New Music By Year",
                 "Raw Listens",
             ],
             state="readonly",
