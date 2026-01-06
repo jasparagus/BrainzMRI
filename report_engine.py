@@ -27,31 +27,37 @@ class ReportEngine:
             "By Artist": {
                 "func": reporting.report_top,
                 "kwargs": {"group_col": "artist", "by": "total_tracks"},
+                "report_type_key": "artist",
                 "status": "Artist report generated.",
             },
             "By Album": {
                 "func": reporting.report_top,
                 "kwargs": {"group_col": "album", "by": "total_tracks"},
+                "report_type_key": "album",
                 "status": "Album report generated.",
             },
             "By Track": {
                 "func": reporting.report_top,
                 "kwargs": {"group_col": "track", "by": "total_tracks"},
+                "report_type_key": "track",
                 "status": "Track report generated.",
             },
             "All Liked Artists": {
                 "func": reporting.report_artists_with_likes,
                 "kwargs": {},
+                "report_type_key": "liked_artists",
                 "status": "Liked artists report generated.",
             },
             "New Music By Year": {
                 "func": reporting.report_new_music_by_year,
                 "kwargs": {},
+                "report_type_key": "new_music_by_year",
                 "status": "New Music by Year report generated.",
             },
             "Raw Listens": {
                 "func": reporting.report_raw_listens,
                 "kwargs": {},
+                "report_type_key": "raw",
                 "status": "Raw listens displayed.",
             },
         }
@@ -98,7 +104,8 @@ class ReportEngine:
         df = base_df.copy()
 
         # Time range filter (on listens)
-        if not (time_start_days == 0 and time_end_days == 0):
+        if ( not (time_start_days == 0 and time_end_days == 0) and 
+            mode not in ["New Music By Year"] ):
             df = reporting.filter_by_days(
                 df,
                 "listened_at",
@@ -106,8 +113,8 @@ class ReportEngine:
                 time_end_days,
             )
 
-        # Recency filter (skip for Raw Listens)
-        if mode != "Raw Listens":
+        # Recency filter (Skip For Certain Modes)
+        if mode not in ["Raw Listens", "New Music By Year"]:
             if not (rec_start_days == 0 and rec_end_days == 0):
                 now = datetime.now(timezone.utc)
                 min_dt = now - timedelta(days=rec_end_days)
@@ -136,22 +143,13 @@ class ReportEngine:
 
                 df = df.merge(allowed[entity_cols], on=entity_cols, how="inner")
 
+        # Get details from handler
         handler = self._handlers.get(mode)
-        print(handler)
         if handler is None:
             raise ValueError(f"Unsupported report type: {mode}")
-
-        # Special case: New Music by Year ignores ALL filters, run now
-        if mode == "New Music by Year":
-            result = report_new_music_by_year(base_df)
-            meta = None
-            report_type_key = "new_music_by_year"
-            last_enriched = False
-            status_text = self.get_status(mode)
-            return result, meta, report_type_key, last_enriched, status_text
-
         func = handler["func"]
         kwargs = handler["kwargs"].copy()
+        report_type_key = handler["report_type_key"]
 
         # Call appropriate reporting function
         if func is reporting.report_top:
@@ -176,24 +174,15 @@ class ReportEngine:
                 topn=topn,
             )
 
+        elif func == reporting.report_new_music_by_year:
+            result, meta = func(base_df)
+
         elif func is reporting.report_raw_listens:
             result, meta = func(df, topn=topn)
 
         else:
-            result, meta = func(df, **kwargs)
-
-        # Determine report_type_key
-        if mode == "By Artist":
-            report_type_key = "artist"
-        elif mode == "By Album":
-            report_type_key = "album"
-        elif mode == "By Track":
-            report_type_key = "track"
-        elif mode == "All Liked Artists":
-            report_type_key = "liked_artists"
-        else:
-            report_type_key = "raw"
-
+            result, meta = func(df, **kwargs)          
+        
         # After time-range filtering, protect against empty results
         if df.empty:
             return (
@@ -206,7 +195,7 @@ class ReportEngine:
 
         # Optional enrichment (skip for Raw Listens)
         last_enriched = False
-        if do_enrich and mode != "Raw Listens":
+        if do_enrich and mode not in ["Raw Listens", "New Music By Year"]:
             # Inject username into the report DataFrame
             result = result.copy()
             result["_username"] = base_df["_username"].iloc[0]

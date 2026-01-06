@@ -311,7 +311,7 @@ def report_new_music_by_year(df: pd.DataFrame) -> pd.DataFrame:
 
     # Extract year from listen timestamp
     df = df.copy()
-    df["year"] = df["listen_ts"].dt.year
+    df["year"] = df["listened_at"].dt.year
 
     # Determine continuous year range
     min_year = int(df["year"].min())
@@ -319,14 +319,14 @@ def report_new_music_by_year(df: pd.DataFrame) -> pd.DataFrame:
     all_years = list(range(min_year, max_year + 1))
 
     # Identity keys (MBID fallback to name)
-    df["artist_id"] = df["artist_mbid"].fillna(df["artist_name"])
-    df["album_id"]  = df["release_mbid"].fillna(df["release_name"])
+    df["artist_id"] = df["artist_mbid"].fillna(df["artist"])
+    df["album_id"]  = df["release_mbid"].fillna(df["album"])
     df["track_id"]  = df["recording_mbid"].fillna(df["track_name"])
 
     # Compute first-listened year per entity
-    first_artist_year = df.groupby("artist_id")["listen_ts"].min().dt.year
-    first_album_year  = df.groupby("album_id")["listen_ts"].min().dt.year
-    first_track_year  = df.groupby("track_id")["listen_ts"].min().dt.year
+    first_artist_year = df.groupby("artist_id")["listened_at"].min().dt.year
+    first_album_year  = df.groupby("album_id")["listened_at"].min().dt.year
+    first_track_year  = df.groupby("track_id")["listened_at"].min().dt.year
 
     # Compute unique entities per year
     artists_by_year = df.groupby("year")["artist_id"].nunique()
@@ -364,7 +364,16 @@ def report_new_music_by_year(df: pd.DataFrame) -> pd.DataFrame:
         })
 
     df_out = pd.DataFrame(rows)
-    return df_out.sort_values("Year").reset_index(drop=True)
+    
+    meta = {
+        "entity": "NewMusic",
+        "topn": None,
+        "days": None,
+        "metric": "ByYear",
+    }
+    
+    result = df_out.sort_values("Year").reset_index(drop=True)
+    return result, meta
 
 
 # ------------------------------------------------------------

@@ -233,7 +233,7 @@ class ReportTableView:
         try:
             regex = re.compile(pattern, re.IGNORECASE)
         except re.error:
-            messagebox.showerror("Invalid Regex", "Your regex pattern is invalid.")
+            messagebox.showerror("Error In Regex", "Your regex pattern is invalid.")
             return
 
         df = self.state.original_df.copy()
@@ -246,7 +246,7 @@ class ReportTableView:
             )
         else:
             if col_choice not in df.columns:
-                messagebox.showerror("Error", f"Column '{col_choice}' not found.")
+                messagebox.showerror("Error Applying Filter", f"Column '{col_choice}' not found.")
                 return
             mask = df[col_choice].astype(str).str.contains(regex, regex=True)
 
@@ -567,11 +567,11 @@ class BrainzMRIGUI:
         try:
             user = User.from_cache(username)
         except FileNotFoundError as e:
-            messagebox.showerror("Error", str(e))
+            messagebox.showerror("Error Loading Nonexistent Cache", str(e))
             self.set_status(f"Error: {str(e)}")
             return
         except Exception as e:
-            messagebox.showerror("Unexpected Error", f"{type(e).__name__}: {e}")
+            messagebox.showerror("Error Loading From Cache (Unknown)", f"{type(e).__name__}: {e}")
             self.set_status("Error: Failed to load user from cache.")
             return
 
@@ -685,8 +685,8 @@ class BrainzMRIGUI:
             )
             topn = self._parse_int_field(self.ent_topn, "Top N")
         except ValueError as e:
-            messagebox.showerror("Error", str(e))
-            self.set_status(f"Error: {str(e)}")
+            messagebox.showerror("Error With Filter Input", str(e))
+            self.set_status(f"Error With Filter Input: {str(e)}")
             return
 
         do_enrich = self.do_enrich_var.get()
@@ -715,12 +715,12 @@ class BrainzMRIGUI:
                 )
             )
         except ValueError as e:
-            messagebox.showerror("Error", str(e))
-            self.set_status(f"Error: {str(e)}")
+            messagebox.showerror("Error Executing Report", str(e))
+            self.set_status(f"Error Executing Report: {str(e)}")
             return
         except Exception as e:
             messagebox.showerror(
-                "Unexpected Error", f"{type(e).__name__}: {e}"
+                "Unexpected Error Executing Report", f"{type(e).__name__}: {e}"
             )
             self.set_status("Error: Unexpected error during report generation.")
             return
