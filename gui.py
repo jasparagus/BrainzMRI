@@ -91,7 +91,7 @@ class ReportTableView:
             self.filter_frame.destroy()
 
         self.filter_frame = tk.Frame(self.container)
-        self.filter_frame.pack(pady=5) # fill="x", 
+        self.filter_frame.pack(pady=5)  # fill="x",
 
         # Filter By dropdown
         tk.Label(self.filter_frame, text="Filter By:").pack(side="left", padx=(5, 2))
@@ -286,6 +286,7 @@ class ReportTableView:
 
         return "break"
 
+
 class BrainzMRIGUI:
     """
     Tkinter GUI wrapper for BrainzMRI.
@@ -354,39 +355,39 @@ class BrainzMRIGUI:
             ent.pack(side="left")
             return ent
 
-        def add_labeled_double_entry(parent, 
-            label: str, 
+        def add_labeled_double_entry(parent,
+            label: str,
             default1, default2) -> tk.Entry:
-                
+
             frm = tk.Frame(parent)
             frm.pack(fill="x", pady=5)
-            
+
             tk.Label(frm, text=label).pack(anchor="center")
-            
+
             row = tk.Frame(frm)
             row.pack(anchor="center")
-            
+
             tk.Label(row, text="Start:", width=8).pack(side="left")
             ent1 = tk.Entry(row, width=6)
             ent1.insert(0, str(default1))
             ent1.pack(side="left", padx=5)
-            
+
             tk.Label(row, text="End:", width=8).pack(side="left")
             ent2 = tk.Entry(row, width=6)
             ent2.insert(0, str(default2))
             ent2.pack(side="left", padx=5)
-            
+
             return ent1, ent2, frm
-        
+
         # Built Range Filters
-        (self.ent_time_start, self.ent_time_end, 
-            self.time_frame) = add_labeled_double_entry(frm_inputs, 
+        (self.ent_time_start, self.ent_time_end,
+            self.time_frame) = add_labeled_double_entry(frm_inputs,
             "Time Range To Analyze (Days Ago)", 0, 0)
-            
-        (self.ent_last_start, self.ent_last_end, 
-            self.last_frame) = add_labeled_double_entry(frm_inputs, 
+
+        (self.ent_last_start, self.ent_last_end,
+            self.last_frame) = add_labeled_double_entry(frm_inputs,
             "Last Listened Date (Days Ago)", 0, 0)
-        
+
         for widg in [self.ent_time_start, self.ent_time_end]:
             Hovertip(
                 widg,
@@ -396,7 +397,7 @@ class BrainzMRIGUI:
                 "Default: [0, 0] (days ago).",
                 hover_delay=500,
             )
-        
+
         for widg in [self.ent_last_start, self.ent_last_end]:
             Hovertip(
                 widg,
@@ -418,25 +419,37 @@ class BrainzMRIGUI:
         self.ent_min_minutes = add_labeled_entry(
             frm_inputs, "Minutes Listened Threshold:", 15
         )
+        self.ent_min_likes = add_labeled_entry(
+            frm_inputs, "Minimum Likes Threshold:", 0
+        )
 
         Hovertip(
             self.ent_topn,
             "Number of results to return.\n"
-            "Default: 200 (results)",
+            "Default: 200 results",
             hover_delay=500,
         )
         Hovertip(
             self.ent_min_listens,
             "A threshold for minimum number of listens.\n"
             "Works as an 'OR' with minimum Time listened.\n"
-            "Default: 10 (listens)",
+            "Default: 10 listens",
             hover_delay=500,
         )
         Hovertip(
             self.ent_min_minutes,
             "A threshold for minimum number of minutes listened.\n"
             "Works as an 'OR' with minimum listens.\n"
-            "Default: 15 (minutes)",
+            "Default: 15 minutes",
+            hover_delay=500,
+        )
+        Hovertip(
+            self.ent_min_likes,
+            "A threshold for minimum number of unique liked tracks.\n"
+            "Applies only to Top-N reports (Artist/Album/Track).\n"
+            "Example: 2 (By Artist) = all artists with 2+ liked tracks.\n"
+            "Set to 0 to disable likes-based filtering.\n"
+            "Default: 0 likes.",
             hover_delay=500,
         )
 
@@ -503,7 +516,6 @@ class BrainzMRIGUI:
                 "By Artist",
                 "By Album",
                 "By Track",
-                "All Liked Artists",
                 "New Music By Year",
                 "Raw Listens",
             ],
@@ -718,6 +730,7 @@ class BrainzMRIGUI:
             min_minutes = self._parse_float_field(
                 self.ent_min_minutes, "Minimum time listened"
             )
+            min_likes = self._parse_int_field(self.ent_min_likes, "Minimum likes")
             topn = self._parse_int_field(self.ent_topn, "Top N")
         except ValueError as e:
             messagebox.showerror("Error With Filter Input", str(e))
@@ -744,6 +757,7 @@ class BrainzMRIGUI:
                     rec_end_days=rec_end,
                     min_listens=min_listens,
                     min_minutes=min_minutes,
+                    min_likes=min_likes,
                     topn=topn,
                     do_enrich=do_enrich,
                     enrich_source=enrich_source,

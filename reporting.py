@@ -73,12 +73,12 @@ def report_raw_listens(df, topn=None):
 
 
 # ------------------------------------------------------------
-# Liked Artists Report
+# Helper: Compute unique liked tracks per entity
 # ------------------------------------------------------------
 
-def report_artists_with_likes(df, liked_mbids, min_listens=0, min_minutes=0.0, topn=None):
+def _compute_unique_likes(df, liked_mbids, group_col):
     """
-    Generate a report of artists with liked recordings.
+    Compute unique liked tracks per entity.
 
     Parameters
     ----------
@@ -86,72 +86,56 @@ def report_artists_with_likes(df, liked_mbids, min_listens=0, min_minutes=0.0, t
         Canonical listens DataFrame.
     liked_mbids : set[str]
         Set of liked recording MBIDs.
-    min_listens : int
-        Minimum number of liked listens required.
-    min_minutes : float
-        Minimum liked duration (minutes).
-    topn : int or None
-        Maximum number of rows to return.
+    group_col : str
+        "artist", "album", or "track".
 
     Returns
     -------
-    result : DataFrame
-    meta : dict
+    DataFrame with columns:
+        - entity keys (artist / artist+album / artist+track_name)
+        - unique_liked_tracks
     """
-    liked_listens = df[df["recording_mbid"].isin(liked_mbids)]
+    if not liked_mbids:
+        # No likes at all → return empty frame with correct columns
+        if group_col == "artist":
+            return pd.DataFrame(columns=["artist", "unique_liked_tracks"])
+        elif group_col == "album":
+            return pd.DataFrame(columns=["artist", "album", "unique_liked_tracks"])
+        else:
+            return pd.DataFrame(columns=["artist", "track_name", "unique_liked_tracks"])
 
-    if liked_listens.empty:
-        empty_df = pd.DataFrame(
-            columns=[
-                "artist",
-                "unique_likes",
-                "total_liked_listens",
-                "liked_duration_hours",
-            ]
+    liked_df = df[df["recording_mbid"].isin(liked_mbids)]
+    if liked_df.empty:
+        # No liked listens in this filtered dataset
+        if group_col == "artist":
+            return pd.DataFrame(columns=["artist", "unique_liked_tracks"])
+        elif group_col == "album":
+            return pd.DataFrame(columns=["artist", "album", "unique_liked_tracks"])
+        else:
+            return pd.DataFrame(columns=["artist", "track_name", "unique_liked_tracks"])
+
+    if group_col == "artist":
+        grouped = liked_df.groupby("artist")["recording_mbid"].nunique().reset_index()
+        grouped = grouped.rename(columns={"recording_mbid": "unique_liked_tracks"})
+        return grouped
+
+    elif group_col == "album":
+        grouped = (
+            liked_df.groupby(["artist", "album"])["recording_mbid"]
+            .nunique()
+            .reset_index()
         )
-        meta = {
-            "entity": "Artists",
-            "topn": "Liked",
-            "days": None,
-            "metric": "Likes",
-        }
-        return empty_df, meta
+        grouped = grouped.rename(columns={"recording_mbid": "unique_liked_tracks"})
+        return grouped
 
-    grouped = liked_listens.groupby("artist").agg(
-        unique_likes=("recording_mbid", "nunique"),
-        total_liked_listens=("recording_mbid", "count"),
-        liked_duration_ms=("duration_ms", "sum"),
-    )
-
-    grouped["liked_duration_hours"] = (
-        grouped["liked_duration_ms"] / (1000 * 60 * 60)
-    ).round(1)
-
-    grouped = grouped.drop(columns=["liked_duration_ms"])
-
-    # Thresholds
-    if min_listens > 0:
-        grouped = grouped[grouped["total_liked_listens"] >= min_listens]
-
-    if min_minutes > 0:
-        grouped = grouped[grouped["liked_duration_hours"] >= (min_minutes / 60.0)]
-
-    result = grouped.reset_index().sort_values(
-        ["unique_likes", "total_liked_listens"],
-        ascending=[False, False],
-    )
-
-    if topn and topn > 0:
-        result = result.head(topn)
-
-    meta = {
-        "entity": "Artists",
-        "topn": "Liked" if topn is None else topn,
-        "days": None,
-        "metric": "Likes",
-    }
-
-    return result, meta
+    else:  # track
+        grouped = (
+            liked_df.groupby(["artist", "track_name"])["recording_mbid"]
+            .nunique()
+            .reset_index()
+        )
+        grouped = grouped.rename(columns={"recording_mbid": "unique_liked_tracks"})
+        return grouped
 
 
 # ------------------------------------------------------------
@@ -203,6 +187,8 @@ def report_top(
     topn=100,
     min_listens=0,
     min_minutes=0.0,
+    min_likes=0,
+    liked_mbids=None,
 ):
     """
     Generate a Top-N report for artists, albums, or tracks.
@@ -223,13 +209,16 @@ def report_top(
         Minimum listens threshold.
     min_minutes : float
         Minimum duration threshold (minutes).
+    min_likes   : int
+        Minimum likes threshold
 
     Returns
     -------
     result : DataFrame
     meta : dict
     """
-    # Legacy days filtering (kept for compatibility)
+
+    # Legacy days filtering (kept for CLI compatibility)
     if days is not None:
         if isinstance(days, tuple):
             start_days, end_days = days
@@ -261,7 +250,30 @@ def report_top(
             ["artist", "track_name", "total_tracks", "total_duration_hours", "first_listened", "last_listened"]
         ]
 
-    # Thresholds
+    # ------------------------------------------------------------
+    # Likes-based filtering (Minimum Likes Threshold)
+    # ------------------------------------------------------------
+    if min_likes > 0:
+        likes_df = _compute_unique_likes(df, liked_mbids, group_col)
+
+        # Merge likes into grouped table
+        grouped = grouped.merge(
+            likes_df,
+            on=["artist"] if group_col == "artist"
+            else ["artist", "album"] if group_col == "album"
+            else ["artist", "track_name"],
+            how="left",
+        )
+
+        # Fill missing likes with 0
+        grouped["unique_liked_tracks"] = grouped["unique_liked_tracks"].fillna(0).astype(int)
+
+        # Apply likes threshold
+        grouped = grouped[grouped["unique_liked_tracks"] >= min_likes]
+
+    # ------------------------------------------------------------
+    # Existing thresholds (Minimum Listens OR Minimum Minutes)
+    # ------------------------------------------------------------
     if min_listens > 0 or min_minutes > 0:
         grouped = grouped[
             (grouped["total_tracks"] >= min_listens)
@@ -291,12 +303,12 @@ def report_top(
 # ------------------------------------------------------------
 # New Music by Year Report
 # ------------------------------------------------------------
-def report_new_music_by_year(df: pd.DataFrame) -> pd.DataFrame:
+def report_new_music_by_year(df: pd.DataFrame):
     """
     Produce a year-by-year summary of unique artists, albums, and tracks,
     along with the percentage of each that were first listened in that year.
+    This report expects the full raw listens dataset.
 
-    This report ignores all filters and operates on the full dataset.
     """
 
     if df.empty:
@@ -307,38 +319,36 @@ def report_new_music_by_year(df: pd.DataFrame) -> pd.DataFrame:
                 "Number of Unique Albums",  "Percent New Albums",
                 "Number of Unique Tracks",  "Percent New Tracks",
             ]
-        )
+        ), {
+            "entity": "NewMusic",
+            "topn": None,
+            "days": None,
+            "metric": "Yearly",
+        }
 
-    # Extract year from listen timestamp
     df = df.copy()
     df["year"] = df["listened_at"].dt.year
 
-    # Determine continuous year range
     min_year = int(df["year"].min())
     max_year = int(df["year"].max())
     all_years = list(range(min_year, max_year + 1))
 
-    # Identity keys (MBID fallback to name)
     df["artist_id"] = df["artist_mbid"].fillna(df["artist"])
     df["album_id"]  = df["release_mbid"].fillna(df["album"])
     df["track_id"]  = df["recording_mbid"].fillna(df["track_name"])
 
-    # Compute first-listened year per entity
     first_artist_year = df.groupby("artist_id")["listened_at"].min().dt.year
     first_album_year  = df.groupby("album_id")["listened_at"].min().dt.year
     first_track_year  = df.groupby("track_id")["listened_at"].min().dt.year
 
-    # Compute unique entities per year
     artists_by_year = df.groupby("year")["artist_id"].nunique()
     albums_by_year  = df.groupby("year")["album_id"].nunique()
     tracks_by_year  = df.groupby("year")["track_id"].nunique()
 
-    # Compute "new" entities per year
     new_artists_by_year = first_artist_year.value_counts()
     new_albums_by_year  = first_album_year.value_counts()
     new_tracks_by_year  = first_track_year.value_counts()
 
-    # Build final rows
     rows = []
     for y in all_years:
         ua = artists_by_year.get(y, 0)
@@ -364,20 +374,20 @@ def report_new_music_by_year(df: pd.DataFrame) -> pd.DataFrame:
         })
 
     df_out = pd.DataFrame(rows)
-    
+
     meta = {
         "entity": "NewMusic",
         "topn": None,
         "days": None,
         "metric": "Yearly",
     }
-    
+
     result = df_out.sort_values("Year").reset_index(drop=True)
     return result, meta
 
 
 # ------------------------------------------------------------
-# Saving Reports (User-centric)
+# Saving Reports
 # ------------------------------------------------------------
 
 def save_report(df, user, meta=None, report_name=None):
@@ -415,7 +425,7 @@ def save_report(df, user, meta=None, report_name=None):
             range_str = f"Range{days[0]}-{days[1]}days"
         else:
             range_str = f"Last{days}days"
-            
+
         if (topn is None or topn == 0):
             topn_str = "All"
         else:

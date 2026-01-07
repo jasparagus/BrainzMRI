@@ -40,12 +40,6 @@ class ReportEngine:
                 "report_type_key": "track",
                 "status": "Track report generated.",
             },
-            "All Liked Artists": {
-                "func": reporting.report_artists_with_likes,
-                "kwargs": {},
-                "report_type_key": "liked_artists",
-                "status": "Liked artists report generated.",
-            },
             "New Music By Year": {
                 "func": reporting.report_new_music_by_year,
                 "kwargs": {},
@@ -78,6 +72,7 @@ class ReportEngine:
         rec_end_days: int,
         min_listens: int,
         min_minutes: float,
+        min_likes: int,
         topn: int,
         do_enrich: bool,
         enrich_source: str,
@@ -102,8 +97,8 @@ class ReportEngine:
         df = base_df.copy()
 
         # Time range filter (on listens)
-        if ( not (time_start_days == 0 and time_end_days == 0) and 
-            mode not in ["New Music By Year"] ):
+        if (not (time_start_days == 0 and time_end_days == 0) and
+            mode not in ["New Music By Year"]):
             df = reporting.filter_by_days(
                 df,
                 "listened_at",
@@ -141,6 +136,17 @@ class ReportEngine:
 
                 df = df.merge(allowed[entity_cols], on=entity_cols, how="inner")
 
+        # After time/recency filtering, protect against empty inputs
+        if df.empty and mode not in ["New Music By Year"]:
+            report_type_key = self._handlers.get(mode, {}).get("report_type_key", "unknown")
+            return (
+                df,          # empty result
+                None,        # no meta
+                report_type_key,
+                False,       # not enriched
+                "No data available for the selected time range/recency filters."
+            )
+
         # Get details from handler
         handler = self._handlers.get(mode)
         if handler is None:
@@ -151,59 +157,45 @@ class ReportEngine:
 
         # Call appropriate reporting function
         if func is reporting.report_top:
+            if liked_mbids is None:
+                liked_mbids = set()
             kwargs.update(
                 {
                     "days": None,    # Legacy days filter
-                    "topn": topn,    
+                    "topn": topn,
                     "min_listens": min_listens,
                     "min_minutes": min_minutes,
+                    "min_likes": min_likes,
+                    "liked_mbids": liked_mbids,
                 }
             )
             result, meta = func(df, **kwargs)
 
-        elif func is reporting.report_artists_with_likes:
-            if liked_mbids is None:
-                liked_mbids = set()
-            result, meta = func(
-                df,
-                liked_mbids,
-                min_listens=min_listens,
-                min_minutes=min_minutes,
-                topn=topn,
-            )
-
         elif func == reporting.report_new_music_by_year:
+            # New Music By Year always operates on the full base_df
             result, meta = func(base_df)
 
         elif func is reporting.report_raw_listens:
             result, meta = func(df, topn=topn)
 
         else:
-            result, meta = func(df, **kwargs)          
-        
-        # After time-range filtering, protect against empty results
-        if df.empty:
-            return (
-                df,          # empty result
-                None,        # no meta
-                report_type_key,
-                False,       # not enriched
-                "No data available for the selected time range."
-            )
+            result, meta = func(df, **kwargs)
 
-        # Optional enrichment (skip for Raw Listens)
+        # Optional enrichment (skip for Raw Listens and New Music By Year)
         last_enriched = False
         if do_enrich and mode not in ["Raw Listens", "New Music By Year"]:
-            # Inject username into the report DataFrame
-            result = result.copy()
-            result["_username"] = base_df["_username"].iloc[0]
+            # Protect against empty result
+            if not result.empty:
+                # Inject username into the report DataFrame
+                result = result.copy()
+                result["_username"] = base_df["_username"].iloc[0]
 
-            result = enrichment.enrich_report(
-                result,
-                report_type_key,
-                enrich_source,
-            )
-            last_enriched = True
+                result = enrichment.enrich_report(
+                    result,
+                    report_type_key,
+                    enrich_source,
+                )
+                last_enriched = True
 
         status_text = self.get_status(mode)
         return result, meta, report_type_key, last_enriched, status_text
