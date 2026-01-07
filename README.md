@@ -18,7 +18,7 @@ It provides a **GUI application** for generating rich reports about your listeni
 - Choose report type (Top Artists, Top Albums, New Music By Year, and more)
 - Optionally enrich any report with MusicBrainz genre data  
 - View results in a sortable, fully filterable table  
-- Save reports to disk as CSV  
+- Save reports to disk as CSV (for opening/browsing elsewhere)
 - Automatically remembers your last ZIP file  
 - Stores configuration info in a `config.json` file
 
@@ -53,14 +53,6 @@ From inside the project directory:
 ```bash
 pip install -r requirements.txt
 ```
-
-If you don’t have a `requirements.txt`, install manually:
-
-```bash
-pip install pandas tqdm
-```
-
-*(Tkinter is included with most Python installations.)*
 
 ---
 
@@ -149,7 +141,8 @@ Results appear in a sortable, filterable table:
 ### 6. Save reports
 Click **“Save Report”** to export:
 
-- CSV reports (`.csv`) for all report types (with or without enrichment)  
+- CSV reports (`.csv`) for all report types (with or without enrichment)
+- Reports are saved to `.../cache/users/username/reports`
 
 Reports are saved in a `reports/` folder next to your ZIP file.
 
@@ -319,7 +312,6 @@ Important functions:
   - Cap at ~20 entities for clarity  
   - Each entity receives a distinct color  
 - “Top New Artists/Albums/Tracks by Year”  
-- Annual counts of distinct artists, albums, and tracks
 - Add “Export Chart” option (PNG/SVG)
 
 ## Report Presets

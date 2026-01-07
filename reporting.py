@@ -369,7 +369,7 @@ def report_new_music_by_year(df: pd.DataFrame) -> pd.DataFrame:
         "entity": "NewMusic",
         "topn": None,
         "days": None,
-        "metric": "ByYear",
+        "metric": "Yearly",
     }
     
     result = df_out.sort_values("Year").reset_index(drop=True)
@@ -415,9 +415,14 @@ def save_report(df, user, meta=None, report_name=None):
             range_str = f"Range{days[0]}-{days[1]}days"
         else:
             range_str = f"Last{days}days"
+            
+        if (topn is None or topn == 0):
+            topn_str = "All"
+        else:
+            topn_str = f"Top{topn}"
 
         metric_str = "By" + metric.capitalize()
-        filename = f"{timestamp}_{entity}_Top{topn}_{range_str}_{metric_str}.csv"
+        filename = f"{timestamp}_{topn_str}_{entity}_{range_str}_{metric_str}.csv"
 
     filepath = os.path.join(reports_dir, filename)
     df.to_csv(filepath, index=False)

@@ -91,7 +91,7 @@ class ReportTableView:
             self.filter_frame.destroy()
 
         self.filter_frame = tk.Frame(self.container)
-        self.filter_frame.pack(fill="x", pady=5)
+        self.filter_frame.pack(pady=5) # fill="x", 
 
         # Filter By dropdown
         tk.Label(self.filter_frame, text="Filter By:").pack(side="left", padx=(5, 2))
@@ -318,7 +318,7 @@ class BrainzMRIGUI:
 
         # User selection and ingestion
         frm_user = tk.Frame(root)
-        frm_user.pack(pady=10)# , fill="x")
+        frm_user.pack(pady=10)
 
         tk.Label(frm_user, text="User:").pack(side="left", padx=(10, 5))
 
