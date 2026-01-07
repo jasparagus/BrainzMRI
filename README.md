@@ -8,6 +8,7 @@ It provides a **GUI application** for generating rich reports about your listeni
 - "Time Range" filter for listens enables looking across arbitrary time windows (by "days ago")
 - "Last Played" filter enables digging up "old favorites" and more (by "days ago")
 - Liked-artist reports (list of artists whose tracks you have liked)
+- Likes-based filtering for artists, albums, and tracks (via Minimum Likes Threshold)
 - Optional genre enrichment with **MusicBrainz genre lookups**
 - Fully sortable, filterable tables in the GUI (using regex)
 - Exportable CSV reports  
@@ -107,6 +108,14 @@ You can set:
   - Min. Listens Threshold (per entity)
   - Minimum Time Listened Threshold (per entity, based on total duration)
 
+- **Minimum Likes Threshold**
+  Filters entities by the number of unique liked tracks associated with them.
+  - Applies only to Top‑N reports (Artist/Album/Track)
+  - Set to 0 to disable
+  - Example: Minimum Likes = 1 + By Artist → all liked artists
+  - Example: Minimum Likes = 2 + By Album → albums with 2+ liked tracks
+  - Example: Minimum Likes = 1 + By Track → all liked tracks
+
 ### 3. Configure enrichment (optional)
 - **Perform Genre Lookup (Enrich Report)**  
   When checked, the report is enriched with genre information after all filtering and sorting.
@@ -126,7 +135,6 @@ From the dropdown:
   - Note: collaborating artists are counted separately
 - By Album
 - By Track
-- All Liked Artists
 - New Music by Year
 - Raw Listens
   - Note: shows all Raw Listens in selected time range
@@ -228,7 +236,6 @@ Internal handler table maps:
 - `"By Artist"` → `reporting.report_top`
 - `"By Album"` → `reporting.report_top`
 - `"By Track"` → `reporting.report_top`
-- `"All Liked Artists"` → `reporting.report_artists_with_likes`
 - `"New Music by Year"` → `reporting.report_new_music_by_year`  
 - `"Raw Listens"` → `reporting.report_raw_listens`
 
