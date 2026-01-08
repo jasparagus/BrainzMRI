@@ -15,7 +15,12 @@ import re
 
 import reporting
 import enrichment
-from user import User, get_cache_root, get_cached_usernames
+from user import (
+    User,
+    get_cache_root,
+    get_cached_usernames,
+    get_user_cache_dir,
+)
 from report_engine import ReportEngine
 
 
@@ -48,16 +53,220 @@ class GUIState:
         self.filtered_df = None
 
 
+# ======================================================================
+# User Editor Window (New User / Edit User)
+# ======================================================================
+
+class UserEditorWindow(tk.Toplevel):
+    """
+    A modal dialog for creating or editing a user.
+
+    Supports:
+    - App Username (letters/numbers only)
+    - Last.fm Username
+    - ListenBrainz Username
+    - Choose ListenBrainz Zip (multi-ZIP, deferred ingestion)
+    """
+
+    def __init__(self, parent, existing_user: User | None, on_save_callback):
+        super().__init__(parent)
+        self.title("User Editor")
+        self.resizable(False, False)
+        self.parent = parent
+        self.existing_user = existing_user
+        self.on_save_callback = on_save_callback
+
+        # Pending ZIPs selected during this session
+        self.pending_zips = []
+
+        # Build UI
+        self._build_ui()
+
+        # If editing, populate fields
+        if existing_user:
+            self._populate_from_user(existing_user)
+
+        # Make modal
+        self.transient(parent)
+        self.grab_set()
+        self.wait_window(self)
+
+    # ------------------------------------------------------------
+    # UI Construction
+    # ------------------------------------------------------------
+
+    def _build_ui(self):
+        frm = tk.Frame(self)
+        frm.pack(padx=15, pady=15)
+
+        # App Username
+        tk.Label(frm, text="App Username (letters/numbers only):").grid(
+            row=0, column=0, sticky="w"
+        )
+        self.ent_app_username = tk.Entry(frm, width=30)
+        self.ent_app_username.grid(row=0, column=1, pady=3)
+
+        # Last.fm Username
+        tk.Label(frm, text="Last.fm Username:").grid(row=1, column=0, sticky="w")
+        self.ent_lastfm = tk.Entry(frm, width=30)
+        self.ent_lastfm.grid(row=1, column=1, pady=3)
+
+        # ListenBrainz Username
+        tk.Label(frm, text="ListenBrainz Username:").grid(row=2, column=0, sticky="w")
+        self.ent_listenbrainz = tk.Entry(frm, width=30)
+        self.ent_listenbrainz.grid(row=2, column=1, pady=3)
+
+        # ZIP selection
+        tk.Label(frm, text="Previously Ingested ZIPs:").grid(
+            row=3, column=0, sticky="nw", pady=(10, 0)
+        )
+        self.lst_existing_zips = tk.Listbox(frm, width=50, height=5)
+        self.lst_existing_zips.grid(row=3, column=1, pady=(10, 0))
+
+        tk.Label(frm, text="New ZIPs to Ingest:").grid(
+            row=4, column=0, sticky="nw", pady=(10, 0)
+        )
+        self.lst_pending_zips = tk.Listbox(frm, width=50, height=5)
+        self.lst_pending_zips.grid(row=4, column=1, pady=(10, 0))
+
+        btn_choose_zip = tk.Button(
+            frm,
+            text="Choose ListenBrainz Zip",
+            command=self._choose_zip,
+            width=25,
+        )
+        btn_choose_zip.grid(row=5, column=1, sticky="w", pady=5)
+
+        # Save / Cancel
+        frm_buttons = tk.Frame(frm)
+        frm_buttons.grid(row=6, column=0, columnspan=2, pady=15)
+
+        tk.Button(
+            frm_buttons,
+            text="Save User",
+            command=self._save_user,
+            width=15,
+            bg="#4CAF50",
+            fg="white",
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            frm_buttons,
+            text="Cancel",
+            command=self.destroy,
+            width=15,
+            bg="#F44336",
+            fg="white",
+        ).pack(side="left", padx=5)
+
+    # ------------------------------------------------------------
+    # Populate fields for Edit User
+    # ------------------------------------------------------------
+
+    def _populate_from_user(self, user: User):
+        self.ent_app_username.insert(0, user.username)
+        self.ent_app_username.config(state="readonly")
+
+        self.ent_lastfm.insert(0, user.get_lastfm_username() or "")
+        self.ent_listenbrainz.insert(0, user.get_listenbrainz_username() or "")
+
+        # Existing ZIPs (read-only)
+        zips = user.sources.get("listenbrainz_zips", [])
+        for z in zips:
+            self.lst_existing_zips.insert(
+                tk.END, f"{z.get('path')} (ingested {z.get('ingested_at')})"
+            )
+
+    # ------------------------------------------------------------
+    # ZIP selection
+    # ------------------------------------------------------------
+
+    def _choose_zip(self):
+        path = filedialog.askopenfilename(
+            title="Select ListenBrainz ZIP",
+            filetypes=[("ZIP files", "*.zip")],
+        )
+        if not path:
+            return
+
+        self.pending_zips.append(path)
+        self.lst_pending_zips.insert(tk.END, path)
+
+    # ------------------------------------------------------------
+    # Save User
+    # ------------------------------------------------------------
+
+    def _save_user(self):
+        app_username = self.ent_app_username.get().strip()
+        lastfm_username = self.ent_lastfm.get().strip() or None
+        listenbrainz_username = self.ent_listenbrainz.get().strip() or None
+
+        # Validate app username
+        if not app_username:
+            messagebox.showerror("Error", "App Username is required.")
+            return
+        if not app_username.isalnum():
+            messagebox.showerror(
+                "Error", "App Username must contain only letters and numbers."
+            )
+            return
+
+        # If editing, update existing user
+        if self.existing_user:
+            user = self.existing_user
+            user.update_sources(lastfm_username, listenbrainz_username)
+
+            # Ingest new ZIPs
+            for zip_path in self.pending_zips:
+                try:
+                    user.ingest_listenbrainz_zip(zip_path)
+                except Exception as e:
+                    messagebox.showerror(
+                        "Error Ingesting ZIP",
+                        f"Failed to ingest ZIP '{zip_path}': {type(e).__name__}: {e}",
+                    )
+                    return
+
+            self.on_save_callback(user.username)
+            self.destroy()
+            return
+
+        # Creating a new user
+        try:
+            user = User.from_sources(
+                username=app_username,
+                lastfm_username=lastfm_username,
+                listenbrainz_username=listenbrainz_username,
+                listenbrainz_zips=[],
+            )
+        except Exception as e:
+            messagebox.showerror(
+                "Error Creating User",
+                f"Failed to create user: {type(e).__name__}: {e}",
+            )
+            return
+
+        # Ingest ZIPs
+        for zip_path in self.pending_zips:
+            try:
+                user.ingest_listenbrainz_zip(zip_path)
+            except Exception as e:
+                messagebox.showerror(
+                    "Error Ingesting ZIP",
+                    f"Failed to ingest ZIP '{zip_path}': {type(e).__name__}: {e}",
+                )
+                return
+
+        self.on_save_callback(user.username)
+        self.destroy()
+
+# ======================================================================
+# Report Table View (unchanged from v2026.01.06)
+# ======================================================================
+
 class ReportTableView:
     """
     Encapsulates table rendering, filtering, and sorting.
-
-    Responsible for:
-    - Rendering the DataFrame into a Treeview
-    - Managing filter widgets
-    - Applying regex filters
-    - Sorting columns
-    - Copying selection to clipboard
     """
 
     def __init__(self, root: tk.Tk, container: tk.Frame, state: GUIState) -> None:
@@ -86,14 +295,12 @@ class ReportTableView:
     def build_filter_bar(self):
         """Create the filter bar UI and store widget references."""
 
-        # Destroy old filter bar if it exists
         if self.filter_frame and self.filter_frame.winfo_exists():
             self.filter_frame.destroy()
 
         self.filter_frame = tk.Frame(self.container)
-        self.filter_frame.pack(pady=5)  # fill="x",
+        self.filter_frame.pack(pady=5)
 
-        # Filter By dropdown
         tk.Label(self.filter_frame, text="Filter By:").pack(side="left", padx=(5, 2))
 
         self.filter_by_dropdown = ttk.Combobox(
@@ -104,7 +311,6 @@ class ReportTableView:
         )
         self.filter_by_dropdown.pack(side="left", padx=(0, 10))
 
-        # Filter entry
         tk.Label(
             self.filter_frame,
             text='Filter (Supports Regex; Use ".*" for wildcards or "|" for OR):',
@@ -128,36 +334,29 @@ class ReportTableView:
 
     def show_table(self, df):
 
-        # Ensure filter bar exists
         if not self.filter_entry or not self.filter_entry.winfo_exists():
             self.build_filter_bar()
 
-        # Preserve filter text
         current_filter = ""
         if self.filter_entry and self.filter_entry.winfo_exists():
             current_filter = self.filter_entry.get()
 
-        # Update dropdown values
         cols = list(df.columns)
         self.filter_by_dropdown["values"] = ["All"] + cols
         if self.filter_by_var.get() not in ["All"] + cols:
             self.filter_by_var.set("All")
 
-        # Restore filter text
         self.filter_entry.delete(0, tk.END)
         if current_filter:
             self.filter_entry.insert(0, current_filter)
 
-        # Recreate table_container if needed
         if not self.table_container or not self.table_container.winfo_exists():
             self.table_container = tk.Frame(self.container)
             self.table_container.pack(fill="both", expand=True)
         else:
-            # Clear existing table contents
             for widget in self.table_container.winfo_children():
                 widget.destroy()
 
-        # Build Treeview (Table)
         tree = ttk.Treeview(self.table_container, show="headings")
         tree.pack(side="left", fill="both", expand=True)
 
@@ -173,7 +372,6 @@ class ReportTableView:
         tree.bind("<Control-c>", self.copy_selection_to_clipboard)
         tree.bind("<Control-C>", self.copy_selection_to_clipboard)
 
-        # Configure columns
         tree["columns"] = cols
         for col in cols:
             tree.heading(
@@ -181,7 +379,6 @@ class ReportTableView:
             )
             tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
 
-        # Insert rows
         for _, row in df.iterrows():
             tree.insert("", "end", values=list(row))
 
@@ -190,7 +387,6 @@ class ReportTableView:
     # ------------------------------------------------------------
 
     def sort_column(self, tree: ttk.Treeview, df, col: str) -> None:
-        """Sort the Treeview by the given column."""
         descending = tree._sort_state.get(col, False)
         tree._sort_state[col] = not descending
 
@@ -206,7 +402,6 @@ class ReportTableView:
         for index, (_, k) in enumerate(data):
             tree.move(k, "", index)
 
-        # Update sort indicators
         for c in df.columns:
             indicator = ""
             if c == col:
@@ -222,7 +417,6 @@ class ReportTableView:
     # ------------------------------------------------------------
 
     def apply_filter(self) -> None:
-        """Apply a regex filter to the current report DataFrame."""
         if self.state.original_df is None or self.filter_entry is None:
             return
 
@@ -285,7 +479,11 @@ class ReportTableView:
         self.root.update()
 
         return "break"
-
+        
+        
+# ======================================================================
+# Main GUI
+# ======================================================================
 
 class BrainzMRIGUI:
     """
@@ -333,11 +531,18 @@ class BrainzMRIGUI:
         self.user_dropdown.pack(side="left", padx=(0, 10))
         self.user_dropdown.bind("<<ComboboxSelected>>", self.on_user_selected)
 
+        # New User / Edit User buttons
         tk.Button(
             frm_user,
-            text="Load From ZIP",
-            command=self.load_from_zip,
-        ).pack(side="left")
+            text="New User",
+            command=self.new_user,
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            frm_user,
+            text="Edit User",
+            command=self.edit_user,
+        ).pack(side="left", padx=5)
 
         self.lbl_user_status = tk.Label(frm_user, text="", fg="gray")
         self.lbl_user_status.pack(side="left", padx=10)
@@ -346,19 +551,19 @@ class BrainzMRIGUI:
         frm_inputs = tk.Frame(root)
         frm_inputs.pack(pady=10)
 
+        # ------------------------------------------------------------
+        # Helper functions for labeled entries
+        # ------------------------------------------------------------
         def add_labeled_entry(parent, label: str, default) -> tk.Entry:
             row = tk.Frame(parent)
-            row.pack(fill="x", pady=3)  # anchor="w"
+            row.pack(fill="x", pady=3)
             tk.Label(row, text=label, width=27, anchor="w").pack(side="left")
             ent = tk.Entry(row, width=8)
             ent.insert(0, str(default))
             ent.pack(side="left")
             return ent
 
-        def add_labeled_double_entry(parent,
-            label: str,
-            default1, default2) -> tk.Entry:
-
+        def add_labeled_double_entry(parent, label: str, default1, default2):
             frm = tk.Frame(parent)
             frm.pack(fill="x", pady=5)
 
@@ -379,20 +584,28 @@ class BrainzMRIGUI:
 
             return ent1, ent2, frm
 
-        # Built Range Filters
+        # ------------------------------------------------------------
+        # Time Range Filters
+        # ------------------------------------------------------------
         (self.ent_time_start, self.ent_time_end,
-            self.time_frame) = add_labeled_double_entry(frm_inputs,
-            "Time Range To Analyze (Days Ago)", 0, 0)
+            self.time_frame) = add_labeled_double_entry(
+                frm_inputs,
+                "Time Range To Analyze (Days Ago)",
+                0, 0
+            )
 
         (self.ent_last_start, self.ent_last_end,
-            self.last_frame) = add_labeled_double_entry(frm_inputs,
-            "Last Listened Date (Days Ago)", 0, 0)
+            self.last_frame) = add_labeled_double_entry(
+                frm_inputs,
+                "Last Listened Date (Days Ago)",
+                0, 0
+            )
 
         for widg in [self.ent_time_start, self.ent_time_end]:
             Hovertip(
                 widg,
                 "Time range filtering. Excludes listens by date.\n"
-                "Example: [365, 730] will diplay listens from 1-2 years ago.\n"
+                "Example: [365, 730] will display listens from 1–2 years ago.\n"
                 "Set to [0, 0] to disable filtering.\n"
                 "Default: [0, 0] (days ago).",
                 hover_delay=500,
@@ -402,14 +615,15 @@ class BrainzMRIGUI:
             Hovertip(
                 widg,
                 "Recency filtering. Exclude entities by last listened.\n"
-                "Filters entities (Artist, Album, Track) by last listened date.\n"
-                "Example: [365, 99999] will diplay entities last listened >1 year ago.\n"
+                "Example: [365, 99999] will display entities last listened >1 year ago.\n"
                 "Set to [0, 0] to disable filtering.\n"
                 "Default: [0, 0] (days ago).",
                 hover_delay=500,
             )
 
+        # ------------------------------------------------------------
         # Thresholds and Top N
+        # ------------------------------------------------------------
         self.ent_topn = add_labeled_entry(
             frm_inputs, "Top N (Number Of Results):", 200
         )
@@ -425,47 +639,33 @@ class BrainzMRIGUI:
 
         Hovertip(
             self.ent_topn,
-            "Number of results to return.\n"
-            "Default: 200 results",
+            "Number of results to return.\nDefault: 200 results",
             hover_delay=500,
         )
         Hovertip(
             self.ent_min_listens,
-            "A threshold for minimum number of listens.\n"
-            "Works as an 'OR' with minimum Time listened.\n"
-            "Default: 10 listens",
+            "Minimum number of listens.\nWorks as an OR with minimum minutes.\nDefault: 10 listens",
             hover_delay=500,
         )
         Hovertip(
             self.ent_min_minutes,
-            "A threshold for minimum number of minutes listened.\n"
-            "Works as an 'OR' with minimum listens.\n"
-            "Default: 15 minutes",
+            "Minimum number of minutes listened.\nWorks as an OR with minimum listens.\nDefault: 15 minutes",
             hover_delay=500,
         )
         Hovertip(
             self.ent_min_likes,
-            "A threshold for minimum number of unique liked tracks.\n"
-            "Applies only to Top-N reports (Artist/Album/Track).\n"
-            "Example: 2 (By Artist) = all artists with 2+ liked tracks.\n"
-            "Set to 0 to disable likes-based filtering.\n"
-            "Default: 0 likes.",
+            "Minimum number of unique liked tracks.\nDefault: 0 (disabled).",
             hover_delay=500,
         )
-
+        
+        # ------------------------------------------------------------
         # Enrichment controls
+        # ------------------------------------------------------------
         self.do_enrich_var = tk.BooleanVar(value=False)
         chk_enrich = tk.Checkbutton(
             frm_inputs,
             text="Perform Genre Lookup (Enrich Report)",
             variable=self.do_enrich_var,
-        )
-        Hovertip(
-            chk_enrich,
-            "Add genre information to the report using MusicBrainz.\n"
-            "Runs after all filters and sorting.\n"
-            "May be slow if API lookup is enabled.",
-            hover_delay=500,
         )
         chk_enrich.pack(anchor="w", pady=5)
 
@@ -489,14 +689,6 @@ class BrainzMRIGUI:
         )
         self.cmb_enrich_source.pack(side="left")
 
-        Hovertip(
-            self.cmb_enrich_source,
-            "Choose whether to use the local cache only or query the MusicBrainz API.\n"
-            "API lookups are slower due to rate limiting.\n"
-            "Cache is only available for items pulled previously via API.",
-            hover_delay=500,
-        )
-
         def toggle_enrich_source(*_):
             state = "readonly" if self.do_enrich_var.get() else "disabled"
             self.cmb_enrich_source.configure(state=state)
@@ -504,7 +696,9 @@ class BrainzMRIGUI:
         self.do_enrich_var.trace_add("write", lambda *args: toggle_enrich_source())
         toggle_enrich_source()
 
+        # ------------------------------------------------------------
         # Report type selection
+        # ------------------------------------------------------------
         frm_type = tk.Frame(root)
         frm_type.pack(pady=10)
 
@@ -524,7 +718,9 @@ class BrainzMRIGUI:
         self.report_type.current(0)
         self.report_type.pack(side="left")
 
+        # ------------------------------------------------------------
         # Buttons
+        # ------------------------------------------------------------
         btn_frame = tk.Frame(root)
         btn_frame.pack(pady=10)
 
@@ -548,7 +744,9 @@ class BrainzMRIGUI:
 
         self.status_bar.pack(fill="x", side="bottom")
 
+        # ------------------------------------------------------------
         # Table viewer frame and view manager
+        # ------------------------------------------------------------
         self.table_frame = tk.Frame(root)
         self.table_frame.pack(fill="both", expand=True)
         self.table_frame.pack_propagate(False)
@@ -566,43 +764,46 @@ class BrainzMRIGUI:
         else:
             self.set_status("Ready.")
 
-    # -----------------------
-    # Utility methods
-    # -----------------------
-
-    def set_status(self, text: str) -> None:
-        self.status_var.set(text)
-        self.status_bar.update_idletasks()
-
-    def load_config(self) -> dict:
-        """Load config.json if present, else return empty dict."""
-        try:
-            if os.path.exists("config.json"):
-                with open("config.json", "r", encoding="utf-8") as f:
-                    return json.load(f)
-        except Exception:
-            pass
-        return {}
-
-    def save_config(self, data: dict) -> None:
-        """Write config.json with the provided dictionary."""
-        try:
-            with open("config.json", "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-        except Exception:
-            pass
+    # ==================================================================
+    # User Management
+    # ==================================================================
 
     def refresh_user_list(self) -> None:
-        """Refresh the list of cached users in the dropdown."""
         users = get_cached_usernames()
         self.user_dropdown["values"] = users
         if not users:
             self.user_var.set("")
             self.lbl_user_status.config(text="No cached users found.", fg="gray")
 
-    # -----------------------
-    # User loading
-    # -----------------------
+    def new_user(self):
+        UserEditorWindow(self.root, None, self._on_user_saved)
+
+    def edit_user(self):
+        username = self.user_var.get().strip()
+        if not username:
+            messagebox.showerror("Error", "Select a user to edit.")
+            return
+
+        try:
+            user = User.from_cache(username)
+        except Exception as e:
+            messagebox.showerror(
+                "Error Loading User",
+                f"Failed to load user '{username}': {type(e).__name__}: {e}",
+            )
+            return
+
+        UserEditorWindow(self.root, user, self._on_user_saved)
+
+    def _on_user_saved(self, username: str):
+        self.refresh_user_list()
+        self.user_var.set(username)
+        self.load_user_from_cache(username)
+        self.set_status(f"User '{username}' saved.")
+
+    # ==================================================================
+    # User Loading
+    # ==================================================================
 
     def on_user_selected(self, event=None) -> None:
         username = self.user_var.get().strip()
@@ -614,12 +815,14 @@ class BrainzMRIGUI:
         try:
             user = User.from_cache(username)
         except FileNotFoundError as e:
-            messagebox.showerror("Error Loading Nonexistent Cache", str(e))
+            messagebox.showerror("Error Loading User", str(e))
             self.set_status(f"Error: {str(e)}")
             return
         except Exception as e:
-            messagebox.showerror("Error Loading From Cache (Unknown)", f"{type(e).__name__}: {e}")
-            self.set_status("Error: Failed to load user from cache.")
+            messagebox.showerror(
+                "Error Loading User (Unknown)", f"{type(e).__name__}: {e}"
+            )
+            self.set_status("Error: Failed to load user.")
             return
 
         self.state.user = user
@@ -640,55 +843,11 @@ class BrainzMRIGUI:
         for widget in self.table_frame.winfo_children():
             widget.destroy()
 
-        self.set_status(f"User '{username}' loaded from cache.")
+        self.set_status(f"User '{username}' loaded.")
 
-    def load_from_zip(self) -> None:
-        """Create or update a user by ingesting a ListenBrainz ZIP."""
-        path = filedialog.askopenfilename(
-            title="Select ListenBrainz ZIP",
-            filetypes=[("ZIP files", "*.zip")],
-        )
-        if not path:
-            return
-
-        try:
-            user = User.from_listenbrainz_zip(path)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load ZIP: {type(e).__name__}: {e}")
-            self.set_status("Error: Failed to load ZIP.")
-            return
-
-        self.state.user = user
-        username = user.username
-
-        # Refresh dropdown and select this user
-        self.refresh_user_list()
-        if username not in self.user_dropdown["values"]:
-            users = list(self.user_dropdown["values"]) + [username]
-            self.user_dropdown["values"] = sorted(users)
-        self.user_var.set(username)
-        self.lbl_user_status.config(text=f"Loaded from ZIP: {username}", fg="black")
-
-        cfg = self.load_config()
-        cfg["last_user"] = username
-        self.save_config(cfg)
-
-        # Clear previous report
-        self.state.last_report_df = None
-        self.state.last_meta = None
-        self.state.last_mode = None
-        self.state.last_report_type_key = None
-        self.state.last_enriched = False
-        self.state.original_df = None
-        self.state.filtered_df = None
-        for widget in self.table_frame.winfo_children():
-            widget.destroy()
-
-        self.set_status(f"User '{username}' created/updated from ZIP.")
-
-    # -----------------------
-    # Report generation
-    # -----------------------
+    # ==================================================================
+    # Report Generation
+    # ==================================================================
 
     def _parse_int_field(self, entry: tk.Entry, field_name: str) -> int:
         value = entry.get().strip()
@@ -707,7 +866,7 @@ class BrainzMRIGUI:
     def run_report(self) -> None:
         if self.state.user is None:
             messagebox.showerror(
-                "Error", "Please load a user first (via 'Load From ZIP' or selecting an existing user)."
+                "Error", "Please load or create a user first."
             )
             self.set_status("Error: No user loaded.")
             return
@@ -788,9 +947,9 @@ class BrainzMRIGUI:
         self.table_view.show_table(result)
         self.set_status(status_text)
 
-    # -----------------------
+    # ==================================================================
     # Saving reports
-    # -----------------------
+    # ==================================================================
 
     def save_report(self) -> None:
         if self.state.last_report_df is None:
@@ -799,7 +958,7 @@ class BrainzMRIGUI:
             return
 
         if self.state.user is None:
-            messagebox.showerror("Error", "No user loaded to associate with this report.")
+            messagebox.showerror("Error", "No user loaded.")
             self.set_status("Error: No user loaded.")
             return
 
@@ -828,8 +987,37 @@ class BrainzMRIGUI:
             )
             self.set_status("Error: Failed to save report.")
 
+    # ==================================================================
+    # Utility
+    # ==================================================================
+
+    def set_status(self, text: str) -> None:
+        self.status_var.set(text)
+        self.status_bar.update_idletasks()
+
+    def load_config(self) -> dict:
+        try:
+            if os.path.exists("config.json"):
+                with open("config.json", "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return {}
+
+    def save_config(self, data: dict) -> None:
+        try:
+            with open("config.json", "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+
+
+# ======================================================================
+# Main entry point
+# ======================================================================
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = BrainzMRIGUI(root)
     root.mainloop()
+        
