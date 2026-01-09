@@ -1,5 +1,5 @@
 """
-gui.py
+gui_main.py
 Tkinter GUI for BrainzMRI, using reporting, enrichment, and user modules.
 """
 
@@ -159,17 +159,8 @@ class BrainzMRIGUI:
         self.user_dropdown.bind("<<ComboboxSelected>>", self.on_user_selected)
 
         # New User / Edit User buttons
-        tk.Button(
-            frm_user,
-            text="New User",
-            command=self.new_user,
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            frm_user,
-            text="Edit User",
-            command=self.edit_user,
-        ).pack(side="left", padx=5)
+        tk.Button(frm_user, text="New User", command=self.new_user).pack(side="left", padx=5)
+        tk.Button(frm_user, text="Edit User", command=self.edit_user).pack(side="left", padx=5)
 
         self.lbl_user_status = tk.Label(frm_user, text="", fg="gray")
         self.lbl_user_status.pack(side="left", padx=10)
@@ -179,54 +170,15 @@ class BrainzMRIGUI:
         frm_inputs.pack(pady=10)
 
         # ------------------------------------------------------------
-        # Helper functions for labeled entries
-        # ------------------------------------------------------------
-        def add_labeled_entry(parent, label: str, default) -> tk.Entry:
-            row = tk.Frame(parent)
-            row.pack(fill="x", pady=3)
-            tk.Label(row, text=label, width=27, anchor="w").pack(side="left")
-            ent = tk.Entry(row, width=8)
-            ent.insert(0, str(default))
-            ent.pack(side="left")
-            return ent
-
-        def add_labeled_double_entry(parent, label: str, default1, default2):
-            frm = tk.Frame(parent)
-            frm.pack(fill="x", pady=5)
-
-            tk.Label(frm, text=label).pack(anchor="center")
-
-            row = tk.Frame(frm)
-            row.pack(anchor="center")
-
-            tk.Label(row, text="Start:", width=8).pack(side="left")
-            ent1 = tk.Entry(row, width=6)
-            ent1.insert(0, str(default1))
-            ent1.pack(side="left", padx=5)
-
-            tk.Label(row, text="End:", width=8).pack(side="left")
-            ent2 = tk.Entry(row, width=6)
-            ent2.insert(0, str(default2))
-            ent2.pack(side="left", padx=5)
-
-            return ent1, ent2, frm
-
-        # ------------------------------------------------------------
         # Time Range Filters
         # ------------------------------------------------------------
-        (self.ent_time_start, self.ent_time_end,
-            self.time_frame) = add_labeled_double_entry(
-                frm_inputs,
-                "Time Range To Analyze (Days Ago)",
-                0, 0
-            )
+        (self.ent_time_start, self.ent_time_end, self.time_frame) = self._create_labeled_double_entry(
+            frm_inputs, "Time Range To Analyze (Days Ago)", 0, 0
+        )
 
-        (self.ent_last_start, self.ent_last_end,
-            self.last_frame) = add_labeled_double_entry(
-                frm_inputs,
-                "Last Listened Date (Days Ago)",
-                0, 0
-            )
+        (self.ent_last_start, self.ent_last_end, self.last_frame) = self._create_labeled_double_entry(
+            frm_inputs, "Last Listened Date (Days Ago)", 0, 0
+        )
 
         for widg in [self.ent_time_start, self.ent_time_end]:
             Hovertip(
@@ -251,41 +203,17 @@ class BrainzMRIGUI:
         # ------------------------------------------------------------
         # Thresholds and Top N
         # ------------------------------------------------------------
-        self.ent_topn = add_labeled_entry(
-            frm_inputs, "Top N (Number Of Results):", 200
-        )
-        self.ent_min_listens = add_labeled_entry(
-            frm_inputs, "Number of Listens Threshold:", 10
-        )
-        self.ent_min_minutes = add_labeled_entry(
-            frm_inputs, "Minutes Listened Threshold:", 15
-        )
-        self.ent_min_likes = add_labeled_entry(
-            frm_inputs, "Minimum Likes Threshold:", 0
-        )
+        self.ent_topn = self._create_labeled_entry(frm_inputs, "Top N (Number Of Results):", 200)
+        self.ent_min_listens = self._create_labeled_entry(frm_inputs, "Number of Listens Threshold:", 10)
+        self.ent_min_minutes = self._create_labeled_entry(frm_inputs, "Minutes Listened Threshold:", 15)
+        self.ent_min_likes = self._create_labeled_entry(frm_inputs, "Minimum Likes Threshold:", 0)
 
-        Hovertip(
-            self.ent_topn,
-            "Number of results to return.\nDefault: 200 results",
-            hover_delay=500,
-        )
-        Hovertip(
-            self.ent_min_listens,
-            "Minimum number of listens.\nWorks as an OR with minimum minutes.\nDefault: 10 listens",
-            hover_delay=500,
-        )
-        Hovertip(
-            self.ent_min_minutes,
-            "Minimum number of minutes listened.\nWorks as an OR with minimum listens.\nDefault: 15 minutes",
-            hover_delay=500,
-        )
-        Hovertip(
-            self.ent_min_likes,
-            "Minimum number of unique liked tracks.\nDefault: 0 (disabled).",
-            hover_delay=500,
-        )
+        Hovertip(self.ent_topn, "Number of results to return.\nDefault: 200 results", hover_delay=500)
+        Hovertip(self.ent_min_listens, "Minimum number of listens.\nWorks as an OR with minimum minutes.", hover_delay=500)
+        Hovertip(self.ent_min_minutes, "Minimum number of minutes listened.\nWorks as an OR with minimum listens.", hover_delay=500)
+        Hovertip(self.ent_min_likes, "Minimum number of unique liked tracks.\nDefault: 0 (disabled).", hover_delay=500)
 
-        # Bind Enter key to Generate Report for all numeric input fields
+        # Bind Enter key
         for entry in [self.ent_time_start, self.ent_time_end, self.ent_last_start, self.ent_last_end,
                       self.ent_topn, self.ent_min_listens, self.ent_min_minutes, self.ent_min_likes]:
             entry.bind("<Return>", lambda event: self.run_report())
@@ -304,14 +232,8 @@ class BrainzMRIGUI:
         frm_enrich_source = tk.Frame(frm_inputs)
         frm_enrich_source.pack(fill="x", pady=2, anchor="w")
 
-        tk.Label(
-            frm_enrich_source,
-            text="Genre Enrichment Source:",
-            width=32,
-            anchor="w",
-        ).pack(side="left")
+        tk.Label(frm_enrich_source, text="Genre Enrichment Source:", width=32, anchor="w").pack(side="left")
 
-        # New enrichment mode dropdown with four options
         self.enrichment_mode_var = tk.StringVar(value="Cache Only")
         self.cmb_enrich_source = ttk.Combobox(
             frm_enrich_source,
@@ -327,7 +249,6 @@ class BrainzMRIGUI:
         )
         self.cmb_enrich_source.pack(side="left")
 
-        # New "Force Cache Update" checkbox
         self.force_cache_update_var = tk.BooleanVar(value=False)
         chk_force_cache = tk.Checkbutton(
             frm_inputs,
@@ -337,11 +258,6 @@ class BrainzMRIGUI:
         chk_force_cache.pack(anchor="w", pady=2)
 
         def _update_enrichment_controls(*_):
-            """
-            Enable/disable enrichment controls based on:
-            - Whether enrichment is enabled
-            - Which enrichment mode is selected
-            """
             do_enrich = self.do_enrich_var.get()
             mode = self.enrichment_mode_var.get()
 
@@ -351,17 +267,13 @@ class BrainzMRIGUI:
                 chk_force_cache.configure(state="disabled")
                 return
 
-            # Enrichment enabled
             self.cmb_enrich_source.configure(state="readonly")
-
-            # Force Cache Update only makes sense if we're allowed to query providers
             if mode == "Cache Only":
                 self.force_cache_update_var.set(False)
                 chk_force_cache.configure(state="disabled")
             else:
                 chk_force_cache.configure(state="normal")
 
-        # Trace changes on both the master checkbox and the mode dropdown
         self.do_enrich_var.trace_add("write", lambda *args: _update_enrichment_controls())
         self.enrichment_mode_var.trace_add("write", lambda *args: _update_enrichment_controls())
         _update_enrichment_controls()
@@ -371,18 +283,11 @@ class BrainzMRIGUI:
         # ------------------------------------------------------------
         frm_type = tk.Frame(root)
         frm_type.pack(pady=10)
-
         tk.Label(frm_type, text="Report Type:").pack(side="left", padx=5)
 
         self.report_type = ttk.Combobox(
             frm_type,
-            values=[
-                "By Artist",
-                "By Album",
-                "By Track",
-                "New Music By Year",
-                "Raw Listens",
-            ],
+            values=["By Artist", "By Album", "By Track", "New Music By Year", "Raw Listens"],
             state="readonly",
         )
         self.report_type.current(0)
@@ -415,7 +320,7 @@ class BrainzMRIGUI:
         self.status_bar.pack(fill="x", side="bottom")
 
         # ------------------------------------------------------------
-        # Table viewer frame and view manager
+        # Table viewer frame
         # ------------------------------------------------------------
         self.table_frame = tk.Frame(root)
         self.table_frame.pack(fill="both", expand=True)
@@ -423,7 +328,7 @@ class BrainzMRIGUI:
 
         self.table_view = ReportTableView(self.root, self.table_frame, self.state)
 
-        # Initialize users and auto-load last user if available
+        # Initialize
         self.refresh_user_list()
         cfg = self.load_config()
         last_user = cfg.get("last_user")
@@ -433,6 +338,35 @@ class BrainzMRIGUI:
             self.set_status(f"Auto-loaded user: {last_user}")
         else:
             self.set_status("Ready.")
+
+    # ==================================================================
+    # UI Generators
+    # ==================================================================
+
+    def _create_labeled_entry(self, parent, label: str, default) -> tk.Entry:
+        row = tk.Frame(parent)
+        row.pack(fill="x", pady=3)
+        tk.Label(row, text=label, width=27, anchor="w").pack(side="left")
+        ent = tk.Entry(row, width=8)
+        ent.insert(0, str(default))
+        ent.pack(side="left")
+        return ent
+
+    def _create_labeled_double_entry(self, parent, label: str, default1, default2):
+        frm = tk.Frame(parent)
+        frm.pack(fill="x", pady=5)
+        tk.Label(frm, text=label).pack(anchor="center")
+        row = tk.Frame(frm)
+        row.pack(anchor="center")
+        tk.Label(row, text="Start:", width=8).pack(side="left")
+        ent1 = tk.Entry(row, width=6)
+        ent1.insert(0, str(default1))
+        ent1.pack(side="left", padx=5)
+        tk.Label(row, text="End:", width=8).pack(side="left")
+        ent2 = tk.Entry(row, width=6)
+        ent2.insert(0, str(default2))
+        ent2.pack(side="left", padx=5)
+        return ent1, ent2, frm
 
     # ==================================================================
     # User Management
@@ -457,10 +391,7 @@ class BrainzMRIGUI:
         try:
             user = User.from_cache(username)
         except Exception as e:
-            messagebox.showerror(
-                "Error Loading User",
-                f"Failed to load user '{username}': {type(e).__name__}: {e}",
-            )
+            messagebox.showerror("Error Loading User", f"Failed to load user: {e}")
             return
 
         UserEditorWindow(self.root, user, self._on_user_saved)
@@ -490,9 +421,7 @@ class BrainzMRIGUI:
             self.set_status(f"Error: {str(e)}")
             return
         except Exception as e:
-            messagebox.showerror(
-                "Error Loading User (Unknown)", f"{type(e).__name__}: {e}"
-            )
+            messagebox.showerror("Error Loading User (Unknown)", f"{type(e).__name__}: {e}")
             self.set_status("Error: Failed to load user.")
             return
 
@@ -503,7 +432,7 @@ class BrainzMRIGUI:
         cfg["last_user"] = username
         self.save_config(cfg)
 
-        # Clear previous report
+        # Clear previous report state
         self.state.last_report_df = None
         self.state.last_meta = None
         self.state.last_mode = None
@@ -542,7 +471,6 @@ class BrainzMRIGUI:
 
         mode = self.report_type.get()
 
-        # Parse numeric inputs
         try:
             t_start = self._parse_int_field(self.ent_time_start, "Time range")
             t_end = self._parse_int_field(self.ent_time_end, "Time range")
@@ -563,7 +491,6 @@ class BrainzMRIGUI:
             self.set_status(f"Error With Filter Input: {str(e)}")
             return
 
-        # Prepare parameters
         params = {
             "mode": mode,
             "liked_mbids": self.state.user.get_liked_mbids(),
@@ -583,15 +510,10 @@ class BrainzMRIGUI:
         base_df = self.state.user.get_listens().copy()
         base_df["_username"] = self.state.user.username
 
-        # Show Progress Window
         self.progress_win = ProgressWindow(self.root, title=f"Generating {mode}...")
 
-        # ---------------------------------------------------
-        # Worker Thread
-        # ---------------------------------------------------
         def worker():
             try:
-                # Callbacks to update UI from thread safely
                 def progress_callback(current, total, msg):
                     self.root.after(0, lambda: self.progress_win.update_progress(current, total, msg))
                 
@@ -607,7 +529,6 @@ class BrainzMRIGUI:
                     )
                 )
 
-                # Success callback
                 self.root.after(0, lambda: self._on_report_success(
                     result, meta, report_type_key, last_enriched, status_text, mode
                 ))
@@ -617,7 +538,6 @@ class BrainzMRIGUI:
             except Exception as e:
                 self.root.after(0, lambda: self._on_report_error(f"{type(e).__name__}: {e}", "Unexpected Error"))
 
-        # Start thread
         t = threading.Thread(target=worker, daemon=True)
         t.start()
 
@@ -625,7 +545,6 @@ class BrainzMRIGUI:
         """Called on main thread when worker finishes successfully."""
         self.progress_win.destroy()
         
-        # Save state
         self.state.last_report_df = result
         self.state.last_meta = meta
         self.state.last_mode = mode
@@ -635,7 +554,6 @@ class BrainzMRIGUI:
         self.state.original_df = result.copy()
         self.state.filtered_df = result.copy()
 
-        # Display
         self.table_view.show_table(result)
         self.set_status(status_text)
 
@@ -681,9 +599,7 @@ class BrainzMRIGUI:
             open_file_default(filepath)
             self.set_status(f"{self.state.last_mode} report saved and opened.")
         except Exception as e:
-            messagebox.showerror(
-                "Error", f"Failed to save report: {type(e).__name__}: {e}"
-            )
+            messagebox.showerror("Error", f"Failed to save report: {type(e).__name__}: {e}")
             self.set_status("Error: Failed to save report.")
 
     # ==================================================================

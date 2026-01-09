@@ -34,7 +34,6 @@ NETWORK_DELAY_SECONDS = 1.0
 
 # Last.fm API endpoint and API key placeholder
 LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/"
-# NOTE: This is a placeholder. The user must configure a real API key in environment or config.
 LASTFM_API_KEY = os.environ.get("BRAINZMRI_LASTFM_API_KEY", "")
 
 
@@ -51,14 +50,7 @@ def _get_global_dir() -> str:
 
 
 def _get_enrichment_cache_path(entity_type: str) -> str:
-    """
-    Return the path to the enrichment cache file for a given entity type.
-
-    Parameters
-    ----------
-    entity_type : str
-        One of "track", "album", or "artist".
-    """
+    """Return the path to the enrichment cache file for a given entity type."""
     global_dir = _get_global_dir()
     if entity_type == "track":
         filename = "track_enrichment.json"
@@ -118,15 +110,7 @@ def _load_noise_tags() -> Set[str]:
 
 
 def _canonicalize_tag(tag: str) -> str:
-    """
-    Canonicalize a single tag string.
-
-    Operations:
-    - Lowercase
-    - Unicode normalization (NFD) and accent stripping
-    - Whitespace trimming
-    - Replace non-alphanumeric sequences with single spaces
-    """
+    """Canonicalize a single tag string."""
     if not tag:
         return ""
     t = tag.lower()
@@ -148,14 +132,7 @@ def _canonicalize_tag(tag: str) -> str:
 
 
 def canonicalize_and_filter_tags(raw_tags: List[str], noise_tags: Set[str]) -> List[str]:
-    """
-    Process a list of raw tags: canonicalize them and remove noise tags.
-
-    Returns
-    -------
-    List[str]
-        Sorted list of unique, valid canonical tags.
-    """
+    """Process a list of raw tags: canonicalize them and remove noise tags."""
     canon: Set[str] = set()
     for tag in raw_tags:
         c = _canonicalize_tag(tag)
@@ -184,17 +161,12 @@ def _save_entity_cache(entity_type: str, data: Dict[str, Any]) -> None:
 
 
 def _get_entity_entry(cache: Dict[str, Any], key: str) -> Dict[str, Any]:
-    """
-    Retrieve or initialize a cache entry for a given key (MBID or Name).
-    """
+    """Retrieve or initialize a cache entry for a given key."""
     entry = cache.get(key)
     if entry is None:
         entry = {
             "genres": [],
-            "sources": {
-                "musicbrainz": False,
-                "lastfm": False,
-            },
+            "sources": {"musicbrainz": False, "lastfm": False},
         }
         cache[key] = entry
     else:
@@ -205,14 +177,8 @@ def _get_entity_entry(cache: Dict[str, Any], key: str) -> Dict[str, Any]:
     return entry
 
 
-def _maybe_clear_entry_for_force_update(cache: Dict[str, Any], key: str, force: bool) -> None:
-    """Remove an entry from the cache if force update is requested."""
-    if force and key in cache:
-        del cache[key]
-
-
 # ------------------------------------------------------------
-# Provider: MusicBrainz
+# Provider Logic (Consolidated)
 # ------------------------------------------------------------
 
 def _mb_request(path: str, params: Dict[str, str]) -> Dict[str, Any]:
@@ -227,97 +193,53 @@ def _mb_request(path: str, params: Dict[str, str]) -> Dict[str, Any]:
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.load(resp)
 
-
 def _mb_tags_to_list(tags_field: Any) -> List[str]:
     """Extract tag names from a MusicBrainz tag list response."""
-    if not tags_field:
-        return []
-    out = []
-    for item in tags_field:
-        name = item.get("name")
-        if name:
-            out.append(name)
-    return out
+    if not tags_field: return []
+    return [item.get("name") for item in tags_field if item.get("name")]
 
-
-# --- MBID Based Lookups ---
-
-def mb_enrich_recording(recording_mbid: str) -> List[str]:
-    """Fetch tags for a recording MBID from MusicBrainz."""
-    if not recording_mbid: return []
+def _mb_fetch_tags(endpoint: str, mbid: str) -> List[str]:
+    """Generic helper to fetch tags/genres for any MBID entity type."""
+    if not mbid: return []
     try:
-        data = _mb_request(f"recording/{recording_mbid}", {"fmt": "json", "inc": "tags+genres"})
+        data = _mb_request(f"{endpoint}/{mbid}", {"fmt": "json", "inc": "tags+genres"})
         return _mb_tags_to_list(data.get("tags")) + _mb_tags_to_list(data.get("genres"))
     except Exception:
         return []
 
-def mb_enrich_release(release_mbid: str) -> List[str]:
-    """Fetch tags for a release MBID from MusicBrainz."""
-    if not release_mbid: return []
+def mb_enrich_recording(mbid: str) -> List[str]: return _mb_fetch_tags("recording", mbid)
+def mb_enrich_release(mbid: str) -> List[str]: return _mb_fetch_tags("release", mbid)
+def mb_enrich_artist(mbid: str) -> List[str]: return _mb_fetch_tags("artist", mbid)
+
+# --- MB Search Fallbacks ---
+
+def _mb_search_and_extract(endpoint: str, query: str, list_key: str) -> List[str]:
+    """Generic helper to search MB and return tags from the top result."""
     try:
-        data = _mb_request(f"release/{release_mbid}", {"fmt": "json", "inc": "tags+genres"})
-        return _mb_tags_to_list(data.get("tags")) + _mb_tags_to_list(data.get("genres"))
+        data = _mb_request(endpoint, {"query": query, "fmt": "json", "limit": "1"})
+        results = data.get(list_key, [])
+        if results:
+            return _mb_tags_to_list(results[0].get("tags"))
+        return []
     except Exception:
         return []
-
-def mb_enrich_artist(artist_mbid: str) -> List[str]:
-    """Fetch tags for an artist MBID from MusicBrainz."""
-    if not artist_mbid: return []
-    try:
-        data = _mb_request(f"artist/{artist_mbid}", {"fmt": "json", "inc": "tags+genres"})
-        return _mb_tags_to_list(data.get("tags")) + _mb_tags_to_list(data.get("genres"))
-    except Exception:
-        return []
-
-
-# --- Name Based Fallback (Search) ---
 
 def mb_search_artist(artist_name: str) -> List[str]:
-    """Search for an artist by name on MusicBrainz and return tags of the top result."""
     if not artist_name: return []
-    try:
-        query = f'artist:"{artist_name}"'
-        data = _mb_request("artist", {"query": query, "fmt": "json", "limit": "1"})
-        artists = data.get("artists", [])
-        if artists:
-            best = artists[0]
-            return _mb_tags_to_list(best.get("tags"))
-        return []
-    except Exception:
-        return []
+    return _mb_search_and_extract("artist", f'artist:"{artist_name}"', "artists")
 
 def mb_search_release(artist_name: str, release_name: str) -> List[str]:
-    """Search for a release by name/artist on MusicBrainz and return tags of the top result."""
     if not artist_name or not release_name: return []
-    try:
-        query = f'release:"{release_name}" AND artist:"{artist_name}"'
-        data = _mb_request("release", {"query": query, "fmt": "json", "limit": "1"})
-        releases = data.get("releases", [])
-        if releases:
-            best = releases[0]
-            return _mb_tags_to_list(best.get("tags"))
-        return []
-    except Exception:
-        return []
+    q = f'release:"{release_name}" AND artist:"{artist_name}"'
+    return _mb_search_and_extract("release", q, "releases")
 
 def mb_search_recording(artist_name: str, track_name: str) -> List[str]:
-    """Search for a recording by name/artist on MusicBrainz and return tags of the top result."""
     if not artist_name or not track_name: return []
-    try:
-        query = f'recording:"{track_name}" AND artist:"{artist_name}"'
-        data = _mb_request("recording", {"query": query, "fmt": "json", "limit": "1"})
-        recs = data.get("recordings", [])
-        if recs:
-            best = recs[0]
-            return _mb_tags_to_list(best.get("tags"))
-        return []
-    except Exception:
-        return []
+    q = f'recording:"{track_name}" AND artist:"{artist_name}"'
+    return _mb_search_and_extract("recording", q, "recordings")
 
 
-# ------------------------------------------------------------
-# Provider: Last.fm
-# ------------------------------------------------------------
+# --- Last.fm Logic ---
 
 def _lastfm_request(params: Dict[str, str]) -> Dict[str, Any]:
     """Execute a request against the Last.fm API."""
@@ -331,41 +253,34 @@ def _lastfm_request(params: Dict[str, str]) -> Dict[str, Any]:
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.load(resp)
 
-def _lastfm_extract_tags(toplevel_key: str, data: Dict[str, Any]) -> List[str]:
-    """Extract tags from Last.fm response structure."""
+def _lastfm_extract_tags(data: Dict[str, Any], toplevel_key: str) -> List[str]:
+    """Extract tags from Last.fm response."""
     toplevel = data.get(toplevel_key) or {}
     tags_block = toplevel.get("toptags") or toplevel.get("tags") or {}
     tags_list = tags_block.get("tag") or []
-    out = []
     if isinstance(tags_list, dict): tags_list = [tags_list]
-    for t in tags_list:
-        name = t.get("name")
-        if name: out.append(name)
-    return out
+    return [t.get("name") for t in tags_list if t.get("name")]
 
-def lastfm_enrich_track(artist_name: str, track_name: str) -> List[str]:
-    """Fetch tags for a track from Last.fm."""
-    if not artist_name or not track_name: return []
+def _lastfm_fetch_tags(method: str, root_key: str, **kwargs) -> List[str]:
+    """Generic helper for Last.fm tag fetching."""
     try:
-        data = _lastfm_request({"method": "track.getInfo", "artist": artist_name, "track": track_name})
-        return _lastfm_extract_tags("track", data)
-    except Exception: return []
+        params = {"method": method, **kwargs}
+        data = _lastfm_request(params)
+        return _lastfm_extract_tags(data, root_key)
+    except Exception:
+        return []
 
-def lastfm_enrich_album(artist_name: str, album_name: str) -> List[str]:
-    """Fetch tags for an album from Last.fm."""
-    if not artist_name or not album_name: return []
-    try:
-        data = _lastfm_request({"method": "album.getInfo", "artist": artist_name, "album": album_name})
-        return _lastfm_extract_tags("album", data)
-    except Exception: return []
+def lastfm_enrich_track(artist: str, track: str) -> List[str]:
+    if not artist or not track: return []
+    return _lastfm_fetch_tags("track.getInfo", "track", artist=artist, track=track)
 
-def lastfm_enrich_artist(artist_name: str) -> List[str]:
-    """Fetch tags for an artist from Last.fm."""
-    if not artist_name: return []
-    try:
-        data = _lastfm_request({"method": "artist.getInfo", "artist": artist_name})
-        return _lastfm_extract_tags("artist", data)
-    except Exception: return []
+def lastfm_enrich_album(artist: str, album: str) -> List[str]:
+    if not artist or not album: return []
+    return _lastfm_fetch_tags("album.getInfo", "album", artist=artist, album=album)
+
+def lastfm_enrich_artist(artist: str) -> List[str]:
+    if not artist: return []
+    return _lastfm_fetch_tags("artist.getInfo", "artist", artist=artist)
 
 
 # ------------------------------------------------------------
@@ -388,7 +303,7 @@ class EnrichmentStats:
 def _enrich_single_entity(
     entity_type: str,
     mbid: Optional[str],
-    name_info: Dict[str, str], # {"artist": "...", "album": "...", "track": "..."}
+    name_info: Dict[str, str],
     cache: Dict[str, Any],
     enrichment_mode: str,
     noise_tags: Set[str],
@@ -396,34 +311,23 @@ def _enrich_single_entity(
 ) -> Tuple[str, List[str]]:
     """
     Enrich a single entity.
-    
-    Logic:
-    1. Check Cache.
-    2. If not found or forced update, query configured providers.
-    3. Try MBID first; if missing/fails, fallback to Name Search.
-    4. Canonicalize tags and update cache.
-    
-    Returns
-    -------
-    (key, genres) : Tuple[str, List[str]]
-        The key is the MBID (if available) or the Name Key used for storage.
+    Returns (key, genres). Key is MBID (if available) or Name Key.
     """
     
-    # Determine the unique cache key. Prefer MBID, fallback to name combo.
     key = mbid
     if not key:
-        # Construct fallback key from names
+        # Fallback key construction
         parts = []
         if name_info.get("artist"): parts.append(name_info["artist"])
         if entity_type == "album" and name_info.get("album"): parts.append(name_info["album"])
         if entity_type == "track" and name_info.get("track"): parts.append(name_info["track"])
         key = "|".join(parts)
     
-    if not key: return "", [] # Cannot enrich without ID or Name
+    if not key: return "", []
 
     entry = cache.get(key)
 
-    # CHECK CACHE
+    # Check Cache
     if enrichment_mode == ENRICHMENT_MODE_CACHE_ONLY:
         stats.processed += 1
         if entry and entry.get("genres"):
@@ -431,27 +335,25 @@ def _enrich_single_entity(
             return key, entry.get("genres")
         return key, []
 
-    # If already cached and we are NOT forced to update, return cache
     if entry and entry.get("genres"):
         stats.processed += 1
         stats.cache_hits += 1
         return key, entry.get("genres")
 
-    # DO LOOKUP
+    # Do Lookup
     stats.processed += 1
     accumulated_tags: List[str] = []
     
     # 1. MusicBrainz
     if enrichment_mode in (ENRICHMENT_MODE_MB, ENRICHMENT_MODE_ALL):
         tags = []
-        # Try MBID first
         if mbid:
             if entity_type == "track": tags = mb_enrich_recording(mbid)
             elif entity_type == "album": tags = mb_enrich_release(mbid)
             elif entity_type == "artist": tags = mb_enrich_artist(mbid)
             if tags: stats.mb_lookups += 1
         
-        # Fallback to Name Search if MBID failed or missing
+        # Fallback
         if not tags and not mbid:
             stats.fallbacks += 1
             if entity_type == "track": 
@@ -460,7 +362,7 @@ def _enrich_single_entity(
                 tags = mb_search_release(name_info.get("artist"), name_info.get("album"))
             elif entity_type == "artist": 
                 tags = mb_search_artist(name_info.get("artist"))
-            if tags: stats.mb_lookups += 1 # Count as lookup even if fallback
+            if tags: stats.mb_lookups += 1
             
         if tags:
             accumulated_tags.extend(tags)
@@ -469,7 +371,6 @@ def _enrich_single_entity(
     # 2. Last.fm
     if enrichment_mode in (ENRICHMENT_MODE_LASTFM, ENRICHMENT_MODE_ALL):
         tags = []
-        # Last.fm is always name based
         if entity_type == "track":
             tags = lastfm_enrich_track(name_info.get("artist"), name_info.get("track"))
         elif entity_type == "album":
@@ -493,7 +394,7 @@ def _enrich_single_entity(
         merged = set(existing) | set(canonical_new)
         canonical_genres = sorted(merged)
 
-    # Update cache entry
+    # Update cache
     if canonical_genres:
         entry["genres"] = canonical_genres
         if enrichment_mode in (ENRICHMENT_MODE_MB, ENRICHMENT_MODE_ALL):
@@ -518,31 +419,6 @@ def enrich_report(
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Main entry point for report enrichment.
-    
-    Orchestrates the enrichment of artists, albums, and tracks in the provided DataFrame.
-    Supports progress reporting and cancellation via callbacks.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        The report DataFrame to enrich.
-    report_type : str
-        The type of report ("artist", "album", "track"). Determines enrichment depth.
-    enrichment_mode : str
-        The selected enrichment mode (Cache Only, MusicBrainz, etc.).
-    force_cache_update : bool
-        If True, clears existing cache entries for affected entities before lookup.
-    progress_callback : Callable, optional
-        Callback to report progress (current, total, message).
-    is_cancelled : Callable, optional
-        Callback to check if the user has cancelled the operation.
-
-    Returns
-    -------
-    enriched_df : pd.DataFrame
-        The DataFrame with added genre columns (track_genres, album_genres, artist_genres, Genres).
-    stats : dict
-        Statistics about the enrichment process (hits, lookups, etc.).
     """
     stats = {
         "track": EnrichmentStats(),
@@ -558,7 +434,7 @@ def enrich_report(
 
     noise_tags = _load_noise_tags()
     
-    # Pre-calculate work to do for progress bar
+    # Pre-calculate unique entities to process
     unique_tracks = pd.DataFrame()
     unique_albums = pd.DataFrame()
     unique_artists = pd.DataFrame()
@@ -567,7 +443,6 @@ def enrich_report(
     do_albums = False
     do_artists = False
 
-    # Identify work based on report type columns
     if "recording_mbid" in df.columns or ("track_name" in df.columns and "artist" in df.columns):
         if report_type == "track":
             do_tracks = True
@@ -595,16 +470,12 @@ def enrich_report(
     if do_artists: total_items += len(unique_artists)
     
     current_item = 0
-
-    # Mappings from MBID -> Genre String
-    track_map = {}
-    album_map = {}
-    artist_map = {}
+    
+    # Maps for results
+    track_map, album_map, artist_map = {}, {}, {}
 
     def check_cancel():
-        if is_cancelled and is_cancelled():
-            return True
-        return False
+        return is_cancelled() if is_cancelled else False
 
     # 1. Enrich Tracks
     if do_tracks:
@@ -617,9 +488,7 @@ def enrich_report(
                 "artist": row["artist"] if "artist" in row else "",
                 "track": row["track_name"] if "track_name" in row else ""
             }
-            
             if force_cache_update and mbid and mbid in cache: del cache[mbid]
-            
             k, g = _enrich_single_entity("track", mbid, name_info, cache, enrichment_mode, noise_tags, stats["track"])
             if mbid: track_map[mbid] = g
             
@@ -639,7 +508,6 @@ def enrich_report(
                 "album": row["album"] if "album" in row else ""
             }
             if force_cache_update and mbid and mbid in cache: del cache[mbid]
-            
             k, g = _enrich_single_entity("album", mbid, name_info, cache, enrichment_mode, noise_tags, stats["album"])
             if mbid: album_map[mbid] = g
             
@@ -655,9 +523,7 @@ def enrich_report(
 
             mbid = str(row["artist_mbid"]) if "artist_mbid" in row and pd.notna(row["artist_mbid"]) else None
             name_info = {"artist": row["artist"]}
-            
             if force_cache_update and mbid and mbid in cache: del cache[mbid]
-            
             k, g = _enrich_single_entity("artist", mbid, name_info, cache, enrichment_mode, noise_tags, stats["artist"])
             if mbid: artist_map[mbid] = g
             
@@ -665,7 +531,7 @@ def enrich_report(
             if progress_callback:
                 progress_callback(current_item, total_items, f"Enriching Artists ({current_item}/{total_items})...")
 
-    # Apply maps to create individual genre columns
+    # Apply maps
     enriched_df = df.copy()
 
     if track_map and "recording_mbid" in enriched_df.columns:
@@ -683,24 +549,18 @@ def enrich_report(
             lambda m: "|".join(artist_map.get(str(m), [])) if pd.notna(m) else ""
         )
         
-    # ------------------------------------------------------------
-    # Consolidate into master 'Genres' column
-    # ------------------------------------------------------------
-    # Identify which genre columns were actually created or exist
+    # Consolidate 'Genres' column
     genre_cols = [c for c in ["artist_genres", "album_genres", "track_genres"] if c in enriched_df.columns]
     
     if genre_cols:
         def unify_genres(row):
-            """Combine, deduplicate, and sort genres from all available entities."""
             tags = set()
             for c in genre_cols:
                 val = row[c]
                 if isinstance(val, str) and val:
-                    # columns are pipe-separated
                     for t in val.split("|"):
                         t = t.strip()
-                        if t:
-                            tags.add(t)
+                        if t: tags.add(t)
             return "|".join(sorted(tags))
 
         if progress_callback:
@@ -708,7 +568,6 @@ def enrich_report(
             
         enriched_df["Genres"] = enriched_df.apply(unify_genres, axis=1)
 
-    # Flatten stats for return
     final_stats = {
         "artists": stats["artist"].to_dict(),
         "albums": stats["album"].to_dict(),
