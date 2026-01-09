@@ -75,7 +75,8 @@ class ReportEngine:
         min_likes: int,
         topn: int,
         do_enrich: bool,
-        enrich_source: str,
+        enrichment_mode: str,
+        force_cache_update: bool,
     ):
         """
         Generate a report for the given mode and parameters.
@@ -190,10 +191,12 @@ class ReportEngine:
                 result = result.copy()
                 result["_username"] = base_df["_username"].iloc[0]
 
+                # Phase 1: pass through new parameters, but enrichment.py still uses legacy behavior
                 result = enrichment.enrich_report(
                     result,
                     report_type_key,
-                    enrich_source,
+                    enrichment_mode,
+                    force_cache_update=force_cache_update,
                 )
                 last_enriched = True
 

@@ -22,6 +22,8 @@ from user import (
     get_user_cache_dir,
 )
 from report_engine import ReportEngine
+from gui_user_editor import UserEditorWindow
+from gui_tableview import ReportTableView
 
 
 def open_file_default(path: str) -> None:
@@ -53,434 +55,6 @@ class GUIState:
         self.filtered_df = None
 
 
-# ======================================================================
-# User Editor Window (New User / Edit User)
-# ======================================================================
-
-class UserEditorWindow(tk.Toplevel):
-    """
-    A modal dialog for creating or editing a user.
-
-    Supports:
-    - App Username (letters/numbers only)
-    - Last.fm Username
-    - ListenBrainz Username
-    - Choose ListenBrainz Zip (multi-ZIP, deferred ingestion)
-    """
-
-    def __init__(self, parent, existing_user: User | None, on_save_callback):
-        super().__init__(parent)
-        self.title("User Editor")
-        self.resizable(False, False)
-        self.parent = parent
-        self.existing_user = existing_user
-        self.on_save_callback = on_save_callback
-
-        # Pending ZIPs selected during this session
-        self.pending_zips = []
-
-        # Build UI
-        self._build_ui()
-
-        # If editing, populate fields
-        if existing_user:
-            self._populate_from_user(existing_user)
-
-        # Make modal
-        self.transient(parent)
-        self.grab_set()
-        self.wait_window(self)
-
-    # ------------------------------------------------------------
-    # UI Construction
-    # ------------------------------------------------------------
-
-    def _build_ui(self):
-        frm = tk.Frame(self)
-        frm.pack(padx=15, pady=15)
-
-        # App Username
-        tk.Label(frm, text="App Username (letters/numbers only):").grid(
-            row=0, column=0, sticky="w"
-        )
-        self.ent_app_username = tk.Entry(frm, width=30)
-        self.ent_app_username.grid(row=0, column=1, pady=3)
-
-        # Last.fm Username
-        tk.Label(frm, text="Last.fm Username:").grid(row=1, column=0, sticky="w")
-        self.ent_lastfm = tk.Entry(frm, width=30)
-        self.ent_lastfm.grid(row=1, column=1, pady=3)
-
-        # ListenBrainz Username
-        tk.Label(frm, text="ListenBrainz Username:").grid(row=2, column=0, sticky="w")
-        self.ent_listenbrainz = tk.Entry(frm, width=30)
-        self.ent_listenbrainz.grid(row=2, column=1, pady=3)
-
-        # ZIP selection
-        tk.Label(frm, text="Previously Ingested ZIPs:").grid(
-            row=3, column=0, sticky="nw", pady=(10, 0)
-        )
-        self.lst_existing_zips = tk.Listbox(frm, width=50, height=5)
-        self.lst_existing_zips.grid(row=3, column=1, pady=(10, 0))
-
-        tk.Label(frm, text="New ZIPs to Ingest:").grid(
-            row=4, column=0, sticky="nw", pady=(10, 0)
-        )
-        self.lst_pending_zips = tk.Listbox(frm, width=50, height=5)
-        self.lst_pending_zips.grid(row=4, column=1, pady=(10, 0))
-
-        btn_choose_zip = tk.Button(
-            frm,
-            text="Choose ListenBrainz Zip",
-            command=self._choose_zip,
-            width=25,
-        )
-        btn_choose_zip.grid(row=5, column=1, sticky="w", pady=5)
-
-        # Save / Cancel
-        frm_buttons = tk.Frame(frm)
-        frm_buttons.grid(row=6, column=0, columnspan=2, pady=15)
-
-        tk.Button(
-            frm_buttons,
-            text="Save User",
-            command=self._save_user,
-            width=15,
-            bg="#4CAF50",
-            fg="white",
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            frm_buttons,
-            text="Cancel",
-            command=self.destroy,
-            width=15,
-            bg="#F44336",
-            fg="white",
-        ).pack(side="left", padx=5)
-
-    # ------------------------------------------------------------
-    # Populate fields for Edit User
-    # ------------------------------------------------------------
-
-    def _populate_from_user(self, user: User):
-        self.ent_app_username.insert(0, user.username)
-        self.ent_app_username.config(state="readonly")
-
-        self.ent_lastfm.insert(0, user.get_lastfm_username() or "")
-        self.ent_listenbrainz.insert(0, user.get_listenbrainz_username() or "")
-
-        # Existing ZIPs (read-only)
-        zips = user.sources.get("listenbrainz_zips", [])
-        for z in zips:
-            self.lst_existing_zips.insert(
-                tk.END, f"{z.get('path')} (ingested {z.get('ingested_at')})"
-            )
-
-    # ------------------------------------------------------------
-    # ZIP selection
-    # ------------------------------------------------------------
-
-    def _choose_zip(self):
-        path = filedialog.askopenfilename(
-            title="Select ListenBrainz ZIP",
-            filetypes=[("ZIP files", "*.zip")],
-        )
-        if not path:
-            return
-
-        self.pending_zips.append(path)
-        self.lst_pending_zips.insert(tk.END, path)
-
-    # ------------------------------------------------------------
-    # Save User
-    # ------------------------------------------------------------
-
-    def _save_user(self):
-        app_username = self.ent_app_username.get().strip()
-        lastfm_username = self.ent_lastfm.get().strip() or None
-        listenbrainz_username = self.ent_listenbrainz.get().strip() or None
-
-        # Validate app username
-        if not app_username:
-            messagebox.showerror("Error", "App Username is required.")
-            return
-        if not app_username.isalnum():
-            messagebox.showerror(
-                "Error", "App Username must contain only letters and numbers."
-            )
-            return
-
-        # If editing, update existing user
-        if self.existing_user:
-            user = self.existing_user
-            user.update_sources(lastfm_username, listenbrainz_username)
-
-            # Ingest new ZIPs
-            for zip_path in self.pending_zips:
-                try:
-                    user.ingest_listenbrainz_zip(zip_path)
-                except Exception as e:
-                    messagebox.showerror(
-                        "Error Ingesting ZIP",
-                        f"Failed to ingest ZIP '{zip_path}': {type(e).__name__}: {e}",
-                    )
-                    return
-
-            self.on_save_callback(user.username)
-            self.destroy()
-            return
-
-        # Creating a new user
-        try:
-            user = User.from_sources(
-                username=app_username,
-                lastfm_username=lastfm_username,
-                listenbrainz_username=listenbrainz_username,
-                listenbrainz_zips=[],
-            )
-        except Exception as e:
-            messagebox.showerror(
-                "Error Creating User",
-                f"Failed to create user: {type(e).__name__}: {e}",
-            )
-            return
-
-        # Ingest ZIPs
-        for zip_path in self.pending_zips:
-            try:
-                user.ingest_listenbrainz_zip(zip_path)
-            except Exception as e:
-                messagebox.showerror(
-                    "Error Ingesting ZIP",
-                    f"Failed to ingest ZIP '{zip_path}': {type(e).__name__}: {e}",
-                )
-                return
-
-        self.on_save_callback(user.username)
-        self.destroy()
-
-# ======================================================================
-# Report Table View (unchanged from v2026.01.06)
-# ======================================================================
-
-class ReportTableView:
-    """
-    Encapsulates table rendering, filtering, and sorting.
-    """
-
-    def __init__(self, root: tk.Tk, container: tk.Frame, state: GUIState) -> None:
-        self.root = root
-        self.container = container
-        self.state = state
-
-        # Filter state
-        self.filter_by_var = tk.StringVar(value="All")
-        self.filter_entry: tk.Entry | None = None
-
-        # UI containers
-        self.filter_frame: tk.Frame | None = None
-        self.table_container: tk.Frame | None = None
-
-        # Treeview
-        self.tree: ttk.Treeview | None = None
-
-        # Build initial filter bar
-        self.build_filter_bar()
-
-    # ------------------------------------------------------------
-    # Filter Bar Construction
-    # ------------------------------------------------------------
-
-    def build_filter_bar(self):
-        """Create the filter bar UI and store widget references."""
-
-        if self.filter_frame and self.filter_frame.winfo_exists():
-            self.filter_frame.destroy()
-
-        self.filter_frame = tk.Frame(self.container)
-        self.filter_frame.pack(pady=5)
-
-        tk.Label(self.filter_frame, text="Filter By:").pack(side="left", padx=(5, 2))
-
-        self.filter_by_dropdown = ttk.Combobox(
-            self.filter_frame,
-            textvariable=self.filter_by_var,
-            state="readonly",
-            width=18,
-        )
-        self.filter_by_dropdown.pack(side="left", padx=(0, 10))
-
-        tk.Label(
-            self.filter_frame,
-            text='Filter (Supports Regex; Use ".*" for wildcards or "|" for OR):',
-        ).pack(side="left", padx=5)
-
-        self.filter_entry = tk.Entry(self.filter_frame, width=40)
-        self.filter_entry.pack(side="left", padx=5)
-
-        tk.Button(self.filter_frame, text="Filter", command=self.apply_filter).pack(
-            side="left", padx=5
-        )
-        tk.Button(self.filter_frame, text="Clear Filter", command=self.clear_filter).pack(
-            side="left", padx=5
-        )
-
-        self.filter_entry.bind("<Return>", lambda e: self.apply_filter())
-
-    # ------------------------------------------------------------
-    # Table Rendering
-    # ------------------------------------------------------------
-
-    def show_table(self, df):
-
-        if not self.filter_entry or not self.filter_entry.winfo_exists():
-            self.build_filter_bar()
-
-        current_filter = ""
-        if self.filter_entry and self.filter_entry.winfo_exists():
-            current_filter = self.filter_entry.get()
-
-        cols = list(df.columns)
-        self.filter_by_dropdown["values"] = ["All"] + cols
-        if self.filter_by_var.get() not in ["All"] + cols:
-            self.filter_by_var.set("All")
-
-        self.filter_entry.delete(0, tk.END)
-        if current_filter:
-            self.filter_entry.insert(0, current_filter)
-
-        if not self.table_container or not self.table_container.winfo_exists():
-            self.table_container = tk.Frame(self.container)
-            self.table_container.pack(fill="both", expand=True)
-        else:
-            for widget in self.table_container.winfo_children():
-                widget.destroy()
-
-        tree = ttk.Treeview(self.table_container, show="headings")
-        tree.pack(side="left", fill="both", expand=True)
-
-        scrollbar = ttk.Scrollbar(
-            self.table_container, orient="vertical", command=tree.yview
-        )
-        scrollbar.pack(side="right", fill="y")
-        tree.configure(yscrollcommand=scrollbar.set)
-
-        tree._sort_state = {}
-        self.tree = tree
-
-        tree.bind("<Control-c>", self.copy_selection_to_clipboard)
-        tree.bind("<Control-C>", self.copy_selection_to_clipboard)
-
-        tree["columns"] = cols
-        for col in cols:
-            tree.heading(
-                col, text=col, command=lambda c=col: self.sort_column(tree, df, c)
-            )
-            tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
-
-        for _, row in df.iterrows():
-            tree.insert("", "end", values=list(row))
-
-    # ------------------------------------------------------------
-    # Sorting
-    # ------------------------------------------------------------
-
-    def sort_column(self, tree: ttk.Treeview, df, col: str) -> None:
-        descending = tree._sort_state.get(col, False)
-        tree._sort_state[col] = not descending
-
-        data = [(tree.set(k, col), k) for k in tree.get_children("")]
-
-        try:
-            data = [(float(v), k) for v, k in data]
-        except ValueError:
-            pass
-
-        data.sort(reverse=tree._sort_state[col])
-
-        for index, (_, k) in enumerate(data):
-            tree.move(k, "", index)
-
-        for c in df.columns:
-            indicator = ""
-            if c == col:
-                indicator = " ▲" if not descending else " ▼"
-            tree.heading(
-                c,
-                text=c + indicator,
-                command=lambda c=c: self.sort_column(tree, df, c),
-            )
-
-    # ------------------------------------------------------------
-    # Filtering
-    # ------------------------------------------------------------
-
-    def apply_filter(self) -> None:
-        if self.state.original_df is None or self.filter_entry is None:
-            return
-
-        pattern = self.filter_entry.get().strip()
-        if not pattern:
-            return
-
-        try:
-            regex = re.compile(pattern, re.IGNORECASE)
-        except re.error:
-            messagebox.showerror("Error In Regex", "Your regex pattern is invalid.")
-            return
-
-        df = self.state.original_df.copy()
-        col_choice = self.filter_by_var.get()
-
-        if col_choice == "All":
-            mask = df.apply(
-                lambda row: row.astype(str).str.contains(regex, regex=True).any(),
-                axis=1,
-            )
-        else:
-            if col_choice not in df.columns:
-                messagebox.showerror("Error Applying Filter", f"Column '{col_choice}' not found.")
-                return
-            mask = df[col_choice].astype(str).str.contains(regex, regex=True)
-
-        self.state.filtered_df = df[mask]
-        self.show_table(self.state.filtered_df)
-
-    def clear_filter(self) -> None:
-        if self.state.original_df is None or self.filter_entry is None:
-            return
-        self.state.filtered_df = self.state.original_df.copy()
-        self.show_table(self.state.original_df)
-        self.filter_entry.delete(0, tk.END)
-
-    # ------------------------------------------------------------
-    # Clipboard
-    # ------------------------------------------------------------
-
-    def copy_selection_to_clipboard(self, event=None):
-        if self.tree is None:
-            return "break"
-
-        tree = self.tree
-        selected = tree.selection()
-        if not selected:
-            return "break"
-
-        rows = []
-        for item in selected:
-            values = tree.item(item, "values")
-            rows.append("\t".join(str(v) for v in values))
-
-        text = "\n".join(rows)
-
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-        self.root.update()
-
-        return "break"
-        
-        
 # ======================================================================
 # Main GUI
 # ======================================================================
@@ -657,7 +231,7 @@ class BrainzMRIGUI:
             "Minimum number of unique liked tracks.\nDefault: 0 (disabled).",
             hover_delay=500,
         )
-        
+
         # ------------------------------------------------------------
         # Enrichment controls
         # ------------------------------------------------------------
@@ -679,22 +253,60 @@ class BrainzMRIGUI:
             anchor="w",
         ).pack(side="left")
 
-        self.enrich_source_var = tk.StringVar(value="Cache")
+        # New enrichment mode dropdown with four options
+        self.enrichment_mode_var = tk.StringVar(value="Cache Only")
         self.cmb_enrich_source = ttk.Combobox(
             frm_enrich_source,
-            textvariable=self.enrich_source_var,
-            values=["Cache", "Query API (Slow)"],
+            textvariable=self.enrichment_mode_var,
+            values=[
+                "Cache Only",
+                "Query MusicBrainz",
+                "Query Last.fm",
+                "Query All Sources (Slow)",
+            ],
             state="readonly",
-            width=18,
+            width=22,
         )
         self.cmb_enrich_source.pack(side="left")
 
-        def toggle_enrich_source(*_):
-            state = "readonly" if self.do_enrich_var.get() else "disabled"
-            self.cmb_enrich_source.configure(state=state)
+        # New "Force Cache Update" checkbox
+        self.force_cache_update_var = tk.BooleanVar(value=False)
+        chk_force_cache = tk.Checkbutton(
+            frm_inputs,
+            text="Force Cache Update",
+            variable=self.force_cache_update_var,
+        )
+        chk_force_cache.pack(anchor="w", pady=2)
 
-        self.do_enrich_var.trace_add("write", lambda *args: toggle_enrich_source())
-        toggle_enrich_source()
+        def _update_enrichment_controls(*_):
+            """
+            Enable/disable enrichment controls based on:
+            - Whether enrichment is enabled
+            - Which enrichment mode is selected
+            """
+            do_enrich = self.do_enrich_var.get()
+            mode = self.enrichment_mode_var.get()
+
+            if not do_enrich:
+                self.cmb_enrich_source.configure(state="disabled")
+                self.force_cache_update_var.set(False)
+                chk_force_cache.configure(state="disabled")
+                return
+
+            # Enrichment enabled
+            self.cmb_enrich_source.configure(state="readonly")
+
+            # Force Cache Update only makes sense if we're allowed to query providers
+            if mode == "Cache Only":
+                self.force_cache_update_var.set(False)
+                chk_force_cache.configure(state="disabled")
+            else:
+                chk_force_cache.configure(state="normal")
+
+        # Trace changes on both the master checkbox and the mode dropdown
+        self.do_enrich_var.trace_add("write", lambda *args: _update_enrichment_controls())
+        self.enrichment_mode_var.trace_add("write", lambda *args: _update_enrichment_controls())
+        _update_enrichment_controls()
 
         # ------------------------------------------------------------
         # Report type selection
@@ -801,6 +413,7 @@ class BrainzMRIGUI:
         self.load_user_from_cache(username)
         self.set_status(f"User '{username}' saved.")
 
+
     # ==================================================================
     # User Loading
     # ==================================================================
@@ -897,7 +510,8 @@ class BrainzMRIGUI:
             return
 
         do_enrich = self.do_enrich_var.get()
-        enrich_source = self.enrich_source_var.get()
+        enrichment_mode = self.enrichment_mode_var.get()
+        force_cache_update = self.force_cache_update_var.get()
 
         base_df = self.state.user.get_listens().copy()
         base_df["_username"] = self.state.user.username
@@ -919,7 +533,8 @@ class BrainzMRIGUI:
                     min_likes=min_likes,
                     topn=topn,
                     do_enrich=do_enrich,
-                    enrich_source=enrich_source,
+                    enrichment_mode=enrichment_mode,
+                    force_cache_update=force_cache_update,
                 )
             )
         except ValueError as e:
@@ -1020,4 +635,3 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = BrainzMRIGUI(root)
     root.mainloop()
-        

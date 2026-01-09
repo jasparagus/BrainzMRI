@@ -158,6 +158,8 @@ def _group_listens(df, group_col):
             total_duration_ms=("duration_ms", "sum"),
             first_listened=("listened_at", "min"),
             last_listened=("listened_at", "max"),
+            artist_mbid=("artist_mbid", "first"),
+            release_mbid=("release_mbid", "first"),
         )
 
     elif group_col == "track":
@@ -166,6 +168,9 @@ def _group_listens(df, group_col):
             total_duration_ms=("duration_ms", "sum"),
             first_listened=("listened_at", "min"),
             last_listened=("listened_at", "max"),
+            artist_mbid=("artist_mbid", "first"),
+            release_mbid=("release_mbid", "first"),
+            recording_mbid=("recording_mbid", "first"),
         )
 
     else:  # artist
@@ -174,6 +179,7 @@ def _group_listens(df, group_col):
             total_duration_ms=("duration_ms", "sum"),
             first_listened=("listened_at", "min"),
             last_listened=("listened_at", "max"),
+            artist_mbid=("artist_mbid", "first"),
         )
 
     return grouped
@@ -239,15 +245,41 @@ def report_top(
     # Column ordering
     if group_col == "artist":
         grouped = grouped[
-            ["artist", "total_tracks", "total_duration_hours", "first_listened", "last_listened"]
+            [
+                "artist",
+                "total_tracks",
+                "total_duration_hours",
+                "first_listened",
+                "last_listened",
+                "artist_mbid",
+            ]
         ]
     elif group_col == "album":
         grouped = grouped[
-            ["artist", "album", "total_tracks", "total_duration_hours", "first_listened", "last_listened"]
+            [
+                "artist",
+                "album",
+                "total_tracks",
+                "total_duration_hours",
+                "first_listened",
+                "last_listened",
+                "release_mbid",
+                "artist_mbid",
+            ]
         ]
     else:  # track
         grouped = grouped[
-            ["artist", "track_name", "total_tracks", "total_duration_hours", "first_listened", "last_listened"]
+            [
+                "artist",
+                "track_name",
+                "total_tracks",
+                "total_duration_hours",
+                "first_listened",
+                "last_listened",
+                "recording_mbid",
+                "release_mbid",
+                "artist_mbid",
+            ]
         ]
 
     # ------------------------------------------------------------

@@ -23,7 +23,7 @@ goto end
 
 :GUI
 echo Starting BrainzMRI GUI...
-python gui.py
+python gui_main.py
 goto end
 
 
