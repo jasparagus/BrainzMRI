@@ -17,19 +17,19 @@ class ReportEngine:
         self._handlers = {
             "By Artist": {
                 "func": reporting.report_top,
-                "kwargs": {"group_col": "artist", "by": "total_tracks"},
+                "kwargs": {"group_col": "artist", "by": "total_listens"},
                 "report_type_key": "artist",
                 "status": "Artist report generated.",
             },
             "By Album": {
                 "func": reporting.report_top,
-                "kwargs": {"group_col": "album", "by": "total_tracks"},
+                "kwargs": {"group_col": "album", "by": "total_listens"},
                 "report_type_key": "album",
                 "status": "Album report generated.",
             },
             "By Track": {
                 "func": reporting.report_top,
-                "kwargs": {"group_col": "track", "by": "total_tracks"},
+                "kwargs": {"group_col": "track", "by": "total_listens"},
                 "report_type_key": "track",
                 "status": "Track report generated.",
             },

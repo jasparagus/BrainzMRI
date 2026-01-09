@@ -100,7 +100,7 @@ def _group_listens(df, group_col):
     """
     if group_col == "album":
         grouped = df.groupby(["artist", "album"]).agg(
-            total_tracks=("album", "count"),
+            total_listens=("album", "count"),
             total_duration_ms=("duration_ms", "sum"),
             first_listened=("listened_at", "min"),
             last_listened=("listened_at", "max"),
@@ -110,7 +110,7 @@ def _group_listens(df, group_col):
 
     elif group_col == "track":
         grouped = df.groupby(["artist", "track_name"]).agg(
-            total_tracks=("track_name", "count"),
+            total_listens=("track_name", "count"),
             total_duration_ms=("duration_ms", "sum"),
             first_listened=("listened_at", "min"),
             last_listened=("listened_at", "max"),
@@ -123,7 +123,7 @@ def _group_listens(df, group_col):
 
     else:  # artist
         grouped = df.groupby("artist").agg(
-            total_tracks=("artist", "count"),
+            total_listens=("artist", "count"),
             total_duration_ms=("duration_ms", "sum"),
             first_listened=("listened_at", "min"),
             last_listened=("listened_at", "max"),
@@ -137,7 +137,7 @@ def report_top(
     df,
     group_col="artist",
     days=None,
-    by="total_tracks",
+    by="total_listens",
     topn=100,
     min_listens=0,
     min_minutes=0.0,
@@ -161,7 +161,7 @@ def report_top(
 
     grouped = _group_listens(df, group_col)
 
-    grouped["total_duration_hours"] = (
+    grouped["total_hours_listened"] = (
         grouped["total_duration_ms"] / (1000 * 60 * 60)
     ).round(1)
 
@@ -188,8 +188,8 @@ def report_top(
     # ------------------------------------------------------------
     if min_listens > 0 or min_minutes > 0:
         grouped = grouped[
-            (grouped["total_tracks"] >= min_listens)
-            | (grouped["total_duration_hours"] >= (min_minutes / 60.0))
+            (grouped["total_listens"] >= min_listens)
+            | (grouped["total_hours_listened"] >= (min_minutes / 60.0))
         ]
 
     sorted_df = grouped.sort_values(by, ascending=False)
@@ -203,8 +203,8 @@ def report_top(
         "artist",
         "album",
         "track_name",
-        "total_tracks",
-        "total_duration_hours",
+        "total_listens",
+        "total_hours_listened",
         "unique_liked_tracks",
         "last_listened",
         "first_listened",
@@ -231,7 +231,7 @@ def report_top(
         "entity": entity,
         "topn": topn,
         "days": days,
-        "metric": "tracks" if by == "total_tracks" else "duration",
+        "metric": "tracks" if by == "total_listens" else "duration",
     }
 
     return result, meta
