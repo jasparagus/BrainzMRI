@@ -195,6 +195,11 @@ class ReportEngine:
                     is_cancelled=is_cancelled
                 )
                 last_enriched = True
+                
+                # RE-APPLY COLUMN ORDERING
+                # Enrichment appended columns to the end. We must re-sort them so 'Genres'
+                # appears in the correct preferred position (before specific genre cols).
+                result = reporting.apply_column_order(result)
 
         if progress_callback:
             progress_callback(100, 100, "Complete.")

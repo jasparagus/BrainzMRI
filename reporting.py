@@ -1,3 +1,14 @@
+"""
+Reporting module for BrainzMRI.
+
+This module is responsible for:
+- Aggregating listens data into Top-N reports (Artist/Album/Track).
+- Calculating statistics (total listens, total hours).
+- Filtering data by time range, thresholds, and likes.
+- Managing column order and presentation.
+- Generating the "New Music by Year" analysis.
+"""
+
 import pandas as pd
 import numpy as np
 from datetime import datetime, timezone, timedelta
@@ -6,12 +17,46 @@ import os
 
 
 # ------------------------------------------------------------
+# Constants
+# ------------------------------------------------------------
+
+# Define preferred hierarchy for column ordering
+PREFERRED_COLUMN_ORDER = [
+    "artist",
+    "album",
+    "track_name",
+    "total_listens",
+    "total_hours_listened",
+    "unique_liked_tracks",
+    "last_listened",
+    "first_listened",
+    "Genres",
+]
+
+
+# ------------------------------------------------------------
 # Time Filtering
 # ------------------------------------------------------------
 
-def filter_by_days(df, col: str, start_days: int = 0, end_days: int = 365):
+def filter_by_days(df: pd.DataFrame, col: str, start_days: int = 0, end_days: int = 365) -> pd.DataFrame:
     """
     Filter a DataFrame by a datetime column using a 'days ago' range.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input DataFrame containing the listens data.
+    col : str
+        The name of the datetime column to filter on (e.g., 'listened_at').
+    start_days : int, optional
+        The start of the range in days ago (0 = now), by default 0.
+    end_days : int, optional
+        The end of the range in days ago, by default 365.
+
+    Returns
+    -------
+    pd.DataFrame
+        The subset of `df` falling within the calculated date range.
     """
     now = datetime.now(timezone.utc)
     start_dt = now - timedelta(days=end_days)
@@ -20,12 +65,60 @@ def filter_by_days(df, col: str, start_days: int = 0, end_days: int = 365):
 
 
 # ------------------------------------------------------------
+# Column Ordering Helper
+# ------------------------------------------------------------
+
+def apply_column_order(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Reorder the DataFrame columns according to PREFERRED_COLUMN_ORDER.
+    
+    Columns listed in PREFERRED_COLUMN_ORDER are placed first, in that order.
+    Any columns in the DataFrame that are NOT in the preferred list (e.g. MBIDs, 
+    specific genre columns) are appended to the end.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame to reorder.
+
+    Returns
+    -------
+    pd.DataFrame
+        The reordered DataFrame.
+    """
+    all_cols = df.columns.tolist()
+    
+    # 1. Select columns that exist in the preferred list, in order
+    ordered_cols = [c for c in PREFERRED_COLUMN_ORDER if c in all_cols]
+    
+    # 2. Append any remaining columns at the end
+    remaining_cols = [c for c in all_cols if c not in ordered_cols]
+    
+    return df[ordered_cols + remaining_cols]
+
+
+# ------------------------------------------------------------
 # Raw Listens Report
 # ------------------------------------------------------------
 
-def report_raw_listens(df, topn=None):
+def report_raw_listens(df: pd.DataFrame, topn: int = None):
     """
-    Raw Listens report.
+    Generate a simple Raw Listens report.
+    
+    This is a passthrough report that applies no grouping or aggregation, 
+    useful for inspecting the underlying data after filters are applied.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The filtered listens DataFrame.
+    topn : int, optional
+        Limit the output to the top N rows, by default None (all rows).
+
+    Returns
+    -------
+    tuple
+        (result_df, meta_dict)
     """
     if topn is not None and topn > 0:
         result = df.head(topn)
@@ -46,7 +139,24 @@ def report_raw_listens(df, topn=None):
 # Helper: Compute unique liked tracks per entity
 # ------------------------------------------------------------
 
-def _compute_unique_likes(df, liked_mbids, group_col):
+def _compute_unique_likes(df: pd.DataFrame, liked_mbids: set, group_col: str) -> pd.DataFrame:
+    """
+    Compute the number of unique liked tracks for each grouped entity.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The listens DataFrame.
+    liked_mbids : set
+        A set of recording MBIDs that the user has liked.
+    group_col : str
+        The grouping level ('artist', 'album', or 'track').
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame with the grouping keys and a 'unique_liked_tracks' count column.
+    """
     if not liked_mbids:
         # No likes at all → return empty frame with correct columns
         if group_col == "artist":
@@ -93,10 +203,24 @@ def _compute_unique_likes(df, liked_mbids, group_col):
 # Top-N Reports (Artist, Album, Track)
 # ------------------------------------------------------------
 
-def _group_listens(df, group_col):
+def _group_listens(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
     """
-    Internal helper to group listens.
-    Propagates MBIDs to allow for downstream enrichment.
+    Internal helper to group listens by the specified entity type.
+    
+    This function handles the aggregation of stats (listens, duration)
+    and the propagation of metadata (MBIDs, first/last listen dates).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The listens DataFrame.
+    group_col : str
+        'artist', 'album', or 'track'.
+
+    Returns
+    -------
+    pd.DataFrame
+        The aggregated DataFrame.
     """
     if group_col == "album":
         grouped = df.groupby(["artist", "album"]).agg(
@@ -114,8 +238,7 @@ def _group_listens(df, group_col):
             total_duration_ms=("duration_ms", "sum"),
             first_listened=("listened_at", "min"),
             last_listened=("listened_at", "max"),
-            # FIX: Aggregate album so it exists in the result for enrichment
-            album=("album", "first"),
+            album=("album", "first"), 
             artist_mbid=("artist_mbid", "first"),
             release_mbid=("release_mbid", "first"),
             recording_mbid=("recording_mbid", "first"),
@@ -134,19 +257,46 @@ def _group_listens(df, group_col):
 
 
 def report_top(
-    df,
-    group_col="artist",
+    df: pd.DataFrame,
+    group_col: str = "artist",
     days=None,
-    by="total_listens",
-    topn=100,
-    min_listens=0,
-    min_minutes=0.0,
-    min_likes=0,
-    liked_mbids=None,
+    by: str = "total_listens",
+    topn: int = 100,
+    min_listens: int = 0,
+    min_minutes: float = 0.0,
+    min_likes: int = 0,
+    liked_mbids: set = None,
 ):
     """
     Generate a Top-N report for artists, albums, or tracks.
-    Implements dynamic column ordering to preserve MBIDs.
+    
+    Applies thresholds, sorting, and dynamic column ordering.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The listens DataFrame.
+    group_col : str, optional
+        'artist', 'album', or 'track'.
+    days : int, optional
+        Legacy days filter (typically None if filtered upstream).
+    by : str, optional
+        Column to sort by, usually 'total_listens'.
+    topn : int, optional
+        Number of results to return.
+    min_listens : int, optional
+        Filter out entities with fewer than N listens.
+    min_minutes : float, optional
+        Filter out entities listened to for less than N minutes.
+    min_likes : int, optional
+        Filter out entities with fewer than N unique liked tracks.
+    liked_mbids : set, optional
+        Set of user liked MBIDs for calculating the likes column.
+
+    Returns
+    -------
+    tuple
+        (result_df, meta_dict)
     """
 
     # Legacy days filtering
@@ -198,28 +348,7 @@ def report_top(
     # ------------------------------------------------------------
     # Dynamic Column Ordering
     # ------------------------------------------------------------
-    # Define preferred hierarchy
-    PREFERRED_ORDER = [
-        "artist",
-        "album",
-        "track_name",
-        "total_listens",
-        "total_hours_listened",
-        "unique_liked_tracks",
-        "last_listened",
-        "first_listened",
-    ]
-    
-    all_cols = result.columns.tolist()
-    
-    # 1. Select columns that exist in the preferred list, in order
-    ordered_cols = [c for c in PREFERRED_ORDER if c in all_cols]
-    
-    # 2. Append any remaining columns (e.g. MBIDs, intermediate stats) at the end
-    remaining_cols = [c for c in all_cols if c not in ordered_cols]
-    
-    final_cols = ordered_cols + remaining_cols
-    result = result[final_cols]
+    result = apply_column_order(result)
 
     entity = (
         "Artists" if group_col == "artist"
@@ -231,7 +360,7 @@ def report_top(
         "entity": entity,
         "topn": topn,
         "days": days,
-        "metric": "tracks" if by == "total_listens" else "duration",
+        "metric": "listens" if by == "total_listens" else "duration",
     }
 
     return result, meta
@@ -241,6 +370,9 @@ def report_top(
 # New Music by Year Report
 # ------------------------------------------------------------
 def report_new_music_by_year(df: pd.DataFrame):
+    """
+    Generate the 'New Music by Year' report.
+    """
     if df.empty:
         return pd.DataFrame(
             columns=[
@@ -320,7 +452,10 @@ def report_new_music_by_year(df: pd.DataFrame):
 # Saving Reports
 # ------------------------------------------------------------
 
-def save_report(df, user, meta=None, report_name=None):
+def save_report(df: pd.DataFrame, user, meta: dict = None, report_name: str = None) -> str:
+    """
+    Save the DataFrame to a CSV file in the user's reports directory.
+    """
     reports_dir = os.path.join(user.cache_dir, "reports")
     os.makedirs(reports_dir, exist_ok=True)
 
