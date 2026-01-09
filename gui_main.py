@@ -232,6 +232,11 @@ class BrainzMRIGUI:
             hover_delay=500,
         )
 
+        # Bind Enter key to Generate Report for all numeric input fields
+        for entry in [self.ent_time_start, self.ent_time_end, self.ent_last_start, self.ent_last_end,
+                      self.ent_topn, self.ent_min_listens, self.ent_min_minutes, self.ent_min_likes]:
+            entry.bind("<Return>", lambda event: self.run_report())
+
         # ------------------------------------------------------------
         # Enrichment controls
         # ------------------------------------------------------------

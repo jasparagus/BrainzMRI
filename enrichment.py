@@ -31,7 +31,7 @@ ENRICHMENT_MODE_MB = "Query MusicBrainz"
 ENRICHMENT_MODE_LASTFM = "Query Last.fm"
 ENRICHMENT_MODE_ALL = "Query All Sources (Slow)"
 
-NETWORK_DELAY_SECONDS = 1.0
+NETWORK_DELAY_SECONDS = 1.05
 LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/"
 LASTFM_API_KEY = os.environ.get("BRAINZMRI_LASTFM_API_KEY", "")
 

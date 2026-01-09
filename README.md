@@ -44,9 +44,8 @@ BrainzMRI requires **Python 3.10+** and a few common libraries.
 
 ### 1. Clone the repository
 ```bash
-git clone [https://github.com/jasparagus/BrainzMRI.git](https://github.com/jasparagus/BrainzMRI.git)
+git clone https://github.com/jasparagus/BrainzMRI.git "Your/Chosen/Destination/Path"
 cd BrainzMRI
-
 ```
 
 ### 2. Install dependencies
@@ -255,19 +254,16 @@ Manages per-user storage and cached listen data.
 
 # To-Do List
 
-## Map Enter To "Generate Report"
-
-* Pressing Enter key inside any of the filter boxes should trigger the "Generate Report" button.
-
 ## New Visualizations and Reports
 
 * Stacked bar charts of top N artists/albums/tracks over time
-* Use filtered data as the population
-* Cap at ~20 entities for clarity
-* Each entity receives a distinct color
+	* Use filtered data as the population
+	* Cap at ~20 entities for clarity
+	* Each entity receives a distinct color
 
 
 * “Top New Artists/Albums/Tracks by Year”
+
 * Add “Export Chart” option (PNG/SVG)
 
 ## Report Presets
