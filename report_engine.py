@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 
 from datetime import datetime, timedelta, timezone
 
@@ -70,12 +70,19 @@ class ReportEngine:
         do_enrich: bool,
         enrichment_mode: str,
         force_cache_update: bool,
+        # New args for async progress
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
     ):
         """
         Generate a report for the given mode and parameters.
         """
         if base_df is None:
             raise ValueError("No listens data available.")
+
+        # Initial progress signal
+        if progress_callback:
+            progress_callback(0, 100, "Filtering data...")
 
         df = base_df.copy()
 
@@ -130,6 +137,9 @@ class ReportEngine:
                 "No data available for the selected time range/recency filters."
             )
 
+        if progress_callback:
+            progress_callback(20, 100, "Aggregating...")
+
         # Get details from handler
         handler = self._handlers.get(mode)
         if handler is None:
@@ -173,28 +183,35 @@ class ReportEngine:
                 result = result.copy()
                 result["_username"] = base_df["_username"].iloc[0]
 
+                if progress_callback:
+                    progress_callback(30, 100, "Starting enrichment...")
+
                 result, enrichment_stats = enrichment.enrich_report(
                     result,
                     report_type_key,
                     enrichment_mode,
                     force_cache_update=force_cache_update,
+                    progress_callback=progress_callback,
+                    is_cancelled=is_cancelled
                 )
                 last_enriched = True
+
+        if progress_callback:
+            progress_callback(100, 100, "Complete.")
 
         # Generate status text
         status_text = self.get_status(mode)
         
         if last_enriched and enrichment_stats:
-            # Observability: Add stats to status text
-            # E.g. "Enrichment: Processed 50 Artists (20 cached, 30 looked up, 5 fallbacks)."
+            # Check if we cancelled
+            if is_cancelled and is_cancelled():
+                status_text += " [Enrichment Cancelled]"
             
-            # Pick the stats relevant to the report mode
             key_map = {"artist": "artists", "album": "albums", "track": "tracks"}
             stat_key = key_map.get(report_type_key)
             
             if stat_key and stat_key in enrichment_stats:
                 s = enrichment_stats[stat_key]
-                # Format: "Artist Report generated. Enrichment: 100 Processed (50 Cached | 50 Lookups)"
                 extra = (
                     f" Enrichment: {s['processed']} Processed "
                     f"({s['cache_hits']} Cached | "

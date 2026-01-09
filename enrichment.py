@@ -12,7 +12,7 @@ import json
 import os
 import time
 import unicodedata
-from typing import Dict, Any, List, Set, Tuple, Optional
+from typing import Dict, Any, List, Set, Tuple, Optional, Callable
 
 import urllib.parse
 import urllib.request
@@ -31,7 +31,7 @@ ENRICHMENT_MODE_MB = "Query MusicBrainz"
 ENRICHMENT_MODE_LASTFM = "Query Last.fm"
 ENRICHMENT_MODE_ALL = "Query All Sources (Slow)"
 
-NETWORK_DELAY_SECONDS = 1.05
+NETWORK_DELAY_SECONDS = 1.0
 LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/"
 LASTFM_API_KEY = os.environ.get("BRAINZMRI_LASTFM_API_KEY", "")
 
@@ -460,6 +460,8 @@ def enrich_report(
     enrichment_mode: str,
     *,
     force_cache_update: bool = False,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    is_cancelled: Optional[Callable[[], bool]] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Main entry point.
@@ -479,72 +481,103 @@ def enrich_report(
 
     noise_tags = _load_noise_tags()
     
-    # Determine which entities to enrich based on report type
-    # For a Track report, we might want Track AND Artist genres.
-    # For now, we mimic the existing logic: track->track_genres, album->album_genres, etc.
+    # Pre-calculate work to do for progress bar
+    # Note: This is an estimation. We build the unique lists first.
     
+    unique_tracks = pd.DataFrame()
+    unique_albums = pd.DataFrame()
+    unique_artists = pd.DataFrame()
+    
+    do_tracks = False
+    do_albums = False
+    do_artists = False
+
+    # Identify work
+    if "recording_mbid" in df.columns or ("track_name" in df.columns and "artist" in df.columns):
+        if report_type == "track":
+            do_tracks = True
+            track_cols = ["artist", "track_name"]
+            if "recording_mbid" in df.columns: track_cols.append("recording_mbid")
+            unique_tracks = df[track_cols].drop_duplicates()
+
+    if "release_mbid" in df.columns or ("album" in df.columns and "artist" in df.columns):
+        if report_type in ("album", "track"):
+            do_albums = True
+            album_cols = ["artist", "album"]
+            if "release_mbid" in df.columns: album_cols.append("release_mbid")
+            unique_albums = df[album_cols].drop_duplicates()
+            unique_albums = unique_albums[unique_albums["album"] != "Unknown"]
+
+    if "artist" in df.columns:
+        do_artists = True
+        artist_cols = ["artist"]
+        if "artist_mbid" in df.columns: artist_cols.append("artist_mbid")
+        unique_artists = df[artist_cols].drop_duplicates()
+
+    total_items = 0
+    if do_tracks: total_items += len(unique_tracks)
+    if do_albums: total_items += len(unique_albums)
+    if do_artists: total_items += len(unique_artists)
+    
+    current_item = 0
+
     # Mapping of MBIDs to Genres
     track_map = {}
     album_map = {}
     artist_map = {}
 
+    def check_cancel():
+        if is_cancelled and is_cancelled():
+            return True
+        return False
+
     # 1. Enrich Tracks
-    if "recording_mbid" in df.columns or ("track_name" in df.columns and "artist" in df.columns):
-        # We only enrich tracks if it is a 'track' report to save time, or if explicitly requested.
-        # The prompt implies we enrich based on available columns.
-        
-        # To avoid iterating rows 3 times, we can iterate unique tuples.
-        # Unique tracks:
-        track_cols = ["artist", "track_name"]
-        if "recording_mbid" in df.columns: track_cols.append("recording_mbid")
-        unique_tracks = df[track_cols].drop_duplicates()
-        
-        if report_type == "track":
-            cache = _load_entity_cache("track")
-            for _, row in unique_tracks.iterrows():
-                mbid = str(row["recording_mbid"]) if "recording_mbid" in row and pd.notna(row["recording_mbid"]) else None
-                name_info = {
-                    "artist": row["artist"] if "artist" in row else "",
-                    "track": row["track_name"] if "track_name" in row else ""
-                }
-                
-                if force_cache_update and mbid and mbid in cache: del cache[mbid]
-                
-                k, g = _enrich_single_entity("track", mbid, name_info, cache, enrichment_mode, noise_tags, stats["track"])
-                if mbid: track_map[mbid] = g
-                # Also map by name if mbid missing? For now we only map back to DF via MBID if present.
-                # If the DF has no MBID, we can't easily join back without a complex merge.
-                # Supported scope: MBID based join.
+    if do_tracks:
+        cache = _load_entity_cache("track")
+        for _, row in unique_tracks.iterrows():
+            if check_cancel(): break
+            
+            mbid = str(row["recording_mbid"]) if "recording_mbid" in row and pd.notna(row["recording_mbid"]) else None
+            name_info = {
+                "artist": row["artist"] if "artist" in row else "",
+                "track": row["track_name"] if "track_name" in row else ""
+            }
+            
+            if force_cache_update and mbid and mbid in cache: del cache[mbid]
+            
+            k, g = _enrich_single_entity("track", mbid, name_info, cache, enrichment_mode, noise_tags, stats["track"])
+            if mbid: track_map[mbid] = g
+            
+            current_item += 1
+            if progress_callback:
+                progress_callback(current_item, total_items, f"Enriching Tracks ({current_item}/{total_items})...")
 
     # 2. Enrich Albums
-    if "release_mbid" in df.columns or ("album" in df.columns and "artist" in df.columns):
-        if report_type in ("album", "track"): # track reports also show album info
-            album_cols = ["artist", "album"]
-            if "release_mbid" in df.columns: album_cols.append("release_mbid")
-            # Filter out empty albums
-            unique_albums = df[album_cols].drop_duplicates()
-            unique_albums = unique_albums[unique_albums["album"] != "Unknown"]
-            
-            cache = _load_entity_cache("album")
-            for _, row in unique_albums.iterrows():
-                mbid = str(row["release_mbid"]) if "release_mbid" in row and pd.notna(row["release_mbid"]) else None
-                name_info = {
-                    "artist": row["artist"] if "artist" in row else "",
-                    "album": row["album"] if "album" in row else ""
-                }
-                if force_cache_update and mbid and mbid in cache: del cache[mbid]
-                
-                k, g = _enrich_single_entity("album", mbid, name_info, cache, enrichment_mode, noise_tags, stats["album"])
-                if mbid: album_map[mbid] = g
+    if do_albums and not check_cancel():
+        cache = _load_entity_cache("album")
+        for _, row in unique_albums.iterrows():
+            if check_cancel(): break
 
-    # 3. Enrich Artists (Always valid if artist col exists)
-    if "artist" in df.columns:
-        artist_cols = ["artist"]
-        if "artist_mbid" in df.columns: artist_cols.append("artist_mbid")
-        unique_artists = df[artist_cols].drop_duplicates()
-        
+            mbid = str(row["release_mbid"]) if "release_mbid" in row and pd.notna(row["release_mbid"]) else None
+            name_info = {
+                "artist": row["artist"] if "artist" in row else "",
+                "album": row["album"] if "album" in row else ""
+            }
+            if force_cache_update and mbid and mbid in cache: del cache[mbid]
+            
+            k, g = _enrich_single_entity("album", mbid, name_info, cache, enrichment_mode, noise_tags, stats["album"])
+            if mbid: album_map[mbid] = g
+            
+            current_item += 1
+            if progress_callback:
+                progress_callback(current_item, total_items, f"Enriching Albums ({current_item}/{total_items})...")
+
+    # 3. Enrich Artists
+    if do_artists and not check_cancel():
         cache = _load_entity_cache("artist")
         for _, row in unique_artists.iterrows():
+            if check_cancel(): break
+
             mbid = str(row["artist_mbid"]) if "artist_mbid" in row and pd.notna(row["artist_mbid"]) else None
             name_info = {"artist": row["artist"]}
             
@@ -552,6 +585,10 @@ def enrich_report(
             
             k, g = _enrich_single_entity("artist", mbid, name_info, cache, enrichment_mode, noise_tags, stats["artist"])
             if mbid: artist_map[mbid] = g
+            
+            current_item += 1
+            if progress_callback:
+                progress_callback(current_item, total_items, f"Enriching Artists ({current_item}/{total_items})...")
 
     # Apply maps
     enriched_df = df.copy()

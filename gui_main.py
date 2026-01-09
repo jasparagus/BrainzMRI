@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import re
+import threading
 
 import reporting
 import enrichment
@@ -53,6 +54,58 @@ class GUIState:
         # Table/filtering state
         self.original_df = None
         self.filtered_df = None
+
+
+class ProgressWindow(tk.Toplevel):
+    """
+    A modal dialog showing a progress bar and a Cancel button.
+    Thread-safe updates must be handled via callbacks scheduling on main loop.
+    """
+    def __init__(self, parent, title="Processing..."):
+        super().__init__(parent)
+        self.title(title)
+        self.geometry("400x150")
+        self.resizable(False, False)
+        self.parent = parent
+        self.cancelled = False
+
+        # Center window
+        self.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - (400 // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (150 // 2)
+        self.geometry(f"+{x}+{y}")
+
+        # UI
+        self.lbl_status = tk.Label(self, text="Initializing...", anchor="w")
+        self.lbl_status.pack(fill="x", padx=20, pady=(20, 5))
+
+        self.progress = ttk.Progressbar(self, orient="horizontal", mode="determinate")
+        self.progress.pack(fill="x", padx=20, pady=5)
+
+        self.btn_cancel = tk.Button(self, text="Cancel", command=self.cancel, width=10)
+        self.btn_cancel.pack(pady=20)
+
+        # Make modal
+        self.transient(parent)
+        self.grab_set()
+        
+        # Handle "X" button
+        self.protocol("WM_DELETE_WINDOW", self.cancel)
+
+    def update_progress(self, current, total, message):
+        """Update the progress bar and label."""
+        self.lbl_status.config(text=message)
+        if total > 0:
+            pct = (current / total) * 100
+            self.progress["value"] = pct
+        else:
+            self.progress["value"] = 0
+
+    def cancel(self):
+        """Set cancellation flag and disable button."""
+        self.cancelled = True
+        self.lbl_status.config(text="Cancelling... please wait for current step to finish.")
+        self.btn_cancel.config(state="disabled")
 
 
 # ======================================================================
@@ -464,7 +517,7 @@ class BrainzMRIGUI:
         self.set_status(f"User '{username}' loaded.")
 
     # ==================================================================
-    # Report Generation
+    # Report Generation (Threaded)
     # ==================================================================
 
     def _parse_int_field(self, entry: tk.Entry, field_name: str) -> int:
@@ -483,9 +536,7 @@ class BrainzMRIGUI:
 
     def run_report(self) -> None:
         if self.state.user is None:
-            messagebox.showerror(
-                "Error", "Please load or create a user first."
-            )
+            messagebox.showerror("Error", "Please load or create a user first.")
             self.set_status("Error: No user loaded.")
             return
 
@@ -504,9 +555,7 @@ class BrainzMRIGUI:
             rec_end = max(l_start, l_end)
 
             min_listens = self._parse_int_field(self.ent_min_listens, "Minimum listens")
-            min_minutes = self._parse_float_field(
-                self.ent_min_minutes, "Minimum time listened"
-            )
+            min_minutes = self._parse_float_field(self.ent_min_minutes, "Minimum time listened")
             min_likes = self._parse_int_field(self.ent_min_likes, "Minimum likes")
             topn = self._parse_int_field(self.ent_topn, "Top N")
         except ValueError as e:
@@ -514,45 +563,68 @@ class BrainzMRIGUI:
             self.set_status(f"Error With Filter Input: {str(e)}")
             return
 
-        do_enrich = self.do_enrich_var.get()
-        enrichment_mode = self.enrichment_mode_var.get()
-        force_cache_update = self.force_cache_update_var.get()
+        # Prepare parameters
+        params = {
+            "mode": mode,
+            "liked_mbids": self.state.user.get_liked_mbids(),
+            "time_start_days": time_start,
+            "time_end_days": time_end,
+            "rec_start_days": rec_start,
+            "rec_end_days": rec_end,
+            "min_listens": min_listens,
+            "min_minutes": min_minutes,
+            "min_likes": min_likes,
+            "topn": topn,
+            "do_enrich": self.do_enrich_var.get(),
+            "enrichment_mode": self.enrichment_mode_var.get(),
+            "force_cache_update": self.force_cache_update_var.get(),
+        }
 
         base_df = self.state.user.get_listens().copy()
         base_df["_username"] = self.state.user.username
-        liked_mbids = self.state.user.get_liked_mbids()
 
-        # Generate report via engine
-        try:
-            result, meta, report_type_key, last_enriched, status_text = (
-                self.report_engine.generate_report(
-                    base_df,
-                    mode,
-                    liked_mbids,
-                    time_start_days=time_start,
-                    time_end_days=time_end,
-                    rec_start_days=rec_start,
-                    rec_end_days=rec_end,
-                    min_listens=min_listens,
-                    min_minutes=min_minutes,
-                    min_likes=min_likes,
-                    topn=topn,
-                    do_enrich=do_enrich,
-                    enrichment_mode=enrichment_mode,
-                    force_cache_update=force_cache_update,
+        # Show Progress Window
+        self.progress_win = ProgressWindow(self.root, title=f"Generating {mode}...")
+
+        # ---------------------------------------------------
+        # Worker Thread
+        # ---------------------------------------------------
+        def worker():
+            try:
+                # Callbacks to update UI from thread safely
+                def progress_callback(current, total, msg):
+                    self.root.after(0, lambda: self.progress_win.update_progress(current, total, msg))
+                
+                def is_cancelled():
+                    return self.progress_win.cancelled
+
+                result, meta, report_type_key, last_enriched, status_text = (
+                    self.report_engine.generate_report(
+                        base_df,
+                        **params,
+                        progress_callback=progress_callback,
+                        is_cancelled=is_cancelled
+                    )
                 )
-            )
-        except ValueError as e:
-            messagebox.showerror("Error Executing Report", str(e))
-            self.set_status(f"Error Executing Report: {str(e)}")
-            return
-        except Exception as e:
-            messagebox.showerror(
-                "Unexpected Error Executing Report", f"{type(e).__name__}: {e}"
-            )
-            self.set_status("Error: Unexpected error during report generation.")
-            return
 
+                # Success callback
+                self.root.after(0, lambda: self._on_report_success(
+                    result, meta, report_type_key, last_enriched, status_text, mode
+                ))
+
+            except ValueError as e:
+                self.root.after(0, lambda: self._on_report_error(str(e), "Error Executing Report"))
+            except Exception as e:
+                self.root.after(0, lambda: self._on_report_error(f"{type(e).__name__}: {e}", "Unexpected Error"))
+
+        # Start thread
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+
+    def _on_report_success(self, result, meta, report_type_key, last_enriched, status_text, mode):
+        """Called on main thread when worker finishes successfully."""
+        self.progress_win.destroy()
+        
         # Save state
         self.state.last_report_df = result
         self.state.last_meta = meta
@@ -566,6 +638,13 @@ class BrainzMRIGUI:
         # Display
         self.table_view.show_table(result)
         self.set_status(status_text)
+
+    def _on_report_error(self, error_msg, title):
+        """Called on main thread when worker fails."""
+        self.progress_win.destroy()
+        messagebox.showerror(title, error_msg)
+        self.set_status(f"Error: {error_msg}")
+
 
     # ==================================================================
     # Saving reports
