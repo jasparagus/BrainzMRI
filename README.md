@@ -1,29 +1,29 @@
 # BrainzMRI: ListenBrainz Metadata Review Instrument
+
 A ListenBrainz "Metadata Review Instrument" (MRI) for analyzing listens from the ListenBrainz service.
 
-BrainzMRI is a desktop tool for analyzing your **ListenBrainz** listening history.  
+BrainzMRI is a desktop tool for analyzing your **ListenBrainz** listening history.
 It provides a **GUI application** for generating rich reports about your listening habits, including:
 
-- Top artists, albums, and tracks  
-- "Time Range" filter for listens enables looking across arbitrary time windows (by "days ago")
-- "Last Played" filter enables digging up "old favorites" and more (by "days ago")
-- Liked-artist reports (list of artists whose tracks you have liked)
-- Likes-based filtering for artists, albums, and tracks (via Minimum Likes Threshold)
-- Optional genre enrichment with **MusicBrainz genre lookups**
-- Fully sortable, filterable tables in the GUI (using regex)
-- Exportable CSV reports  
+- Top artists, albums, and tracks
+- **Time Range** filtering: Analyze listens across arbitrary time windows (by "days ago")
+- **Last Played** filtering: Dig up "old favorites" or recent discoveries (by "days ago")
+- **Likes-based filtering**: Filter artists, albums, and tracks by a minimum number of liked tracks (e.g., "Albums with 2+ likes")
+- **Enhanced Genre Enrichment**: Enriches reports with genre data from **MusicBrainz** and **Last.fm**, using robust name-based fallback strategies when MBIDs are missing.
+- **Observability**: Detailed status bar feedback on enrichment performance (cache hits, lookups, fallbacks).
+- Fully sortable, filterable tables in the GUI (supports regex).
+- Exportable CSV reports.
 
-### GUI Application (BrainzMRI_GUI.py)
+### GUI Application (`gui_main.py`)
 - Load a zip file exported from your ListenBrainz account
-- Filter your data by time range, last listened date, and more
+- Filter your data by time range, last listened date, and thresholds
 - Choose report type (Top Artists, Top Albums, New Music By Year, and more)
-- Optionally enrich any report with MusicBrainz genre data  
-- View results in a sortable, fully filterable table  
+- Optionally enrich reports with genre data (MusicBrainz, Last.fm, or local cache)
+- View results in a sortable, fully filterable table
 - Save reports to disk as CSV (for opening/browsing elsewhere)
-- Automatically remembers your last ZIP file  
-- Stores configuration info in a `config.json` file
+- Automatically remembers your last ZIP file and user settings (`config.json`)
 
-### Launcher Script (BrainzMRI.bat)
+### Launcher Script (`BrainzMRI.bat`)
 - Simple menu to launch either:
   - GUI mode (starts by default)
   - Debug mode (available for tinkering)
@@ -34,7 +34,7 @@ It provides a **GUI application** for generating rich reports about your listeni
 ---
 
 ## Attribution
-This project was developed with assistance from Microsoft Copilot as a fun test/experiment with "Vibe Coding".
+This project was developed with assistance from **Microsoft Copilot** and **Google Gemini** as a fun test/experiment with "Vibe Coding".
 
 ---
 
@@ -44,15 +44,18 @@ BrainzMRI requires **Python 3.10+** and a few common libraries.
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/jasparagus/BrainzMRI.git
+git clone [https://github.com/jasparagus/BrainzMRI.git](https://github.com/jasparagus/BrainzMRI.git)
 cd BrainzMRI
+
 ```
 
 ### 2. Install dependencies
+
 From inside the project directory:
 
 ```bash
 pip install -r requirements.txt
+
 ```
 
 ---
@@ -60,23 +63,28 @@ pip install -r requirements.txt
 # Running BrainzMRI
 
 ## Windows
+
 Double-click:
 
 ```
 BrainzMRI.bat
+
 ```
 
 or run:
 
-```bash
-python BrainzMRI_GUI.py
+``` bash
+python gui_main.py
+
 ```
 
 ## macOS / Linux
+
 Run:
 
 ```bash
-python3 BrainzMRI_GUI.py
+python3 gui_main.py
+
 ```
 
 ---
@@ -84,75 +92,83 @@ python3 BrainzMRI_GUI.py
 # Using the GUI
 
 ### 1. Select your ListenBrainz ZIP
-Click **“Select ListenBrainz ZIP”** and choose the export file downloaded from ListenBrainz.
+
+Click **“New User”** or select an existing user to begin. If creating a new user, you can ingest a ListenBrainz export ZIP.
 
 The app will automatically parse:
-- listens  
-- feedback (likes/dislikes)  
-- metadata  
+
+* listens
+* feedback (likes/dislikes)
+* metadata
 
 ### 2. Configure filters
+
 You can set:
 
-- **Time Range (days ago)**  
-  Restrict listens to a specific window (by listened date). Applied at the listen level.
+* **Time Range (days ago)**
+Restrict listens to a specific window (by listened date). Applied at the listen level.
+* **Last Listened (days ago)**
+Filter by recency (based on when listens occurred). Applied at the entity level (artist/album/track) based on each entity’s true last listen.
+* **Top N**
+Limit the number of results.
+* **Thresholds for Minimum Listens / Time Listened**
+Apply thresholds to filter out low-activity artists, albums, tracks:
+* Min. Listens Threshold (per entity)
+* Minimum Time Listened Threshold (per entity, based on total duration)
 
-- **Last Listened (days ago)**  
-  Filter by recency (based on when listens occurred). Applied at the entity level (artist/album/track) based on each entity’s true last listen.
 
-- **Top N**  
-  Limit the number of results.
+* **Minimum Likes Threshold**
+Filters entities by the number of unique liked tracks associated with them.
+* Applies to Top‑N reports (Artist/Album/Track)
+* Set to 0 to disable
+* Example: Minimum Likes = 2 + By Album → albums with 2+ liked tracks
 
-- **Thresholds for Minimum Listens / Time Listened**  
-  Apply thresholds to filter out low-activity artists, albums, tracks, or liked artists:
-  - Min. Listens Threshold (per entity)
-  - Minimum Time Listened Threshold (per entity, based on total duration)
 
-- **Minimum Likes Threshold**
-  Filters entities by the number of unique liked tracks associated with them.
-  - Applies only to Top‑N reports (Artist/Album/Track)
-  - Set to 0 to disable
-  - Example: Minimum Likes = 1 + By Artist → all liked artists
-  - Example: Minimum Likes = 2 + By Album → albums with 2+ liked tracks
-  - Example: Minimum Likes = 1 + By Track → all liked tracks
 
 ### 3. Configure enrichment (optional)
-- **Perform Genre Lookup (Enrich Report)**  
-  When checked, the report is enriched with genre information after all filtering and sorting.
-  - Genre information comes from MusicBrainz (currently artists only).
-  - Runs after all filters and sorting.  
-  - May be slow if API lookup is enabled (1.2s per entity)
 
-- **Genre Enrichment Source**  
-  - **Cache**: uses only the local genre cache, built from past API lookups.
-  - **Query API (Slow)**: query MusicBrainz and update the cache (subject to rate limiting)  
-  - Enabled only when enrichment is turned on
+* **Perform Genre Lookup (Enrich Report)**
+When checked, the report is enriched with genre information after all filtering and sorting.
+* Supports **Tracks**, **Albums**, and **Artists**.
+* **Name-Based Fallback**: If MusicBrainz IDs (MBIDs) are missing, the system automatically falls back to searching by name.
+* **Observability**: The status bar will report how many items were cached vs. looked up.
+
+
+* **Genre Enrichment Source**
+* **Cache Only**: Uses only local genre cache (fastest, no network).
+* **Query MusicBrainz**: Prioritizes MusicBrainz MBIDs, then falls back to name search.
+* **Query Last.fm**: Uses Last.fm API (name-based).
+* **Query All Sources (Slow)**: Tries MusicBrainz first, then Last.fm.
+
+
 
 ### 4. Choose a report type
+
 From the dropdown:
 
-- By Artist
-  - Note: collaborating artists are counted separately
-- By Album
-- By Track
-- New Music by Year
-- Raw Listens
-  - Note: shows all Raw Listens in selected time range
+* By Artist
+* By Album
+* By Track
+* New Music by Year
+* Raw Listens
+* Note: shows all Raw Listens in selected time range
+
+
 
 ### 5. View results
+
 Results appear in a sortable, filterable table:
 
-- Click column headers to sort  
-- Use the filter bar to search (regex supported)  
-- Clear the filter to restore the full dataset  
+* Click column headers to sort
+* Use the filter bar to search (regex supported)
+* Clear the filter to restore the full dataset
 
 ### 6. Save reports
+
 Click **“Save Report”** to export:
 
-- CSV reports (`.csv`) for all report types (with or without enrichment)
-- Reports are saved to `.../cache/users/username/reports`
-
-Reports are saved in a `reports/` folder next to your ZIP file.
+* CSV reports (`.csv`) for all report types (with or without enrichment)
+* Reports are saved to `.../cache/users/username/reports`
 
 ---
 
@@ -162,22 +178,20 @@ Reports are saved in a `reports/` folder next to your ZIP file.
 BrainzMRI/
 │
 ├── BrainzMRI.bat                 # Windows launcher
-├── BrainzMRI_GUI.py              # Main GUI entry point (tkinter)
-├── gui.py                        # Core GUI logic and orchestration
-├── report_table_view.py          # Table rendering, filtering, sorting UI
-├── report_engine.py              # Pure report-generation logic
-├── reporting.py                  # Aggregation, grouping, and report helpers
-├── enrichment.py                 # Genre/metadata enrichment logic
+├── gui_main.py                   # Main GUI entry point (tkinter)
+├── gui_tableview.py              # Table rendering, filtering, sorting UI
+├── gui_user_editor.py            # User creation and editing dialog
+├── report_engine.py              # Pure report-generation logic & routing
+├── reporting.py                  # Aggregation, grouping, and dynamic columns
+├── enrichment.py                 # Genre/metadata enrichment logic (MB/Last.fm)
 ├── user.py                       # User cache utilities and helpers
-├── parsing.py                    # data parsing and canonicalization
+├── parsing.py                    # Data parsing and canonicalization
 │
 ├── LICENSE.txt
 ├── README.md
-├── requirements.txt			  # required python modules	
-├── example.png
+├── requirements.txt              # Required python modules
 ├── config.json                   # Auto-created settings file
-├── cache.json                    # Auto-created cache folder for enrichment data
-└── reports/                      # Auto-created report output folder
+└── cache/                        # Auto-created cache folder
 
 ```
 
@@ -185,221 +199,112 @@ BrainzMRI/
 
 # **Major Modules & Classes**
 
-## gui.py: Main Application Orchestrator
+## `gui_main.py`: Main Application Orchestrator
+
 Handles:
-- Window creation, layout, and event wiring
-- User selection, ZIP ingestion, and cached-user loading
-- Parsing all report parameters (thresholds, time ranges, recency)
-- Calling `ReportEngine.generate_report()`
-- Displaying results via `ReportTableView`
-- Managing UI state (last report, filters, enrichment flags)
 
-Important functions:
-- `run_report()`
-- `load_from_zip()`
-- `load_user_cache()`
-- `save_user_cache()`
-- `refresh_user_list()`
+* Window creation, layout, and event wiring.
+* User selection and ZIP ingestion coordination.
+* Parsing all report parameters (thresholds, time ranges).
+* Calling `ReportEngine.generate_report()`.
+* Displaying detailed status messages (observability).
 
-### Class: `ReportTableView`
+## `gui_tableview.py`: Table Visualization
+
 Responsible for:
-- Rendering DataFrames in a Tkinter Treeview
-- Column sorting (ascending/descending)
-- Regex-based filtering via a persistent filter bar
-- Clipboard copy of selected rows
 
-Key methods:
-- `show_table(df)`
-- `build_filter_bar()`
-- `apply_filter()`
-- `clear_filter()`
-- `sort_column(tree, df, col)`
-- `copy_selection_to_clipboard()`
+* Rendering DataFrames in a Tkinter Treeview.
+* **Dynamic Column Handling**: Hides technical columns (MBIDs) while keeping them available in data.
+* Regex-based filtering via a persistent filter bar.
+* Clipboard copy of selected rows.
 
+## `report_engine.py`: Central Report Routing
 
-## report_engine.py: Central Report Routing & Filtering
 ### Class: `ReportEngine`
+
 Encapsulates:
-- Time-range filtering (`filter_by_days`)
-- Recency filtering (entity-level last-listened windows)
-- Thresholding (min listens, min minutes)
-- Top-N selection
-- Dispatching to reporting functions
-- Optional enrichment (genre, metadata)
-- Special-case handling for reports that bypass filters
 
-Key methods:
-- `generate_report(base_df, mode, liked_mbids, ...)`
-- `get_status(mode)`
+* Time-range and Recency filtering.
+* Dispatching to `reporting.py` functions.
+* Orchestrating `enrichment.py`.
+* **Status Generation**: Collects enrichment stats (hits/misses) and formats them for the GUI.
 
-Internal handler table maps:
-- `"By Artist"` → `reporting.report_top`
-- `"By Album"` → `reporting.report_top`
-- `"By Track"` → `reporting.report_top`
-- `"New Music by Year"` → `reporting.report_new_music_by_year`  
-- `"Raw Listens"` → `reporting.report_raw_listens`
+## `reporting.py`: Aggregation & Grouping
 
-## reporting.py: Aggregation, Grouping & Report Helpers
-Implements all report-level computations.
+Implements report-level computations.
 
-Important functions:
-- `report_top(df, group_col, by, days, topn, min_listens, min_minutes)`  
-  Artist/Album/Track Top-N reports.
-- `report_artists_with_likes(df, liked_mbids, ...)`  
-  Liked-artists aggregation.
-- `report_raw_listens(df, topn)`  
-  Unfiltered passthrough of listens.
-- `report_new_music_by_year(df)`  
-  Year-level unique-entity counts and “percent new” metrics.
-- `filter_by_days(df, column, start_days, end_days)`  
-  Time-range filtering helper.
+* **Dynamic Column Ordering**: Preserves MBIDs and other metadata at the end of the DataFrame to ensure enrichment works without cluttering the default view.
+* `report_top()`: Handles Artist/Album/Track Top-N reports with thresholds.
+* `report_new_music_by_year()`: Year-level unique-entity counts.
 
+## `enrichment.py`: Metadata & Genre Enrichment
 
-## enrichment.py: Metadata & Genre Enrichment
-Handles optional metadata augmentation.
+Handles metadata augmentation with robust fallbacks.
 
-Important functions:
-- `enrich_report(df, report_type_key, source)`
-- `load_genre_cache()`
-- `save_genre_cache()`
-- `lookup_genres(mbid)`
-- `fetch_mb_metadata(mbid)`
+* **Multi-Provider**: Supports MusicBrainz and Last.fm.
+* **Name-Based Fallback**: If MBID lookup fails, searches by Artist/Album/Track name.
+* **Stats Collection**: Tracks cache hits, lookups, and fallbacks for user visibility.
 
+## `user.py`: User Cache & Filesystem
 
-## user.py: User Cache & Filesystem Utilities
 Manages per-user storage and cached listen data.
 
-Important functions:
-- `get_cache_root()`
-- `get_user_cache_dir(username)`
-- `load_user_cache(username)`
-- `save_user_cache(username, df)`
-- `get_cached_usernames()`  
-  *(recently moved here for cohesion)*
-
-
-## parsing.py: ListenBrainz ZIP Parsing & Canonicalization
-Transforms raw ListenBrainz exports into the canonical listens DataFrame.
-
-Important functions:
-- `parse_listens_zip(zip_path)`  
-  Load a ZIP export and extract all listens.
-- `parse_jsonl_stream(file_obj)`  
-  Stream-parse JSONL safely and yield raw listen dicts.
-- `canonicalize_listens(df)`  
-  Normalize columns, MBIDs, timestamps, and naming conventions.
-- `convert_timestamps(df, column="listened_at")`  
-  Convert raw timestamps to timezone-aware UTC datetimes.
-- `normalize_columns(df)`  
-  Ensure all expected columns exist with consistent types.
-- `dedupe_listens(df)`  
-  Remove duplicate listens using MBIDs + precise timestamps.
+* `User` class: Represents a user, their listens (DataFrame), and liked MBIDs.
 
 ---
-
 
 # To-Do List
 
 ## Map Enter To "Generate Report"
-- Pressing Enter key inside any of the filter boxes should trigger the "Generate Report" button
 
-## Change "All Liked Artists" To A filter
-- Remove the "All Liked Artists" report
-- Add a Minimum Likes Threshold filter (minLikes: int)
-- Default value for minLikes should be 0 (disabled)
-- Filter should remove grouped items for which Likes < minLikes
-  - Example: artists [minLikes: 3] -> artists with 3 or more liked tracks
-  - Example: albums [minLikes: 2] -> return albums with 2 or more liked tracks
-  - Example: tracks [minLikes:1] -> return all liked tracks
-  - Example: tracks [minLikes:2] -> return no tracks, since no track can have multiple likes (confirm; expected behavior)
+* Pressing Enter key inside any of the filter boxes should trigger the "Generate Report" button.
 
 ## New Visualizations and Reports
-- Stacked bar charts of top N artists/albums/tracks over time  
-  - Use filtered data as the population  
-  - Cap at ~20 entities for clarity  
-  - Each entity receives a distinct color  
-- “Top New Artists/Albums/Tracks by Year”  
-- Add “Export Chart” option (PNG/SVG)
+
+* Stacked bar charts of top N artists/albums/tracks over time
+* Use filtered data as the population
+* Cap at ~20 entities for clarity
+* Each entity receives a distinct color
+
+
+* “Top New Artists/Albums/Tracks by Year”
+* Add “Export Chart” option (PNG/SVG)
 
 ## Report Presets
-- Dropdown presets for common report types:
-  - Forgotten Favorites
-  - All-Time Top 10
-  - Favorite New Discoveries (requires tracking first-listen dates)
-  - Recently Neglected Artists
-  - Etc.
 
-## UI Improvements
-- Abstract repeated UI patterns (Frame + Label + Entry)
-- Break `show_table()` into:
-  - `build_filter_bar()`
-  - `build_table_container()`
-  - `populate_table()`
-- Break `run_report()` into:
-  - `parse_time_range()`
-  - `parse_thresholds()`
-  - `generate_report()`
-  - `apply_enrichment()`
-  - `finalize_report()`
-- Add “Refresh Data” button for reloading user cache
-- Add “Clear User Cache” utility
+* Dropdown presets for common report types:
+* Forgotten Favorites
+* All-Time Top 10
+* Favorite New Discoveries
+* Recently Neglected Artists
 
-## Enrichment Enhancements
-- Album-level enrichment using release MBIDs
-- Track-level enrichment using recording MBIDs
-- Expand genre cache to support multiple entries per entity
-- UI viewer for missing-genre log (with MusicBrainz URLs)
-- Optional “Rebuild Genre Cache” tool
+
 
 ## Hybrid Mode (ListenBrainz + Last.fm APIs)
-- Optional API ingestion for new listens
-- Merge ZIP + API data into a persistent local archive
-- Deduplicate listens using MBIDs + timestamps
-- UI controls for enabling/disabling ingestion
-- “Sync New Listens” button
+
+* Optional API ingestion for new listens.
+* Merge ZIP + API data into a persistent local archive.
+* UI controls for enabling/disabling ingestion.
 
 ## MusicBrainz Contribution Tools
-- Log artists with missing genres + direct MusicBrainz URLs
-- Provide link to MusicBrainz metadata best-practices
-- Minimal UI pop-out for metadata editing workflow
 
-## Robustness & Edge Cases
-- Improve empty-result handling across all report types
-- Add user-friendly messages for invalid filters or regex errors
-- Validate enrichment source availability (cache vs. API)
+* Log artists with missing genres + direct MusicBrainz URLs.
+* Provide link to MusicBrainz metadata best-practices.
+* UI viewer for missing-genre log.
 
 ## Multi-Source Ingestion & Fuzzy Deduplication
-- Support ingestion from heterogeneous sources (ListenBrainz, Last.fm, Spotify, Apple Music, YouTube Music, CSV exports)
-- Normalize entity names (artist/album/track) across sources using:
-  - Unicode normalization
-  - Case folding
-  - Punctuation/parenthetical stripping
-  - Fuzzy matching (Levenshtein/Jaro-Winkler)
-- Introduce a canonical entity resolver:
-  - Resolve missing MBIDs via MusicBrainz lookups
-  - Cache resolved entities globally
-  - Track resolver confidence scores
-- Handle timestamp precision differences:
-  - Second-precision, minute-precision, day-precision, and date-only sources
-  - Convert all timestamps to UTC
-  - Store precision metadata per listen
-- Implement probabilistic deduplication:
-  - Combine similarity scores for artist/album/track names
-  - Incorporate timestamp proximity windows based on source precision
-  - Use duration (if available) as a secondary signal
-  - Produce a final dedupe confidence score
-- Add provenance tracking to the canonical DataFrame:
-  - `source` (ZIP, API, CSV, etc.)
-  - `source_precision`
-  - `resolver_confidence`
-  - `mbid_confidence`
-- Provide UI tools for reviewing and resolving ambiguous matches
 
-## Smarter Way To Address Multi-Artist listens
-- Currently, each artist on a listen (collaborations, etc.) is counted as a row
-- Ideally, this would be true for per-artist reports, but not for per-album or per-track reports. Need to figure out how to do this.
+* Support ingestion from heterogeneous sources.
+* Normalize entity names (fuzzy matching).
+* Canonical entity resolver (resolve missing MBIDs).
+* Probabilistic deduplication.
+
+## Smarter Way To Address Multi-Artist Listens
+
+* Currently, each artist on a listen (collaborations) is counted as a row.
+* Investigate better grouping for per-album vs. per-artist reports.
 
 ## Missing-Genre Log Improvements
-- Deduplicate entries in `missing_genres.txt`
-- Optionally timestamp each entry for auditability
-- Provide a lightweight cleanup/rotation mechanism
+
+* Deduplicate entries in `missing_genres.txt`.
+* Timestamp entries and provide cleanup mechanism.

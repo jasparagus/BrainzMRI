@@ -11,13 +11,6 @@ import enrichment
 class ReportEngine:
     """
     Encapsulates report generation logic.
-
-    Responsible for:
-    - Time range filtering
-    - Recency filtering
-    - Thresholding and Top N
-    - Calling reporting functions
-    - Optional enrichment
     """
 
     def __init__(self) -> None:
@@ -80,17 +73,6 @@ class ReportEngine:
     ):
         """
         Generate a report for the given mode and parameters.
-
-        Notes:
-        - "New Music by Year" report requires the unfiltered listens dataset
-        
-        Returns
-        -------
-        result_df : DataFrame
-        meta : dict | None
-        report_type_key : str
-        last_enriched : bool
-        status_text : str
         """
         if base_df is None:
             raise ValueError("No listens data available.")
@@ -107,7 +89,7 @@ class ReportEngine:
                 time_end_days,
             )
 
-        # Recency filter (Skip For Certain Modes)
+        # Recency filter
         if mode not in ["Raw Listens", "New Music By Year"]:
             if not (rec_start_days == 0 and rec_end_days == 0):
                 now = datetime.now(timezone.utc)
@@ -173,7 +155,6 @@ class ReportEngine:
             result, meta = func(df, **kwargs)
 
         elif func == reporting.report_new_music_by_year:
-            # New Music By Year always operates on the full base_df
             result, meta = func(base_df)
 
         elif func is reporting.report_raw_listens:
@@ -182,17 +163,17 @@ class ReportEngine:
         else:
             result, meta = func(df, **kwargs)
 
-        # Optional enrichment (skip for Raw Listens and New Music By Year)
+        # Optional enrichment
         last_enriched = False
+        enrichment_stats = {}
+        
         if do_enrich and mode not in ["Raw Listens", "New Music By Year"]:
-            # Protect against empty result
             if not result.empty:
-                # Inject username into the report DataFrame
+                # Inject username
                 result = result.copy()
                 result["_username"] = base_df["_username"].iloc[0]
 
-                # Phase 1: pass through new parameters, but enrichment.py still uses legacy behavior
-                result = enrichment.enrich_report(
+                result, enrichment_stats = enrichment.enrich_report(
                     result,
                     report_type_key,
                     enrichment_mode,
@@ -200,5 +181,26 @@ class ReportEngine:
                 )
                 last_enriched = True
 
+        # Generate status text
         status_text = self.get_status(mode)
+        
+        if last_enriched and enrichment_stats:
+            # Observability: Add stats to status text
+            # E.g. "Enrichment: Processed 50 Artists (20 cached, 30 looked up, 5 fallbacks)."
+            
+            # Pick the stats relevant to the report mode
+            key_map = {"artist": "artists", "album": "albums", "track": "tracks"}
+            stat_key = key_map.get(report_type_key)
+            
+            if stat_key and stat_key in enrichment_stats:
+                s = enrichment_stats[stat_key]
+                # Format: "Artist Report generated. Enrichment: 100 Processed (50 Cached | 50 Lookups)"
+                extra = (
+                    f" Enrichment: {s['processed']} Processed "
+                    f"({s['cache_hits']} Cached | "
+                    f"{s['mb_lookups'] + s['lastfm_lookups']} Lookups | "
+                    f"{s['fallbacks']} Fallbacks)"
+                )
+                status_text += extra
+
         return result, meta, report_type_key, last_enriched, status_text
