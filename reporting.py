@@ -298,6 +298,123 @@ def report_new_music_by_year(df: pd.DataFrame):
 
 
 # ------------------------------------------------------------
+# Genre Flavor Report (Weighted by Listens)
+# ------------------------------------------------------------
+
+def report_genre_flavor(df: pd.DataFrame):
+    """
+    Generate 'Genre Flavor' report: Top genres weighted by listen counts.
+    
+    Expected input: An artist-level DataFrame with 'total_listens' and 'Genres' (or 'artist_genres').
+    The function explodes the pipe-separated genres and sums the listens for each.
+    """
+    # Look for the consolidated 'Genres' column first, then fallback to 'artist_genres'
+    source_col = "Genres" if "Genres" in df.columns else "artist_genres"
+    
+    if source_col not in df.columns:
+        # Return empty if enrichment didn't happen
+        return pd.DataFrame(columns=["Genre", "Listens"]), {"entity": "Genre", "metric": "Listens"}
+
+    # Filter to relevant columns and copy to avoid side effects
+    work = df[["total_listens", source_col]].copy()
+    
+    # Remove rows with no genres
+    work = work[work[source_col].notna() & (work[source_col] != "")]
+    
+    # Split pipe-separated string into list
+    work["Genre"] = work[source_col].astype(str).str.split("|")
+    
+    # Explode list into rows (duplicates total_listens for each genre)
+    exploded = work.explode("Genre")
+    
+    # Clean whitespace
+    exploded["Genre"] = exploded["Genre"].str.strip()
+    
+    # Group by Genre and sum listens
+    grouped = exploded.groupby("Genre")["total_listens"].sum().reset_index()
+    grouped = grouped.rename(columns={"total_listens": "Listens"})
+    
+    # Sort descending by Listens
+    grouped = grouped.sort_values("Listens", ascending=False).reset_index(drop=True)
+    
+    meta = {
+        "entity": "Genre",
+        "topn": len(grouped),
+        "days": None,
+        "metric": "weighted_listens"
+    }
+    
+    return grouped, meta
+
+
+# ------------------------------------------------------------
+# Favorite Artist Trend Report (Time Binning)
+# ------------------------------------------------------------
+
+def report_artist_trend(df: pd.DataFrame, bins: int = 15, topn: int = 20):
+    """
+    Generate 'Favorite Artist Trend' report.
+    Divides the filtered time range into `bins` periods.
+    For each period, finds the top `topn` artists.
+    
+    Note: `topn` is capped at 20 to prevent data overload.
+    """
+    # Enforce TopN cap (prevent generating massive tables)
+    effective_topn = min(topn, 20) if topn else 20
+    
+    if df.empty:
+        return pd.DataFrame(columns=["Period Start", "Rank", "Artist", "Listens"]), {}
+
+    df = df.copy()
+    
+    # Create time bins
+    # pd.cut splits the time range into equal intervals
+    df["period"] = pd.cut(df["listened_at"], bins=bins)
+    
+    # Count listens per artist within each period
+    grouped = df.groupby(["period", "artist"], observed=True).size().reset_index(name="listens")
+    
+    # Sort: Period ascending, Listens descending
+    grouped = grouped.sort_values(["period", "listens"], ascending=[True, False])
+    
+    # Extract top N for each period
+    result_rows = []
+    periods = grouped["period"].unique()
+    
+    for p in periods:
+        # Get data for this specific period
+        block = grouped[grouped["period"] == p]
+        
+        # Take top N
+        top_block = block.head(effective_topn).copy()
+        
+        # Assign rank (1 to N)
+        top_block["Rank"] = range(1, len(top_block) + 1)
+        
+        # Format date string (Start of period)
+        period_str = p.left.strftime("%Y-%m-%d")
+        
+        for _, row in top_block.iterrows():
+            result_rows.append({
+                "Period Start": period_str,
+                "Rank": row["Rank"],
+                "Artist": row["artist"],
+                "Listens": row["listens"]
+            })
+            
+    result_df = pd.DataFrame(result_rows, columns=["Period Start", "Rank", "Artist", "Listens"])
+    
+    meta = {
+        "entity": "ArtistTrend",
+        "topn": effective_topn,
+        "days": None,
+        "metric": "trend"
+    }
+    
+    return result_df, meta
+
+
+# ------------------------------------------------------------
 # Saving Reports
 # ------------------------------------------------------------
 

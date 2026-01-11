@@ -33,6 +33,18 @@ class ReportEngine:
                 "report_type_key": "track",
                 "status": "Track report generated.",
             },
+            "Genre Flavor": {
+                "func": reporting.report_genre_flavor, # Special handling in generate_report
+                "kwargs": {},
+                "report_type_key": "genre_flavor",
+                "status": "Genre Flavor report generated.",
+            },
+            "Favorite Artist Trend": {
+                "func": reporting.report_artist_trend,
+                "kwargs": {"bins": 15}, # topn is passed dynamically
+                "report_type_key": "artist_trend",
+                "status": "Artist Trend report generated.",
+            },
             "New Music By Year": {
                 "func": reporting.report_new_music_by_year,
                 "kwargs": {},
@@ -70,7 +82,6 @@ class ReportEngine:
         do_enrich: bool,
         enrichment_mode: str,
         force_cache_update: bool,
-        # New args for async progress
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
         is_cancelled: Optional[Callable[[], bool]] = None,
     ):
@@ -97,13 +108,14 @@ class ReportEngine:
             )
 
         # Recency filter
-        if mode not in ["Raw Listens", "New Music By Year"]:
+        if mode not in ["Raw Listens", "New Music By Year", "Favorite Artist Trend"]:
             if not (rec_start_days == 0 and rec_end_days == 0):
                 now = datetime.now(timezone.utc)
                 min_dt = now - timedelta(days=rec_end_days)
                 max_dt = now - timedelta(days=rec_start_days)
 
-                if mode == "By Artist":
+                # Determine entity cols for recency grouping
+                if mode == "By Artist" or mode == "Genre Flavor":
                     entity_cols = ["artist"]
                 elif mode == "By Album":
                     entity_cols = ["artist", "album"]
@@ -140,66 +152,111 @@ class ReportEngine:
         if progress_callback:
             progress_callback(20, 100, "Aggregating...")
 
-        # Get details from handler
-        handler = self._handlers.get(mode)
-        if handler is None:
-            raise ValueError(f"Unsupported report type: {mode}")
-        func = handler["func"]
-        kwargs = handler["kwargs"].copy()
-        report_type_key = handler["report_type_key"]
-
-        # Call appropriate reporting function
-        if func is reporting.report_top:
-            if liked_mbids is None:
-                liked_mbids = set()
-            kwargs.update(
-                {
-                    "days": None,    # Legacy days filter
-                    "topn": topn,
-                    "min_listens": min_listens,
-                    "min_minutes": min_minutes,
-                    "min_likes": min_likes,
-                    "liked_mbids": liked_mbids,
-                }
+        # --------------------------------------------------------
+        # SPECIAL PIPELINE: Genre Flavor
+        # Needs aggregation -> enrichment -> final calculation
+        # --------------------------------------------------------
+        if mode == "Genre Flavor":
+            # 1. Aggregate to Artists first (to reduce enrichment calls)
+            # We treat this like a "By Artist" report initially to get the weighted counts.
+            grouped_artists, _ = reporting.report_top(
+                df, 
+                group_col="artist", 
+                topn=0, # Get all valid artists in range
+                min_listens=min_listens,
+                min_minutes=min_minutes,
+                min_likes=min_likes,
+                liked_mbids=liked_mbids
             )
-            result, meta = func(df, **kwargs)
-
-        elif func == reporting.report_new_music_by_year:
-            result, meta = func(base_df)
-
-        elif func is reporting.report_raw_listens:
-            result, meta = func(df, topn=topn)
-
-        else:
-            result, meta = func(df, **kwargs)
-
-        # Optional enrichment
-        last_enriched = False
-        enrichment_stats = {}
-        
-        if do_enrich and mode not in ["Raw Listens", "New Music By Year"]:
-            if not result.empty:
-                # Inject username
-                result = result.copy()
-                result["_username"] = base_df["_username"].iloc[0]
-
+            
+            enrichment_stats = {}
+            
+            # 2. Enrich the aggregated artists
+            if do_enrich and not grouped_artists.empty:
                 if progress_callback:
-                    progress_callback(30, 100, "Starting enrichment...")
-
-                result, enrichment_stats = enrichment.enrich_report(
-                    result,
-                    report_type_key,
+                    progress_callback(30, 100, "Enriching artists for Genre Flavor...")
+                
+                # Inject username for consistency (though enrichment doesn't strictly need it for artist lookup)
+                grouped_artists["_username"] = base_df["_username"].iloc[0]
+                
+                grouped_artists, enrichment_stats = enrichment.enrich_report(
+                    grouped_artists,
+                    "artist",
                     enrichment_mode,
                     force_cache_update=force_cache_update,
                     progress_callback=progress_callback,
                     is_cancelled=is_cancelled
                 )
-                last_enriched = True
-                
-                # RE-APPLY COLUMN ORDERING
-                # Enrichment appended columns to the end. We must re-sort them so 'Genres'
-                # appears in the correct preferred position (before specific genre cols).
-                result = reporting.apply_column_order(result)
+            
+            # 3. Calculate Flavor Report from enriched artists
+            result, meta = reporting.report_genre_flavor(grouped_artists)
+            
+            # Report is ready. No post-enrichment needed.
+            last_enriched = do_enrich
+            report_type_key = "genre_flavor"
+
+        # --------------------------------------------------------
+        # STANDARD PIPELINE
+        # --------------------------------------------------------
+        else:
+            handler = self._handlers.get(mode)
+            if handler is None:
+                raise ValueError(f"Unsupported report type: {mode}")
+            func = handler["func"]
+            kwargs = handler["kwargs"].copy()
+            report_type_key = handler["report_type_key"]
+
+            # Configure args based on handler
+            if func is reporting.report_top:
+                if liked_mbids is None: liked_mbids = set()
+                kwargs.update({
+                    "days": None,
+                    "topn": topn,
+                    "min_listens": min_listens,
+                    "min_minutes": min_minutes,
+                    "min_likes": min_likes,
+                    "liked_mbids": liked_mbids,
+                })
+                result, meta = func(df, **kwargs)
+
+            elif func is reporting.report_artist_trend:
+                # Pass TopN dynamically (capped inside logic if needed, or here)
+                # Logic moved to reporting.py as requested, passing raw topn here
+                kwargs["topn"] = topn
+                result, meta = func(df, **kwargs)
+
+            elif func == reporting.report_new_music_by_year:
+                result, meta = func(base_df)
+
+            elif func is reporting.report_raw_listens:
+                result, meta = func(df, topn=topn)
+
+            else:
+                result, meta = func(df, **kwargs)
+
+            # Optional enrichment (Standard flow)
+            last_enriched = False
+            enrichment_stats = {}
+            
+            if do_enrich and mode not in ["Raw Listens", "New Music By Year", "Favorite Artist Trend"]:
+                if not result.empty:
+                    result = result.copy()
+                    result["_username"] = base_df["_username"].iloc[0]
+
+                    if progress_callback:
+                        progress_callback(30, 100, "Starting enrichment...")
+
+                    result, enrichment_stats = enrichment.enrich_report(
+                        result,
+                        report_type_key,
+                        enrichment_mode,
+                        force_cache_update=force_cache_update,
+                        progress_callback=progress_callback,
+                        is_cancelled=is_cancelled
+                    )
+                    last_enriched = True
+                    
+                    result = reporting.apply_column_order(result)
 
         if progress_callback:
             progress_callback(100, 100, "Complete.")
@@ -208,11 +265,17 @@ class ReportEngine:
         status_text = self.get_status(mode)
         
         if last_enriched and enrichment_stats:
-            # Check if we cancelled
             if is_cancelled and is_cancelled():
                 status_text += " [Enrichment Cancelled]"
             
-            key_map = {"artist": "artists", "album": "albums", "track": "tracks"}
+            # Map report keys to stat keys
+            # Note: "Genre Flavor" uses "artist" enrichment internally
+            key_map = {
+                "artist": "artists", 
+                "album": "albums", 
+                "track": "tracks",
+                "genre_flavor": "artists" 
+            }
             stat_key = key_map.get(report_type_key)
             
             if stat_key and stat_key in enrichment_stats:

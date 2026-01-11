@@ -287,11 +287,20 @@ class BrainzMRIGUI:
 
         self.report_type = ttk.Combobox(
             frm_type,
-            values=["By Artist", "By Album", "By Track", "New Music By Year", "Raw Listens"],
+            values=[
+                "By Artist", 
+                "By Album", 
+                "By Track", 
+                "Genre Flavor", 
+                "Favorite Artist Trend", 
+                "New Music By Year", 
+                "Raw Listens"
+            ],
             state="readonly",
         )
         self.report_type.current(0)
         self.report_type.pack(side="left")
+        self.report_type.bind("<<ComboboxSelected>>", self.on_report_type_selected)
 
         # ------------------------------------------------------------
         # Buttons
@@ -444,6 +453,16 @@ class BrainzMRIGUI:
             widget.destroy()
 
         self.set_status(f"User '{username}' loaded.")
+
+    def on_report_type_selected(self, event=None):
+        """Handle changes to the report type dropdown."""
+        mode = self.report_type.get()
+        if mode == "Genre Flavor":
+            # Automatically enable enrichment if it's currently off
+            if not self.do_enrich_var.get():
+                self.do_enrich_var.set(True)
+                # Default to Cache Only if we just auto-enabled it
+                self.enrichment_mode_var.set("Cache Only")
 
     # ==================================================================
     # Report Generation (Threaded)
