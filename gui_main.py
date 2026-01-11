@@ -16,7 +16,7 @@ import threading
 
 import reporting
 import enrichment
-import gui_charts  # NEW IMPORT
+import gui_charts
 from user import (
     User,
     get_cache_root,
@@ -596,7 +596,7 @@ class BrainzMRIGUI:
         self.set_status(status_text)
         
         # Enable Graph button if supported
-        if mode == "Favorite Artist Trend":
+        if mode == "Favorite Artist Trend" or mode == "New Music By Year":
             self.btn_show_graph.config(state="normal")
         else:
             self.btn_show_graph.config(state="disabled")
@@ -617,42 +617,51 @@ class BrainzMRIGUI:
         Re-filters the raw dataframe to ensure specific chart data requirements 
         (like Top N Overall) are met.
         """
-        if self.state.last_mode != "Favorite Artist Trend":
-            return
-
+        mode = self.state.last_mode
         params = self.state.last_params
+        
         if not params:
             return
 
-        # Fetch base data
-        df = self.state.user.get_listens().copy()
-        
-        # 1. Apply Time Filter
-        time_start = params.get("time_start_days", 0)
-        time_end = params.get("time_end_days", 0)
-        
-        if not (time_start == 0 and time_end == 0):
-            df = reporting.filter_by_days(df, "listened_at", time_start, time_end)
+        # Case 1: Favorite Artist Trend
+        if mode == "Favorite Artist Trend":
+            df = self.state.user.get_listens().copy()
+            # Re-apply filters manually because we need "Top N Overall" logic, not per-bin
+            t_start = params.get("time_start_days", 0)
+            t_end = params.get("time_end_days", 0)
+            if not (t_start == 0 and t_end == 0):
+                df = reporting.filter_by_days(df, "listened_at", t_start, t_end)
             
-        # 2. Prepare Chart Data (Pivot Table)
-        # Note: We rely on the prepare function to do the Top N filtering
-        try:
-            chart_df = reporting.prepare_artist_trend_chart_data(
-                df, 
-                bins=15, 
-                topn=params.get("topn", 20)
-            )
-            
-            if chart_df.empty:
-                messagebox.showinfo("No Data", "Not enough data to generate a chart.")
-                return
+            try:
+                chart_df = reporting.prepare_artist_trend_chart_data(
+                    df, 
+                    bins=15, 
+                    topn=params.get("topn", 20)
+                )
+                if chart_df.empty:
+                    messagebox.showinfo("No Data", "Not enough data to generate a chart.")
+                    return
                 
-            # 3. Launch Window
-            win = gui_charts.ChartWindow(self.root, title="Favorite Artist Trend (Stacked)")
-            win.draw_artist_trend_area_chart(chart_df)
+                win = gui_charts.ChartWindow(self.root, title="Favorite Artist Trend (Stacked)")
+                win.draw_artist_trend_area_chart(chart_df)
+                
+            except Exception as e:
+                messagebox.showerror("Chart Error", f"Failed to generate chart: {e}")
+
+        # Case 2: New Music By Year
+        elif mode == "New Music By Year":
+            # For this report, the tabular data is exactly what we need for the chart.
+            # No re-calculation needed.
+            df = self.state.last_report_df
+            if df is None or df.empty:
+                messagebox.showinfo("No Data", "No data available.")
+                return
             
-        except Exception as e:
-            messagebox.showerror("Chart Error", f"Failed to generate chart: {e}")
+            try:
+                win = gui_charts.ChartWindow(self.root, title="New Music By Year (New vs Recurring)")
+                win.draw_new_music_stacked_bar(df)
+            except Exception as e:
+                messagebox.showerror("Chart Error", f"Failed to generate chart: {e}")
 
 
     # ==================================================================

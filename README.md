@@ -2,34 +2,21 @@
 
 A ListenBrainz "Metadata Review Instrument" (MRI) for analyzing listens from the ListenBrainz service.
 
-BrainzMRI is a desktop tool for analyzing your **ListenBrainz** listening history.
-It provides a **GUI application** for generating rich reports about your listening habits, including:
+BrainzMRI is a desktop tool for analyzing your **ListenBrainz** listening history. It provides a **GUI application** for generating rich reports about your listening habits, extending far beyond standard "Year in Review" summaries.
 
-- Top artists, albums, and tracks
-- **Time Range** filtering: Analyze listens across arbitrary time windows (by "days ago")
-- **Last Played** filtering: Dig up "old favorites" or recent discoveries (by "days ago")
-- **Likes-based filtering**: Filter artists, albums, and tracks by a minimum number of liked tracks (e.g., "Albums with 2+ likes")
-- **Enhanced Genre Enrichment**: Enriches reports with genre data from **MusicBrainz** and **Last.fm**, using robust name-based fallback strategies when MBIDs are missing.
-- **Observability**: Detailed status bar feedback on enrichment performance (cache hits, lookups, fallbacks).
-- Fully sortable, filterable tables in the GUI (supports regex).
-- Exportable CSV reports.
+## Key Features
 
-### GUI Application (`gui_main.py`)
-- Load a zip file exported from your ListenBrainz account
-- Filter your data by time range, last listened date, and thresholds
-- Choose report type (Top Artists, Top Albums, New Music By Year, and more)
-- Optionally enrich reports with genre data (MusicBrainz, Last.fm, or local cache)
-- View results in a sortable, fully filterable table
-- Save reports to disk as CSV (for opening/browsing elsewhere)
-- Automatically remembers your last ZIP file and user settings (`config.json`)
-
-### Launcher Script (`BrainzMRI.bat`)
-- Simple menu to launch either:
-  - GUI mode (starts by default)
-  - Debug mode (available for tinkering)
-
-<img src="example_1.png" alt="GUI Example" width="600">
-<img src="example_2.png" alt="GUI Example" width="600">
+* **Local-First & Private:** Analyzes your local JSON/ZIP exports. No data is sent to the cloud (except for specific, anonymized metadata lookups).
+* **Deep Enrichment:** Fetches genre and tag data from **MusicBrainz** and **Last.fm**, using robust name-based fallback strategies when MBIDs are missing.
+* **Powerful Filtering:** Filter by Time Range, Recency (last listened), and regex patterns on Artists/Tracks.
+* **Advanced Reporting:**
+    * **Top N:** Artists, Albums, and Tracks.
+    * **Genre Flavor:** Weighted analysis of your most-listened genres.
+    * **Favorite Artist Trends:** Time-series analysis of your top artists over specific periods.
+    * **New Music by Year:** Breakdown of discovery rates vs. recurring favorites.
+* **Visualizations:** Interactive **Stacked Area Charts** (Trends) and **Stacked Bar Charts** (New Music) powered by Matplotlib.
+* **Observability:** Detailed status bar feedback on enrichment pipeline performance (Cached | Fetched | Empty).
+* **Exportable Data:** Save any generated report or filtered view to CSV.
 
 ---
 
@@ -44,8 +31,9 @@ BrainzMRI requires **Python 3.10+** and a few common libraries.
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/jasparagus/BrainzMRI.git "Your/Chosen/Destination/Path"
+git clone [https://github.com/jasparagus/BrainzMRI.git](https://github.com/jasparagus/BrainzMRI.git) "Your/Chosen/Destination/Path"
 cd BrainzMRI
+
 ```
 
 ### 2. Install dependencies
@@ -57,6 +45,17 @@ pip install -r requirements.txt
 
 ```
 
+*(Note: `matplotlib`, `pandas`, and `numpy` are required).*
+
+### 3. (Optional) API Keys
+
+Set your Last.fm API Key as an environment variable for better genre data:
+
+```bash
+export BRAINZMRI_LASTFM_API_KEY="your_key_here"
+
+```
+
 ---
 
 # Running BrainzMRI
@@ -64,18 +63,7 @@ pip install -r requirements.txt
 ## Windows
 
 Double-click:
-
-```
-BrainzMRI.bat
-
-```
-
-or run:
-
-``` bash
-python gui_main.py
-
-```
+`BrainzMRI.bat`
 
 ## macOS / Linux
 
@@ -92,82 +80,39 @@ python3 gui_main.py
 
 ### 1. Select your ListenBrainz ZIP
 
-Click **“New User”** or select an existing user to begin. If creating a new user, you can ingest a ListenBrainz export ZIP.
-
-The app will automatically parse:
-
-* listens
-* feedback (likes/dislikes)
-* metadata
+Click **“New User”** or select an existing user to begin. If creating a new user, you can ingest a ListenBrainz export ZIP. The app parses listens, feedback, and metadata.
 
 ### 2. Configure filters
 
 You can set:
 
-* **Time Range (days ago)**
-Restrict listens to a specific window (by listened date). Applied at the listen level.
-* **Last Listened (days ago)**
-Filter by recency (based on when listens occurred). Applied at the entity level (artist/album/track) based on each entity’s true last listen.
-* **Top N**
-Limit the number of results.
-* **Thresholds for Minimum Listens / Time Listened**
-Apply thresholds to filter out low-activity artists, albums, tracks:
-* Min. Listens Threshold (per entity)
-* Minimum Time Listened Threshold (per entity, based on total duration)
+* **Time Range (days ago):** Restrict listens to a specific window.
+* **Last Listened (days ago):** Filter entities based on recency (e.g., "Show artists I haven't heard in 365 days").
+* **Top N:** Limit the number of results.
+* **Thresholds:** Filter out low-activity entities by Min. Listens, Min. Time Listened, or Min. Likes.
 
+### 3. Configure enrichment (Optional)
 
-* **Minimum Likes Threshold**
-Filters entities by the number of unique liked tracks associated with them.
-* Applies to Top‑N reports (Artist/Album/Track)
-* Set to 0 to disable
-* Example: Minimum Likes = 2 + By Album → albums with 2+ liked tracks
-
-
-
-### 3. Configure enrichment (optional)
-
-* **Perform Genre Lookup (Enrich Report)**
-When checked, the report is enriched with genre information after all filtering and sorting.
-* Supports **Tracks**, **Albums**, and **Artists**.
-* **Name-Based Fallback**: If MusicBrainz IDs (MBIDs) are missing, the system automatically falls back to searching by name.
-* **Observability**: The status bar will report how many items were cached vs. looked up.
-
-
-* **Genre Enrichment Source**
-* **Cache Only**: Uses only local genre cache (fastest, no network).
-* **Query MusicBrainz**: Prioritizes MusicBrainz MBIDs, then falls back to name search.
-* **Query Last.fm**: Uses Last.fm API (name-based).
-* **Query All Sources (Slow)**: Tries MusicBrainz first, then Last.fm.
-
-
+* **Perform Genre Lookup:** Enriches the report with genre tags.
+* **Source:** Choose between **Cache Only** (Fast), **Query MusicBrainz**, or **Query Last.fm**.
+* **Force Cache Update:** Forces a re-fetch of metadata from the API.
 
 ### 4. Choose a report type
 
-From the dropdown:
+* **By Artist / Album / Track:** Standard Top-N tables.
+* **Genre Flavor:** Aggregated list of genres weighted by your listen counts.
+* **Favorite Artist Trend:** Generates a tabular view of artist rankings over time bins.
+* **New Music by Year:** Comparison of new discoveries vs. catalog listens per year.
+* **Raw Listens:** A view of the raw dataset after filters are applied.
 
-* By Artist
-* By Album
-* By Track
-* New Music by Year
-* Raw Listens
-* Note: shows all Raw Listens in selected time range
+### 5. View Results & Charts
 
-
-
-### 5. View results
-
-Results appear in a sortable, filterable table:
-
-* Click column headers to sort
-* Use the filter bar to search (regex supported)
-* Clear the filter to restore the full dataset
+* **Table View:** Results appear in a sortable, filterable table.
+* **Show Graph:** For supported reports ("Favorite Artist Trend" and "New Music By Year"), click this button to render an interactive visualization.
 
 ### 6. Save reports
 
-Click **“Save Report”** to export:
-
-* CSV reports (`.csv`) for all report types (with or without enrichment)
-* Reports are saved to `.../cache/users/username/reports`
+Click **“Save Report”** to export CSVs to `.../cache/users/username/reports`.
 
 ---
 
@@ -177,20 +122,20 @@ Click **“Save Report”** to export:
 BrainzMRI/
 │
 ├── BrainzMRI.bat                 # Windows launcher
-├── gui_main.py                   # Main GUI entry point (tkinter)
-├── gui_tableview.py              # Table rendering, filtering, sorting UI
-├── gui_user_editor.py            # User creation and editing dialog
-├── report_engine.py              # Pure report-generation logic & routing
-├── reporting.py                  # Aggregation, grouping, and dynamic columns
-├── enrichment.py                 # Genre/metadata enrichment logic (MB/Last.fm)
-├── user.py                       # User cache utilities and helpers
-├── parsing.py                    # Data parsing and canonicalization
+├── gui_main.py                   # Main GUI orchestrator & Threading
+├── gui_charts.py                 # Matplotlib visualization logic
+├── gui_tableview.py              # Table rendering & Regex filtering
+├── gui_user_editor.py            # User creation dialog
+├── report_engine.py              # Report routing & Pipeline logic
+├── reporting.py                  # Math, Aggregation, & Data Prep
+├── enrichment.py                 # Metadata fetching (MB/Last.fm) & Caching
+├── user.py                       # Data Model & File I/O
+├── parsing.py                    # JSON normalization
 │
-├── LICENSE.txt
 ├── README.md
-├── requirements.txt              # Required python modules
-├── config.json                   # Auto-created settings file
-└── cache/                        # Auto-created cache folder
+├── requirements.txt
+├── config.json                   # Auto-created settings
+└── cache/                        # Data storage
 
 ```
 
@@ -200,107 +145,73 @@ BrainzMRI/
 
 ## `gui_main.py`: Main Application Orchestrator
 
-Handles:
+Handles window lifecycle, user selection, input parsing, and threading.
 
-* Window creation, layout, and event wiring.
-* User selection and ZIP ingestion coordination.
-* Parsing all report parameters (thresholds, time ranges).
-* Calling `ReportEngine.generate_report()`.
-* Displaying detailed status messages (observability).
+* **Threading:** Offloads `ReportEngine` execution to background threads to keep the UI responsive.
+* **ProgressWindow:** Displays real-time progress for long-running enrichment tasks.
 
-## `gui_tableview.py`: Table Visualization
+## `gui_charts.py`: Visualization Engine
 
-Responsible for:
+Responsible for rendering Matplotlib figures in Tkinter windows.
 
-* Rendering DataFrames in a Tkinter Treeview.
-* **Dynamic Column Handling**: Hides technical columns (MBIDs) while keeping them available in data.
-* Regex-based filtering via a persistent filter bar.
-* Clipboard copy of selected rows.
+* `draw_artist_trend_area_chart`: Stacked area chart for artist dominance over time.
+* `draw_new_music_stacked_bar`: Multi-subplot (Artist/Album/Track) comparison of New vs. Recurring listening.
 
-## `report_engine.py`: Central Report Routing
+## `report_engine.py`: Controller
 
-### Class: `ReportEngine`
+The bridge between the GUI and Data layers.
 
-Encapsulates:
+* **Routing:** Dispatches requests to specific `reporting.py` functions.
+* **Enrichment Coordination:** Manages the flow of data through `enrichment.py`.
+* **Status Generation:** Formats detailed pipeline stats (e.g., `100 Processed (50 Cached | 40 Fetched | 10 Empty)`).
 
-* Time-range and Recency filtering.
-* Dispatching to `reporting.py` functions.
-* Orchestrating `enrichment.py`.
-* **Status Generation**: Collects enrichment stats (hits/misses) and formats them for the GUI.
+## `reporting.py`: Aggregation & Logic
 
-## `reporting.py`: Aggregation & Grouping
+Contains all Pandas transformations and math.
 
-Implements report-level computations.
+* `report_genre_flavor()`: Weighted genre calculation.
+* `report_artist_trend()`: Time-binning and ranking logic.
+* `prepare_artist_trend_chart_data()`: Special pivot logic for "Top N Overall" visualization.
+* `filter_by_recency()`: Reusable logic for "Last Listened" filtering.
 
-* **Dynamic Column Ordering**: Preserves MBIDs and other metadata at the end of the DataFrame to ensure enrichment works without cluttering the default view.
-* `report_top()`: Handles Artist/Album/Track Top-N reports with thresholds.
-* `report_new_music_by_year()`: Year-level unique-entity counts.
+## `enrichment.py`: Metadata Layer
 
-## `enrichment.py`: Metadata & Genre Enrichment
+Handles external API interaction and local caching.
 
-Handles metadata augmentation with robust fallbacks.
+* **Unified Providers:** Generic wrappers for MusicBrainz and Last.fm lookups.
+* **Internal Force Update:** Handles cache invalidation logic internally to ensure consistency.
+* **Pipeline Stats:** Tracks distinct states (Newly Fetched vs. Empty vs. Cached).
 
-* **Multi-Provider**: Supports MusicBrainz and Last.fm.
-* **Name-Based Fallback**: If MBID lookup fails, searches by Artist/Album/Track name.
-* **Stats Collection**: Tracks cache hits, lookups, and fallbacks for user visibility.
+## `user.py`: Data Model
 
-## `user.py`: User Cache & Filesystem
-
-Manages per-user storage and cached listen data.
-
-* `User` class: Represents a user, their listens (DataFrame), and liked MBIDs.
+Manages the `User` entity, ZIP ingestion, and gzipped JSONL storage.
 
 ---
 
-# To-Do List
+# Master Roadmap / To-Do List
 
-## New Visualizations and Reports
+### Phase 0: Stability & Testing (Current Priority)
 
-* Stacked bar charts of top N artists/albums/tracks over time
-	* Use filtered data as the population
-	* Cap at ~20 entities for clarity
-	* Each entity receives a distinct color
+* [ ] **0.1. Test Infrastructure:** Set up `pytest` suite and create fixture data (sample `listens.json` and mock API responses).
+* [ ] **0.2. Core Tests:** Write unit tests for `parsing.py` (ensuring JSON normalization works) and `reporting.py` (ensuring math/grouping is correct).
+* [ ] **0.3. Regression Safety:** Automate the current "Smoke Test" steps to ensure GUI and Threading logic remain stable during refactors.
 
+### Phase 1: Architecture for "Read-Write"
 
-* “Top New Artists/Albums/Tracks by Year”
+* [ ] **1.1. API Client Extraction:** Create `api_client.py`. Extract networking logic from `enrichment.py` to separate "Data Logic" from "Wire Protocol".
+* [ ] **1.2. Auth Management:** Update `user.py` and `gui_user_editor.py` to securely accept and store ListenBrainz User Tokens and Last.fm API keys within the User profile.
 
-* Add “Export Chart” option (PNG/SVG)
+### Phase 2: Ingestion & Playlists
 
-## Report Presets
+* [ ] **2.1. CSV Parser:** Implement a flexible CSV importer that maps arbitrary headers to our canonical `artist`, `track_name`, `album` schema.
+* [ ] **2.2. Ephemeral Sessions:** Modify `User` to handle "Session Playlists"—loaded from CSV, rendered in the Table View, and enriching-capable, without permanently merging them into the historical archive.
 
-* Dropdown presets for common report types:
-* Forgotten Favorites
-* All-Time Top 10
-* Favorite New Discoveries
-* Recently Neglected Artists
+### Phase 3: Upstream Actions (The "Write" Features)
 
+* [ ] **3.1. "Like" Button:** Add a button below the table: "Like Visible Tracks on ListenBrainz" (utilizing the authenticated `api_client`).
+* [ ] **3.2. "Upload Playlist" Button:** Add a button below the table: "Export Visible as Playlist" to post the current view to ListenBrainz.
 
+### Legacy / Maintenance
 
-## Hybrid Mode (ListenBrainz + Last.fm APIs)
-
-* Optional API ingestion for new listens.
-* Merge ZIP + API data into a persistent local archive.
-* UI controls for enabling/disabling ingestion.
-
-## MusicBrainz Contribution Tools
-
-* Log artists with missing genres + direct MusicBrainz URLs.
-* Provide link to MusicBrainz metadata best-practices.
-* UI viewer for missing-genre log.
-
-## Multi-Source Ingestion & Fuzzy Deduplication
-
-* Support ingestion from heterogeneous sources.
-* Normalize entity names (fuzzy matching).
-* Canonical entity resolver (resolve missing MBIDs).
-* Probabilistic deduplication.
-
-## Smarter Way To Address Multi-Artist Listens
-
-* Currently, each artist on a listen (collaborations) is counted as a row.
-* Investigate better grouping for per-album vs. per-artist reports.
-
-## Missing-Genre Log Improvements
-
-* Deduplicate entries in `missing_genres.txt`.
-* Timestamp entries and provide cleanup mechanism.
+* **Configuration UI:** To be integrated directly into the User Editor (Phase 1.2).
+* **Documentation:** Maintain `BrainzMRI_Instantiation_v3.txt` for context recovery.

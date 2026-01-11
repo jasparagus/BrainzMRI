@@ -48,17 +48,6 @@ def filter_by_recency(df: pd.DataFrame, entity_cols: list[str], start_days: int,
     """
     Filter the DataFrame to include only entities that were *last listened to*
     within the specified 'days ago' window.
-    
-    Parameters
-    ----------
-    df : pd.DataFrame
-        The listens dataframe.
-    entity_cols : list[str]
-        Columns defining the entity (e.g. ['artist'] or ['artist', 'album']).
-    start_days : int
-        Start of the recency window (days ago).
-    end_days : int
-        End of the recency window (days ago).
     """
     if start_days == 0 and end_days == 0:
         return df
@@ -117,9 +106,7 @@ def report_raw_listens(df: pd.DataFrame, topn: int = None):
 def _compute_unique_likes(df: pd.DataFrame, liked_mbids: set, group_col: str) -> pd.DataFrame:
     """
     Compute the number of unique liked tracks for each grouped entity.
-    Refactored to be generic across entity types.
     """
-    # Determine the columns to group by
     if group_col == "artist":
         cols = ["artist"]
     elif group_col == "album":
@@ -127,7 +114,6 @@ def _compute_unique_likes(df: pd.DataFrame, liked_mbids: set, group_col: str) ->
     else:  # track
         cols = ["artist", "track_name"]
     
-    # Prepare structure for empty returns
     empty_cols = cols + ["unique_liked_tracks"]
 
     if not liked_mbids:
@@ -137,7 +123,6 @@ def _compute_unique_likes(df: pd.DataFrame, liked_mbids: set, group_col: str) ->
     if liked_df.empty:
         return pd.DataFrame(columns=empty_cols)
 
-    # Generic aggregation
     grouped = liked_df.groupby(cols)["recording_mbid"].nunique().reset_index()
     grouped = grouped.rename(columns={"recording_mbid": "unique_liked_tracks"})
     return grouped
@@ -196,7 +181,6 @@ def report_top(
 ):
     """Generate a Top-N report for artists, albums, or tracks."""
 
-    # Legacy days filtering
     if days is not None:
         if isinstance(days, tuple):
             start_days, end_days = days
@@ -214,10 +198,8 @@ def report_top(
 
     grouped = grouped.drop(columns=["total_duration_ms"]).reset_index()
 
-    # Likes-based filtering
     if min_likes > 0:
         likes_df = _compute_unique_likes(df, liked_mbids, group_col)
-        # Determine join columns based on group_col
         join_cols = ["artist"]
         if group_col == "album": join_cols = ["artist", "album"]
         elif group_col == "track": join_cols = ["artist", "track_name"]
@@ -226,7 +208,6 @@ def report_top(
         grouped["unique_liked_tracks"] = grouped["unique_liked_tracks"].fillna(0).astype(int)
         grouped = grouped[grouped["unique_liked_tracks"] >= min_likes]
 
-    # Thresholds
     if min_listens > 0 or min_minutes > 0:
         grouped = grouped[
             (grouped["total_listens"] >= min_listens)
@@ -236,7 +217,6 @@ def report_top(
     sorted_df = grouped.sort_values(by, ascending=False)
     result = sorted_df if (topn is None or topn == 0) else sorted_df.head(topn)
 
-    # Dynamic Column Ordering
     result = apply_column_order(result)
 
     entity = (
@@ -259,14 +239,17 @@ def report_top(
 # New Music by Year Report
 # ------------------------------------------------------------
 def report_new_music_by_year(df: pd.DataFrame):
-    """Generate the 'New Music by Year' report."""
+    """
+    Generate the 'New Music by Year' report.
+    Returns DataFrame with columns for Total Unique, New Count, and Percent New.
+    """
     if df.empty:
         return pd.DataFrame(
             columns=[
                 "Year",
-                "Number of Unique Artists", "Percent New Artists",
-                "Number of Unique Albums",  "Percent New Albums",
-                "Number of Unique Tracks",  "Percent New Tracks",
+                "Unique Artists", "New Artists", "Percent New Artists",
+                "Unique Albums", "New Albums", "Percent New Albums",
+                "Unique Tracks", "New Tracks", "Percent New Tracks",
             ]
         ), {
             "entity": "NewMusic",
@@ -315,10 +298,13 @@ def report_new_music_by_year(df: pd.DataFrame):
         rows.append({
             "Year": y,
             "Unique Artists": ua,
+            "New Artists": na, # RAW COUNT
             "Percent New Artists": pa.round(0).astype(int),
             "Unique Albums": ub,
+            "New Albums": nb, # RAW COUNT
             "Percent New Albums": pb.round(0).astype(int),
             "Unique Tracks": ut,
+            "New Tracks": nt, # RAW COUNT
             "Percent New Tracks": pt.round(0).astype(int),
         })
 
@@ -342,8 +328,6 @@ def report_new_music_by_year(df: pd.DataFrame):
 def report_genre_flavor(df: pd.DataFrame):
     """
     Generate 'Genre Flavor' report: Top genres weighted by listen counts.
-    
-    Expected input: An artist-level DataFrame with 'total_listens' and 'Genres'.
     """
     source_col = "Genres" if "Genres" in df.columns else "artist_genres"
     
@@ -423,46 +407,24 @@ def report_artist_trend(df: pd.DataFrame, bins: int = 15, topn: int = 20):
 def prepare_artist_trend_chart_data(df: pd.DataFrame, bins: int = 15, topn: int = 20) -> pd.DataFrame:
     """
     Prepare data for Stacked Area Chart.
-    
-    Logic:
-    1. Identify Top N artists OVERALL (sum of listens across full filtered range).
-    2. Filter dataset to only those artists.
-    3. Bin by time.
-    4. Pivot to (Index=Time, Columns=Artists).
-    
-    Returns
-    -------
-    pd.DataFrame
-        Pivot table suitable for ax.stackplot.
     """
     effective_topn = min(topn, 20) if topn else 20
     
     if df.empty:
         return pd.DataFrame()
 
-    # 1. Identify Top N Overall
     top_artists = df['artist'].value_counts().head(effective_topn).index.tolist()
-    
-    # 2. Filter to only those artists
     df_filtered = df[df['artist'].isin(top_artists)].copy()
     
     if df_filtered.empty:
         return pd.DataFrame()
 
-    # 3. Bin
     df_filtered['period'] = pd.cut(df_filtered['listened_at'], bins=bins)
     
-    # 4. Group & Pivot
     grouped = df_filtered.groupby(['period', 'artist'], observed=True).size().reset_index(name='count')
     pivot = grouped.pivot(index='period', columns='artist', values='count').fillna(0)
-    
-    # 5. Sort columns by total volume (match the Top N order)
-    # Reindex columns to match the 'top_artists' order so the legend/stack is ordered by volume
     pivot = pivot.reindex(columns=top_artists, fill_value=0)
     
-    # 6. Format Index to strings for nicer plotting keys if needed, 
-    # but returning actual Interval objects is often better. 
-    # For compatibility with our plotter, we can convert index to string dates.
     pivot.index = [p.left.strftime("%Y-%m-%d") for p in pivot.index]
     
     return pivot
