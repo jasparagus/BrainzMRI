@@ -34,14 +34,14 @@ class ReportEngine:
                 "status": "Track report generated.",
             },
             "Genre Flavor": {
-                "func": reporting.report_genre_flavor, # Special handling in generate_report
+                "func": reporting.report_genre_flavor, 
                 "kwargs": {},
                 "report_type_key": "genre_flavor",
                 "status": "Genre Flavor report generated.",
             },
             "Favorite Artist Trend": {
                 "func": reporting.report_artist_trend,
-                "kwargs": {"bins": 15}, # topn is passed dynamically
+                "kwargs": {"bins": 15}, 
                 "report_type_key": "artist_trend",
                 "status": "Artist Trend report generated.",
             },
@@ -107,13 +107,9 @@ class ReportEngine:
                 time_end_days,
             )
 
-        # Recency filter
+        # Recency filter (Refactored to use reporting.filter_by_recency)
         if mode not in ["Raw Listens", "New Music By Year", "Favorite Artist Trend"]:
             if not (rec_start_days == 0 and rec_end_days == 0):
-                now = datetime.now(timezone.utc)
-                min_dt = now - timedelta(days=rec_end_days)
-                max_dt = now - timedelta(days=rec_start_days)
-
                 # Determine entity cols for recency grouping
                 if mode == "By Artist" or mode == "Genre Flavor":
                     entity_cols = ["artist"]
@@ -124,19 +120,7 @@ class ReportEngine:
                 else:
                     entity_cols = ["artist"]
 
-                true_last = (
-                    df.groupby(entity_cols)["listened_at"]
-                    .max()
-                    .reset_index()
-                    .rename(columns={"listened_at": "true_last_listened"})
-                )
-
-                allowed = true_last[
-                    (true_last["true_last_listened"] >= min_dt)
-                    & (true_last["true_last_listened"] <= max_dt)
-                ]
-
-                df = df.merge(allowed[entity_cols], on=entity_cols, how="inner")
+                df = reporting.filter_by_recency(df, entity_cols, rec_start_days, rec_end_days)
 
         # After time/recency filtering, protect against empty inputs
         if df.empty and mode not in ["New Music By Year"]:
@@ -154,15 +138,13 @@ class ReportEngine:
 
         # --------------------------------------------------------
         # SPECIAL PIPELINE: Genre Flavor
-        # Needs aggregation -> enrichment -> final calculation
         # --------------------------------------------------------
         if mode == "Genre Flavor":
-            # 1. Aggregate to Artists first (to reduce enrichment calls)
-            # We treat this like a "By Artist" report initially to get the weighted counts.
+            # 1. Aggregate to Artists first
             grouped_artists, _ = reporting.report_top(
                 df, 
                 group_col="artist", 
-                topn=0, # Get all valid artists in range
+                topn=0,
                 min_listens=min_listens,
                 min_minutes=min_minutes,
                 min_likes=min_likes,
@@ -176,7 +158,6 @@ class ReportEngine:
                 if progress_callback:
                     progress_callback(30, 100, "Enriching artists for Genre Flavor...")
                 
-                # Inject username for consistency (though enrichment doesn't strictly need it for artist lookup)
                 grouped_artists["_username"] = base_df["_username"].iloc[0]
                 
                 grouped_artists, enrichment_stats = enrichment.enrich_report(
@@ -188,10 +169,9 @@ class ReportEngine:
                     is_cancelled=is_cancelled
                 )
             
-            # 3. Calculate Flavor Report from enriched artists
+            # 3. Calculate Flavor Report
             result, meta = reporting.report_genre_flavor(grouped_artists)
             
-            # Report is ready. No post-enrichment needed.
             last_enriched = do_enrich
             report_type_key = "genre_flavor"
 
@@ -206,7 +186,6 @@ class ReportEngine:
             kwargs = handler["kwargs"].copy()
             report_type_key = handler["report_type_key"]
 
-            # Configure args based on handler
             if func is reporting.report_top:
                 if liked_mbids is None: liked_mbids = set()
                 kwargs.update({
@@ -220,8 +199,6 @@ class ReportEngine:
                 result, meta = func(df, **kwargs)
 
             elif func is reporting.report_artist_trend:
-                # Pass TopN dynamically (capped inside logic if needed, or here)
-                # Logic moved to reporting.py as requested, passing raw topn here
                 kwargs["topn"] = topn
                 result, meta = func(df, **kwargs)
 
@@ -234,7 +211,7 @@ class ReportEngine:
             else:
                 result, meta = func(df, **kwargs)
 
-            # Optional enrichment (Standard flow)
+            # Optional enrichment
             last_enriched = False
             enrichment_stats = {}
             
@@ -261,15 +238,12 @@ class ReportEngine:
         if progress_callback:
             progress_callback(100, 100, "Complete.")
 
-        # Generate status text
         status_text = self.get_status(mode)
         
         if last_enriched and enrichment_stats:
             if is_cancelled and is_cancelled():
                 status_text += " [Enrichment Cancelled]"
             
-            # Map report keys to stat keys
-            # Note: "Genre Flavor" uses "artist" enrichment internally
             key_map = {
                 "artist": "artists", 
                 "album": "albums", 

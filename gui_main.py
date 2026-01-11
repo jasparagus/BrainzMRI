@@ -16,6 +16,7 @@ import threading
 
 import reporting
 import enrichment
+import gui_charts  # NEW IMPORT
 from user import (
     User,
     get_cache_root,
@@ -50,6 +51,9 @@ class GUIState:
         self.last_mode: str | None = None
         self.last_report_type_key: str | None = None
         self.last_enriched: bool = False
+        
+        # New: Store params to reproduce charts logic
+        self.last_params: dict = {}
 
         # Table/filtering state
         self.original_df = None
@@ -326,6 +330,16 @@ class BrainzMRIGUI:
             width=16,
         ).pack(side="left", padx=5)
 
+        # New Show Graph button
+        self.btn_show_graph = tk.Button(
+            btn_frame,
+            text="Show Graph",
+            command=self.show_graph,
+            state="disabled",
+            width=16,
+        )
+        self.btn_show_graph.pack(side="left", padx=5)
+
         self.status_bar.pack(fill="x", side="bottom")
 
         # ------------------------------------------------------------
@@ -449,6 +463,8 @@ class BrainzMRIGUI:
         self.state.last_enriched = False
         self.state.original_df = None
         self.state.filtered_df = None
+        
+        self.btn_show_graph.config(state="disabled") # Reset graph button
         for widget in self.table_frame.winfo_children():
             widget.destroy()
 
@@ -526,6 +542,9 @@ class BrainzMRIGUI:
             "force_cache_update": self.force_cache_update_var.get(),
         }
 
+        # Store params for potential graph regeneration
+        self.state.last_params = params.copy()
+
         base_df = self.state.user.get_listens().copy()
         base_df["_username"] = self.state.user.username
 
@@ -575,12 +594,65 @@ class BrainzMRIGUI:
 
         self.table_view.show_table(result)
         self.set_status(status_text)
+        
+        # Enable Graph button if supported
+        if mode == "Favorite Artist Trend":
+            self.btn_show_graph.config(state="normal")
+        else:
+            self.btn_show_graph.config(state="disabled")
 
     def _on_report_error(self, error_msg, title):
         """Called on main thread when worker fails."""
         self.progress_win.destroy()
         messagebox.showerror(title, error_msg)
         self.set_status(f"Error: {error_msg}")
+
+    # ==================================================================
+    # Graphing
+    # ==================================================================
+
+    def show_graph(self):
+        """
+        Prepare data and show the chart for the current report.
+        Re-filters the raw dataframe to ensure specific chart data requirements 
+        (like Top N Overall) are met.
+        """
+        if self.state.last_mode != "Favorite Artist Trend":
+            return
+
+        params = self.state.last_params
+        if not params:
+            return
+
+        # Fetch base data
+        df = self.state.user.get_listens().copy()
+        
+        # 1. Apply Time Filter
+        time_start = params.get("time_start_days", 0)
+        time_end = params.get("time_end_days", 0)
+        
+        if not (time_start == 0 and time_end == 0):
+            df = reporting.filter_by_days(df, "listened_at", time_start, time_end)
+            
+        # 2. Prepare Chart Data (Pivot Table)
+        # Note: We rely on the prepare function to do the Top N filtering
+        try:
+            chart_df = reporting.prepare_artist_trend_chart_data(
+                df, 
+                bins=15, 
+                topn=params.get("topn", 20)
+            )
+            
+            if chart_df.empty:
+                messagebox.showinfo("No Data", "Not enough data to generate a chart.")
+                return
+                
+            # 3. Launch Window
+            win = gui_charts.ChartWindow(self.root, title="Favorite Artist Trend (Stacked)")
+            win.draw_artist_trend_area_chart(chart_df)
+            
+        except Exception as e:
+            messagebox.showerror("Chart Error", f"Failed to generate chart: {e}")
 
 
     # ==================================================================

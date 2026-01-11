@@ -33,7 +33,7 @@ PREFERRED_COLUMN_ORDER = [
 
 
 # ------------------------------------------------------------
-# Time Filtering
+# Time & Recency Filtering
 # ------------------------------------------------------------
 
 def filter_by_days(df: pd.DataFrame, col: str, start_days: int = 0, end_days: int = 365) -> pd.DataFrame:
@@ -42,6 +42,44 @@ def filter_by_days(df: pd.DataFrame, col: str, start_days: int = 0, end_days: in
     start_dt = now - timedelta(days=end_days)
     end_dt = now - timedelta(days=start_days)
     return df[(df[col] >= start_dt) & (df[col] <= end_dt)]
+
+
+def filter_by_recency(df: pd.DataFrame, entity_cols: list[str], start_days: int, end_days: int) -> pd.DataFrame:
+    """
+    Filter the DataFrame to include only entities that were *last listened to*
+    within the specified 'days ago' window.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The listens dataframe.
+    entity_cols : list[str]
+        Columns defining the entity (e.g. ['artist'] or ['artist', 'album']).
+    start_days : int
+        Start of the recency window (days ago).
+    end_days : int
+        End of the recency window (days ago).
+    """
+    if start_days == 0 and end_days == 0:
+        return df
+
+    now = datetime.now(timezone.utc)
+    min_dt = now - timedelta(days=end_days)
+    max_dt = now - timedelta(days=start_days)
+
+    true_last = (
+        df.groupby(entity_cols)["listened_at"]
+        .max()
+        .reset_index()
+        .rename(columns={"listened_at": "true_last_listened"})
+    )
+
+    allowed = true_last[
+        (true_last["true_last_listened"] >= min_dt)
+        & (true_last["true_last_listened"] <= max_dt)
+    ]
+
+    return df.merge(allowed[entity_cols], on=entity_cols, how="inner")
 
 
 # ------------------------------------------------------------
@@ -305,36 +343,22 @@ def report_genre_flavor(df: pd.DataFrame):
     """
     Generate 'Genre Flavor' report: Top genres weighted by listen counts.
     
-    Expected input: An artist-level DataFrame with 'total_listens' and 'Genres' (or 'artist_genres').
-    The function explodes the pipe-separated genres and sums the listens for each.
+    Expected input: An artist-level DataFrame with 'total_listens' and 'Genres'.
     """
-    # Look for the consolidated 'Genres' column first, then fallback to 'artist_genres'
     source_col = "Genres" if "Genres" in df.columns else "artist_genres"
     
     if source_col not in df.columns:
-        # Return empty if enrichment didn't happen
         return pd.DataFrame(columns=["Genre", "Listens"]), {"entity": "Genre", "metric": "Listens"}
 
-    # Filter to relevant columns and copy to avoid side effects
     work = df[["total_listens", source_col]].copy()
-    
-    # Remove rows with no genres
     work = work[work[source_col].notna() & (work[source_col] != "")]
-    
-    # Split pipe-separated string into list
     work["Genre"] = work[source_col].astype(str).str.split("|")
     
-    # Explode list into rows (duplicates total_listens for each genre)
     exploded = work.explode("Genre")
-    
-    # Clean whitespace
     exploded["Genre"] = exploded["Genre"].str.strip()
     
-    # Group by Genre and sum listens
     grouped = exploded.groupby("Genre")["total_listens"].sum().reset_index()
     grouped = grouped.rename(columns={"total_listens": "Listens"})
-    
-    # Sort descending by Listens
     grouped = grouped.sort_values("Listens", ascending=False).reset_index(drop=True)
     
     meta = {
@@ -353,45 +377,27 @@ def report_genre_flavor(df: pd.DataFrame):
 
 def report_artist_trend(df: pd.DataFrame, bins: int = 15, topn: int = 20):
     """
-    Generate 'Favorite Artist Trend' report.
-    Divides the filtered time range into `bins` periods.
-    For each period, finds the top `topn` artists.
-    
-    Note: `topn` is capped at 20 to prevent data overload.
+    Generate 'Favorite Artist Trend' report (Tabular format).
+    Divides time range into `bins`. For each bin, finds top `topn` artists.
     """
-    # Enforce TopN cap (prevent generating massive tables)
     effective_topn = min(topn, 20) if topn else 20
     
     if df.empty:
         return pd.DataFrame(columns=["Period Start", "Rank", "Artist", "Listens"]), {}
 
     df = df.copy()
-    
-    # Create time bins
-    # pd.cut splits the time range into equal intervals
     df["period"] = pd.cut(df["listened_at"], bins=bins)
     
-    # Count listens per artist within each period
     grouped = df.groupby(["period", "artist"], observed=True).size().reset_index(name="listens")
-    
-    # Sort: Period ascending, Listens descending
     grouped = grouped.sort_values(["period", "listens"], ascending=[True, False])
     
-    # Extract top N for each period
     result_rows = []
     periods = grouped["period"].unique()
     
     for p in periods:
-        # Get data for this specific period
         block = grouped[grouped["period"] == p]
-        
-        # Take top N
         top_block = block.head(effective_topn).copy()
-        
-        # Assign rank (1 to N)
         top_block["Rank"] = range(1, len(top_block) + 1)
-        
-        # Format date string (Start of period)
         period_str = p.left.strftime("%Y-%m-%d")
         
         for _, row in top_block.iterrows():
@@ -412,6 +418,54 @@ def report_artist_trend(df: pd.DataFrame, bins: int = 15, topn: int = 20):
     }
     
     return result_df, meta
+
+
+def prepare_artist_trend_chart_data(df: pd.DataFrame, bins: int = 15, topn: int = 20) -> pd.DataFrame:
+    """
+    Prepare data for Stacked Area Chart.
+    
+    Logic:
+    1. Identify Top N artists OVERALL (sum of listens across full filtered range).
+    2. Filter dataset to only those artists.
+    3. Bin by time.
+    4. Pivot to (Index=Time, Columns=Artists).
+    
+    Returns
+    -------
+    pd.DataFrame
+        Pivot table suitable for ax.stackplot.
+    """
+    effective_topn = min(topn, 20) if topn else 20
+    
+    if df.empty:
+        return pd.DataFrame()
+
+    # 1. Identify Top N Overall
+    top_artists = df['artist'].value_counts().head(effective_topn).index.tolist()
+    
+    # 2. Filter to only those artists
+    df_filtered = df[df['artist'].isin(top_artists)].copy()
+    
+    if df_filtered.empty:
+        return pd.DataFrame()
+
+    # 3. Bin
+    df_filtered['period'] = pd.cut(df_filtered['listened_at'], bins=bins)
+    
+    # 4. Group & Pivot
+    grouped = df_filtered.groupby(['period', 'artist'], observed=True).size().reset_index(name='count')
+    pivot = grouped.pivot(index='period', columns='artist', values='count').fillna(0)
+    
+    # 5. Sort columns by total volume (match the Top N order)
+    # Reindex columns to match the 'top_artists' order so the legend/stack is ordered by volume
+    pivot = pivot.reindex(columns=top_artists, fill_value=0)
+    
+    # 6. Format Index to strings for nicer plotting keys if needed, 
+    # but returning actual Interval objects is often better. 
+    # For compatibility with our plotter, we can convert index to string dates.
+    pivot.index = [p.left.strftime("%Y-%m-%d") for p in pivot.index]
+    
+    return pivot
 
 
 # ------------------------------------------------------------
