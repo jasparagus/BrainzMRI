@@ -292,9 +292,9 @@ class EnrichmentStats:
     def __init__(self):
         self.processed = 0
         self.cache_hits = 0
-        self.mb_lookups = 0
-        self.lastfm_lookups = 0
-        self.fallbacks = 0
+        self.newly_fetched = 0  # Replaces raw lookups
+        self.empty = 0          # Entities with no tags found
+        self.fallbacks = 0      # Subset of fetched that required name search
     
     def to_dict(self):
         return self.__dict__.copy()
@@ -307,7 +307,8 @@ def _enrich_single_entity(
     cache: Dict[str, Any],
     enrichment_mode: str,
     noise_tags: Set[str],
-    stats: EnrichmentStats
+    stats: EnrichmentStats,
+    force_update: bool = False
 ) -> Tuple[str, List[str]]:
     """
     Enrich a single entity.
@@ -323,9 +324,18 @@ def _enrich_single_entity(
         if entity_type == "track" and name_info.get("track"): parts.append(name_info["track"])
         key = "|".join(parts)
     
-    if not key: return "", []
+    # 1. Handle Missing Key (Truly Empty)
+    if not key: 
+        stats.processed += 1
+        stats.empty += 1
+        return "", []
 
+    # 2. Entry Retrieval
     entry = cache.get(key)
+    
+    # Apply Force Update: pretend we didn't find it
+    if force_update:
+        entry = None
 
     # Check Cache
     if enrichment_mode == ENRICHMENT_MODE_CACHE_ONLY:
@@ -333,25 +343,26 @@ def _enrich_single_entity(
         if entry and entry.get("genres"):
             stats.cache_hits += 1
             return key, entry.get("genres")
-        return key, []
+        else:
+            stats.empty += 1
+            return key, []
 
     if entry and entry.get("genres"):
         stats.processed += 1
         stats.cache_hits += 1
         return key, entry.get("genres")
 
-    # Do Lookup
+    # 3. Do Lookup
     stats.processed += 1
     accumulated_tags: List[str] = []
     
-    # 1. MusicBrainz
+    # MusicBrainz
     if enrichment_mode in (ENRICHMENT_MODE_MB, ENRICHMENT_MODE_ALL):
         tags = []
         if mbid:
             if entity_type == "track": tags = mb_enrich_recording(mbid)
             elif entity_type == "album": tags = mb_enrich_release(mbid)
             elif entity_type == "artist": tags = mb_enrich_artist(mbid)
-            if tags: stats.mb_lookups += 1
         
         # Fallback
         if not tags and not mbid:
@@ -362,13 +373,12 @@ def _enrich_single_entity(
                 tags = mb_search_release(name_info.get("artist"), name_info.get("album"))
             elif entity_type == "artist": 
                 tags = mb_search_artist(name_info.get("artist"))
-            if tags: stats.mb_lookups += 1
             
         if tags:
             accumulated_tags.extend(tags)
             time.sleep(NETWORK_DELAY_SECONDS)
 
-    # 2. Last.fm
+    # Last.fm
     if enrichment_mode in (ENRICHMENT_MODE_LASTFM, ENRICHMENT_MODE_ALL):
         tags = []
         if entity_type == "track":
@@ -379,20 +389,36 @@ def _enrich_single_entity(
             tags = lastfm_enrich_artist(name_info.get("artist"))
         
         if tags:
-            stats.lastfm_lookups += 1
             accumulated_tags.extend(tags)
             time.sleep(NETWORK_DELAY_SECONDS)
 
-    # Finalize
+    # 4. Finalize
+    # Re-retrieve entry from cache to handle the edge case where:
+    # force_update=True (so local entry=None), but network failed.
+    # In that case, we want to fall back to the old cache data if it exists.
+    
     entry = _get_entity_entry(cache, key)
     
     if not accumulated_tags and entry.get("genres"):
+        # Network failed, but we have old data. Count as cache hit (rescue).
         canonical_genres = entry.get("genres")
+        stats.cache_hits += 1
     else:
+        # Standard processing
         canonical_new = canonicalize_and_filter_tags(accumulated_tags, noise_tags)
         existing = entry.get("genres") or []
         merged = set(existing) | set(canonical_new)
         canonical_genres = sorted(merged)
+
+        if canonical_new:
+            stats.newly_fetched += 1
+        else:
+            # We looked, found nothing new.
+            if not existing:
+                stats.empty += 1
+            else:
+                # We had existing data and found nothing new.
+                stats.cache_hits += 1
 
     # Update cache
     if canonical_genres:
@@ -488,8 +514,8 @@ def enrich_report(
                 "artist": row["artist"] if "artist" in row else "",
                 "track": row["track_name"] if "track_name" in row else ""
             }
-            if force_cache_update and mbid and mbid in cache: del cache[mbid]
-            k, g = _enrich_single_entity("track", mbid, name_info, cache, enrichment_mode, noise_tags, stats["track"])
+            # PASSING FORCE_UPDATE HERE
+            k, g = _enrich_single_entity("track", mbid, name_info, cache, enrichment_mode, noise_tags, stats["track"], force_update=force_cache_update)
             if mbid: track_map[mbid] = g
             
             current_item += 1
@@ -507,8 +533,8 @@ def enrich_report(
                 "artist": row["artist"] if "artist" in row else "",
                 "album": row["album"] if "album" in row else ""
             }
-            if force_cache_update and mbid and mbid in cache: del cache[mbid]
-            k, g = _enrich_single_entity("album", mbid, name_info, cache, enrichment_mode, noise_tags, stats["album"])
+            # PASSING FORCE_UPDATE HERE
+            k, g = _enrich_single_entity("album", mbid, name_info, cache, enrichment_mode, noise_tags, stats["album"], force_update=force_cache_update)
             if mbid: album_map[mbid] = g
             
             current_item += 1
@@ -523,8 +549,8 @@ def enrich_report(
 
             mbid = str(row["artist_mbid"]) if "artist_mbid" in row and pd.notna(row["artist_mbid"]) else None
             name_info = {"artist": row["artist"]}
-            if force_cache_update and mbid and mbid in cache: del cache[mbid]
-            k, g = _enrich_single_entity("artist", mbid, name_info, cache, enrichment_mode, noise_tags, stats["artist"])
+            # PASSING FORCE_UPDATE HERE
+            k, g = _enrich_single_entity("artist", mbid, name_info, cache, enrichment_mode, noise_tags, stats["artist"], force_update=force_cache_update)
             if mbid: artist_map[mbid] = g
             
             current_item += 1

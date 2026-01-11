@@ -1,5 +1,5 @@
 """
-gui_main.py
+gui.py
 Tkinter GUI for BrainzMRI, using reporting, enrichment, and user modules.
 """
 

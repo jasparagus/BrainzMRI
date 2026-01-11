@@ -220,9 +220,12 @@ class ReportEngine:
                 extra = (
                     f" Enrichment: {s['processed']} Processed "
                     f"({s['cache_hits']} Cached | "
-                    f"{s['mb_lookups'] + s['lastfm_lookups']} Lookups | "
-                    f"{s['fallbacks']} Fallbacks)"
+                    f"{s['newly_fetched']} Fetched | "
+                    f"{s['empty']} Empty)"
                 )
+                if s['fallbacks'] > 0:
+                    extra = extra[:-1] + f" | {s['fallbacks']} Fallbacks)"
+                
                 status_text += extra
 
         return result, meta, report_type_key, last_enriched, status_text
