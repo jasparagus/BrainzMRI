@@ -132,6 +132,10 @@ BrainzMRI/
 ├── user.py                       # Data Model & File I/O
 ├── parsing.py                    # JSON normalization
 │
+├── tests/                        # Unit tests & Fixtures
+│   ├── conftest.py
+│   └── test_parsing.py
+│
 ├── README.md
 ├── requirements.txt
 ├── config.json                   # Auto-created settings
@@ -149,13 +153,14 @@ Handles window lifecycle, user selection, input parsing, and threading.
 
 * **Threading:** Offloads `ReportEngine` execution to background threads to keep the UI responsive.
 * **ProgressWindow:** Displays real-time progress for long-running enrichment tasks.
+* **Graph Integration:** Manages the "Show Graph" button state and launches `gui_charts`.
 
 ## `gui_charts.py`: Visualization Engine
 
-Responsible for rendering Matplotlib figures in Tkinter windows.
+Responsible for rendering Matplotlib figures using the native UI backend.
 
-* `draw_artist_trend_area_chart`: Stacked area chart for artist dominance over time.
-* `draw_new_music_stacked_bar`: Multi-subplot (Artist/Album/Track) comparison of New vs. Recurring listening.
+* `show_artist_trend_chart()`: Displays a Stacked Area Chart for artist dominance over time.
+* `show_new_music_stacked_bar()`: Displays 3 subplots (Artist/Album/Track) comparing New vs. Recurring listening.
 
 ## `report_engine.py`: Controller
 
