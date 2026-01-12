@@ -6,15 +6,8 @@ Tkinter GUI for BrainzMRI, using reporting, enrichment, and user modules.
 import json
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
-from idlelib.tooltip import Hovertip
-
-from user import (
-    User,
-    get_cache_root,
-    get_cached_usernames,
-    get_user_cache_dir,
-)
-
+import webbrowser
+from user import User
 
 # ======================================================================
 # User Editor Window (New User / Edit User)
@@ -23,12 +16,6 @@ from user import (
 class UserEditorWindow(tk.Toplevel):
     """
     A modal dialog for creating or editing a user.
-
-    Supports:
-    - App Username (letters/numbers only)
-    - Last.fm Username
-    - ListenBrainz Username
-    - Choose ListenBrainz Zip (multi-ZIP, deferred ingestion)
     """
 
     def __init__(self, parent, existing_user: User | None, on_save_callback):
@@ -39,17 +26,13 @@ class UserEditorWindow(tk.Toplevel):
         self.existing_user = existing_user
         self.on_save_callback = on_save_callback
 
-        # Pending ZIPs selected during this session
         self.pending_zips = []
 
-        # Build UI
         self._build_ui()
 
-        # If editing, populate fields
         if existing_user:
             self._populate_from_user(existing_user)
 
-        # Make modal
         self.transient(parent)
         self.grab_set()
         self.wait_window(self)
@@ -66,31 +49,46 @@ class UserEditorWindow(tk.Toplevel):
         tk.Label(frm, text="App Username (letters/numbers only):").grid(
             row=0, column=0, sticky="w"
         )
-        self.ent_app_username = tk.Entry(frm, width=30)
+        self.ent_app_username = tk.Entry(frm, width=40)
         self.ent_app_username.grid(row=0, column=1, pady=3)
 
         # Last.fm Username
         tk.Label(frm, text="Last.fm Username:").grid(row=1, column=0, sticky="w")
-        self.ent_lastfm = tk.Entry(frm, width=30)
+        self.ent_lastfm = tk.Entry(frm, width=40)
         self.ent_lastfm.grid(row=1, column=1, pady=3)
 
         # ListenBrainz Username
         tk.Label(frm, text="ListenBrainz Username:").grid(row=2, column=0, sticky="w")
-        self.ent_listenbrainz = tk.Entry(frm, width=30)
+        self.ent_listenbrainz = tk.Entry(frm, width=40)
         self.ent_listenbrainz.grid(row=2, column=1, pady=3)
+
+        # ListenBrainz Token
+        lbl_token = tk.Label(frm, text="ListenBrainz User Token:")
+        lbl_token.grid(row=3, column=0, sticky="w")
+        
+        self.ent_token = tk.Entry(frm, width=40, show="*") # Masked input
+        self.ent_token.grid(row=3, column=1, pady=3)
+        
+        # Helper link
+        link = tk.Label(frm, text="(Get token from your profile)", fg="blue", cursor="hand2")
+        link.grid(row=4, column=1, sticky="w")
+        link.bind("<Button-1>", lambda e: webbrowser.open("https://listenbrainz.org/profile/"))
+
+        # Separator
+        ttk.Separator(frm, orient="horizontal").grid(row=5, column=0, columnspan=2, sticky="ew", pady=10)
 
         # ZIP selection
         tk.Label(frm, text="Previously Ingested ZIPs:").grid(
-            row=3, column=0, sticky="nw", pady=(10, 0)
+            row=6, column=0, sticky="nw", pady=(0, 0)
         )
-        self.lst_existing_zips = tk.Listbox(frm, width=50, height=5)
-        self.lst_existing_zips.grid(row=3, column=1, pady=(10, 0))
+        self.lst_existing_zips = tk.Listbox(frm, width=60, height=4)
+        self.lst_existing_zips.grid(row=6, column=1, pady=(0, 0))
 
         tk.Label(frm, text="New ZIPs to Ingest:").grid(
-            row=4, column=0, sticky="nw", pady=(10, 0)
+            row=7, column=0, sticky="nw", pady=(10, 0)
         )
-        self.lst_pending_zips = tk.Listbox(frm, width=50, height=5)
-        self.lst_pending_zips.grid(row=4, column=1, pady=(10, 0))
+        self.lst_pending_zips = tk.Listbox(frm, width=60, height=4)
+        self.lst_pending_zips.grid(row=7, column=1, pady=(10, 0))
 
         btn_choose_zip = tk.Button(
             frm,
@@ -98,11 +96,11 @@ class UserEditorWindow(tk.Toplevel):
             command=self._choose_zip,
             width=25,
         )
-        btn_choose_zip.grid(row=5, column=1, sticky="w", pady=5)
+        btn_choose_zip.grid(row=8, column=1, sticky="w", pady=5)
 
         # Save / Cancel
         frm_buttons = tk.Frame(frm)
-        frm_buttons.grid(row=6, column=0, columnspan=2, pady=15)
+        frm_buttons.grid(row=9, column=0, columnspan=2, pady=15)
 
         tk.Button(
             frm_buttons,
@@ -132,8 +130,10 @@ class UserEditorWindow(tk.Toplevel):
 
         self.ent_lastfm.insert(0, user.get_lastfm_username() or "")
         self.ent_listenbrainz.insert(0, user.get_listenbrainz_username() or "")
+        
+        if user.listenbrainz_token:
+            self.ent_token.insert(0, user.listenbrainz_token)
 
-        # Existing ZIPs (read-only)
         zips = user.sources.get("listenbrainz_zips", [])
         for z in zips:
             self.lst_existing_zips.insert(
@@ -163,8 +163,8 @@ class UserEditorWindow(tk.Toplevel):
         app_username = self.ent_app_username.get().strip()
         lastfm_username = self.ent_lastfm.get().strip() or None
         listenbrainz_username = self.ent_listenbrainz.get().strip() or None
+        token = self.ent_token.get().strip() or None
 
-        # Validate app username
         if not app_username:
             messagebox.showerror("Error", "App Username is required.")
             return
@@ -177,9 +177,8 @@ class UserEditorWindow(tk.Toplevel):
         # If editing, update existing user
         if self.existing_user:
             user = self.existing_user
-            user.update_sources(lastfm_username, listenbrainz_username)
+            user.update_sources(lastfm_username, listenbrainz_username, token)
 
-            # Ingest new ZIPs
             for zip_path in self.pending_zips:
                 try:
                     user.ingest_listenbrainz_zip(zip_path)
@@ -200,6 +199,7 @@ class UserEditorWindow(tk.Toplevel):
                 username=app_username,
                 lastfm_username=lastfm_username,
                 listenbrainz_username=listenbrainz_username,
+                listenbrainz_token=token,
                 listenbrainz_zips=[],
             )
         except Exception as e:
@@ -209,7 +209,6 @@ class UserEditorWindow(tk.Toplevel):
             )
             return
 
-        # Ingest ZIPs
         for zip_path in self.pending_zips:
             try:
                 user.ingest_listenbrainz_zip(zip_path)
@@ -222,4 +221,3 @@ class UserEditorWindow(tk.Toplevel):
 
         self.on_save_callback(user.username)
         self.destroy()
-
