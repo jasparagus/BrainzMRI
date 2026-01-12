@@ -17,6 +17,7 @@ import threading
 import reporting
 import enrichment
 import gui_charts
+import parsing
 from user import (
     User,
     get_cache_root,
@@ -45,6 +46,10 @@ class GUIState:
         # Current user
         self.user: User | None = None
 
+        # Ephemeral Playlist State
+        self.playlist_df = None
+        self.playlist_name: str | None = None
+
         # Last generated report
         self.last_report_df = None
         self.last_meta = None
@@ -52,7 +57,7 @@ class GUIState:
         self.last_report_type_key: str | None = None
         self.last_enriched: bool = False
         
-        # New: Store params to reproduce charts logic
+        # Store params to reproduce charts logic
         self.last_params: dict = {}
 
         # Table/filtering state
@@ -98,18 +103,30 @@ class ProgressWindow(tk.Toplevel):
 
     def update_progress(self, current, total, message):
         """Update the progress bar and label."""
-        self.lbl_status.config(text=message)
-        if total > 0:
-            pct = (current / total) * 100
-            self.progress["value"] = pct
-        else:
-            self.progress["value"] = 0
+        try:
+            # Defensive check
+            if not self.winfo_exists():
+                return
+            
+            self.lbl_status.config(text=message)
+            if total > 0:
+                pct = (current / total) * 100
+                self.progress["value"] = pct
+            else:
+                self.progress["value"] = 0
+        except Exception:
+            # Ignore errors if window is in a transitional state
+            pass
 
     def cancel(self):
         """Set cancellation flag and disable button."""
         self.cancelled = True
-        self.lbl_status.config(text="Cancelling... please wait for current step to finish.")
-        self.btn_cancel.config(state="disabled")
+        try:
+            if self.winfo_exists():
+                self.lbl_status.config(text="Cancelling... please wait for current step to finish.")
+                self.btn_cancel.config(state="disabled")
+        except Exception:
+            pass
 
 
 # ======================================================================
@@ -126,7 +143,7 @@ class BrainzMRIGUI:
         self.root = root
         self.root.title("BrainzMRI - ListenBrainz Metadata Review Instrument")
 
-        self.root.geometry("1000x700")
+        self.root.geometry("1000x750")
         self.root.minsize(1000, 700)
         self.root.resizable(True, True)
         self.root.update_idletasks()
@@ -134,6 +151,10 @@ class BrainzMRIGUI:
         # Centralized state and engine
         self.state = GUIState()
         self.report_engine = ReportEngine()
+        
+        # Guard flag for threading race conditions
+        self.processing = False
+        self.progress_win = None
 
         # Status bar
         self.status_var = tk.StringVar(value="Ready.")
@@ -146,36 +167,64 @@ class BrainzMRIGUI:
             font=("Segoe UI", 11),
         )
 
-        # User selection and ingestion
-        frm_user = tk.Frame(root)
-        frm_user.pack(pady=10)
+        # ------------------------------------------------------------
+        # Top Area: User Selection & Source Control (Fixed Layout)
+        # ------------------------------------------------------------
+        frm_top = tk.Frame(root)
+        frm_top.pack(pady=10, fill="x", padx=10)
 
-        tk.Label(frm_user, text="User:").pack(side="left", padx=(10, 5))
+        # Row 1: User Profile Management
+        frm_user = tk.Frame(frm_top)
+        frm_user.pack(pady=(0, 5))
+
+        tk.Label(frm_user, text="User:").pack(side="left", padx=(5, 5))
 
         self.user_var = tk.StringVar()
         self.user_dropdown = ttk.Combobox(
             frm_user,
             textvariable=self.user_var,
             state="readonly",
-            width=30,
+            width=25,
         )
         self.user_dropdown.pack(side="left", padx=(0, 10))
         self.user_dropdown.bind("<<ComboboxSelected>>", self.on_user_selected)
 
-        # New User / Edit User buttons
-        tk.Button(frm_user, text="New User", command=self.new_user).pack(side="left", padx=5)
-        tk.Button(frm_user, text="Edit User", command=self.edit_user).pack(side="left", padx=5)
+        tk.Button(frm_user, text="New User", command=self.new_user).pack(side="left", padx=2)
+        tk.Button(frm_user, text="Edit User", command=self.edit_user).pack(side="left", padx=2)
 
-        self.lbl_user_status = tk.Label(frm_user, text="", fg="gray")
-        self.lbl_user_status.pack(side="left", padx=10)
+        # Row 2: Source Control (CSV Import / Status)
+        frm_source_controls = tk.Frame(frm_top)
+        frm_source_controls.pack(pady=(5, 0))
 
+        tk.Button(frm_source_controls, text="Import CSV...", command=self.import_csv).pack(side="left", padx=(5, 10))
+
+        # Active Source Indicator
+        self.lbl_source_status = tk.Label(
+            frm_source_controls, 
+            text="Active Source: User History", 
+            fg="gray", 
+            font=("Segoe UI", 9, "italic")
+        )
+        self.lbl_source_status.pack(side="left", padx=5)
+        
+        # Close CSV Button (Hidden by default)
+        self.btn_close_csv = tk.Button(
+            frm_source_controls, 
+            text="Close CSV", 
+            command=self.close_csv, 
+            bg="#FFCDD2", 
+            fg="black", 
+            font=("Segoe UI", 8)
+        )
+        # Packed dynamically when needed
+
+        # ------------------------------------------------------------
         # Input fields container
+        # ------------------------------------------------------------
         frm_inputs = tk.Frame(root)
-        frm_inputs.pack(pady=10)
+        frm_inputs.pack(pady=5)
 
-        # ------------------------------------------------------------
         # Time Range Filters
-        # ------------------------------------------------------------
         (self.ent_time_start, self.ent_time_end, self.time_frame) = self._create_labeled_double_entry(
             frm_inputs, "Time Range To Analyze (Days Ago)", 0, 0
         )
@@ -204,27 +253,18 @@ class BrainzMRIGUI:
                 hover_delay=500,
             )
 
-        # ------------------------------------------------------------
         # Thresholds and Top N
-        # ------------------------------------------------------------
         self.ent_topn = self._create_labeled_entry(frm_inputs, "Top N (Number Of Results):", 200)
         self.ent_min_listens = self._create_labeled_entry(frm_inputs, "Number of Listens Threshold:", 10)
         self.ent_min_minutes = self._create_labeled_entry(frm_inputs, "Minutes Listened Threshold:", 15)
         self.ent_min_likes = self._create_labeled_entry(frm_inputs, "Minimum Likes Threshold:", 0)
-
-        Hovertip(self.ent_topn, "Number of results to return.\nDefault: 200 results", hover_delay=500)
-        Hovertip(self.ent_min_listens, "Minimum number of listens.\nWorks as an OR with minimum minutes.", hover_delay=500)
-        Hovertip(self.ent_min_minutes, "Minimum number of minutes listened.\nWorks as an OR with minimum listens.", hover_delay=500)
-        Hovertip(self.ent_min_likes, "Minimum number of unique liked tracks.\nDefault: 0 (disabled).", hover_delay=500)
 
         # Bind Enter key
         for entry in [self.ent_time_start, self.ent_time_end, self.ent_last_start, self.ent_last_end,
                       self.ent_topn, self.ent_min_listens, self.ent_min_minutes, self.ent_min_likes]:
             entry.bind("<Return>", lambda event: self.run_report())
 
-        # ------------------------------------------------------------
         # Enrichment controls
-        # ------------------------------------------------------------
         self.do_enrich_var = tk.BooleanVar(value=False)
         chk_enrich = tk.Checkbutton(
             frm_inputs,
@@ -312,14 +352,16 @@ class BrainzMRIGUI:
         btn_frame = tk.Frame(root)
         btn_frame.pack(pady=10)
 
-        tk.Button(
+        # Store reference to button to disable it
+        self.btn_generate = tk.Button(
             btn_frame,
             text="Generate Report",
             command=self.run_report,
             bg="#4CAF50",
             fg="white",
             width=16,
-        ).pack(side="left", padx=5)
+        )
+        self.btn_generate.pack(side="left", padx=5)
 
         tk.Button(
             btn_frame,
@@ -400,7 +442,6 @@ class BrainzMRIGUI:
         self.user_dropdown["values"] = users
         if not users:
             self.user_var.set("")
-            self.lbl_user_status.config(text="No cached users found.", fg="gray")
 
     def new_user(self):
         UserEditorWindow(self.root, None, self._on_user_saved)
@@ -427,7 +468,7 @@ class BrainzMRIGUI:
 
 
     # ==================================================================
-    # User Loading
+    # User Loading & Source Management
     # ==================================================================
 
     def on_user_selected(self, event=None) -> None:
@@ -449,26 +490,70 @@ class BrainzMRIGUI:
             return
 
         self.state.user = user
-        self.lbl_user_status.config(text=f"Loaded user: {username}", fg="black")
-
+        
         cfg = self.load_config()
         cfg["last_user"] = username
         self.save_config(cfg)
 
-        # Clear previous report state
-        self.state.last_report_df = None
-        self.state.last_meta = None
-        self.state.last_mode = None
-        self.state.last_report_type_key = None
-        self.state.last_enriched = False
-        self.state.original_df = None
-        self.state.filtered_df = None
+        # Clear previous session state
+        self.close_csv() # Reset playlist state if a new user is loaded
         
-        self.btn_show_graph.config(state="disabled") # Reset graph button
+        # But we still need to set status if close_csv didn't (because playlist was already None)
+        self.lbl_source_status.config(text="Active Source: User History", fg="gray")
+        self.set_status(f"User '{username}' loaded.")
+
+    def import_csv(self):
+        """Phase 2.2: Import arbitrary CSV playlist."""
+        if not self.state.user:
+            messagebox.showerror("Error", "Please load a user first (to provide context).")
+            return
+
+        path = filedialog.askopenfilename(
+            title="Select CSV Playlist",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+
+        try:
+            # Parse using Phase 2.1 logic
+            df = parsing.parse_generic_csv(path)
+            
+            # Inject username so enrichment/reporting works correctly
+            df["_username"] = self.state.user.username
+            
+            # Update State
+            self.state.playlist_df = df
+            self.state.playlist_name = os.path.basename(path)
+            
+            # Update UI
+            self.lbl_source_status.config(text=f"Active Source: Playlist ({self.state.playlist_name})", fg="#E65100")
+            self.btn_close_csv.pack(side="left", padx=5) # Show close button
+            
+            # Switch to "Raw Listens" to show the data immediately
+            self.report_type.set("Raw Listens")
+            
+            # Auto-run report
+            self.run_report()
+            
+            messagebox.showinfo("Import Successful", f"Loaded {len(df)} tracks from '{self.state.playlist_name}'.")
+
+        except Exception as e:
+            messagebox.showerror("Import Failed", f"Could not parse CSV: {e}")
+
+    def close_csv(self):
+        """Revert to User History mode."""
+        self.state.playlist_df = None
+        self.state.playlist_name = None
+        
+        self.lbl_source_status.config(text="Active Source: User History", fg="gray")
+        self.btn_close_csv.pack_forget() # Hide close button
+        
+        # Clear view
         for widget in self.table_frame.winfo_children():
             widget.destroy()
-
-        self.set_status(f"User '{username}' loaded.")
+            
+        self.set_status("Playlist closed. Ready.")
 
     def on_report_type_selected(self, event=None):
         """Handle changes to the report type dropdown."""
@@ -499,10 +584,16 @@ class BrainzMRIGUI:
             raise ValueError(f"{field_name} must be numeric.")
 
     def run_report(self) -> None:
+        # THREAD SAFETY GUARD
+        if self.processing:
+            return
+            
         if self.state.user is None:
             messagebox.showerror("Error", "Please load or create a user first.")
             self.set_status("Error: No user loaded.")
             return
+            
+        self.processing = True
 
         mode = self.report_type.get()
 
@@ -522,6 +613,7 @@ class BrainzMRIGUI:
             min_likes = self._parse_int_field(self.ent_min_likes, "Minimum likes")
             topn = self._parse_int_field(self.ent_topn, "Top N")
         except ValueError as e:
+            self.processing = False # Reset guard
             messagebox.showerror("Error With Filter Input", str(e))
             self.set_status(f"Error With Filter Input: {str(e)}")
             return
@@ -545,18 +637,42 @@ class BrainzMRIGUI:
         # Store params for potential graph regeneration
         self.state.last_params = params.copy()
 
-        base_df = self.state.user.get_listens().copy()
-        base_df["_username"] = self.state.user.username
+        # PHASE 2.2: Determine Source Data
+        if self.state.playlist_df is not None:
+            base_df = self.state.playlist_df.copy()
+        else:
+            base_df = self.state.user.get_listens().copy()
+            
+        # Inject username again just to be safe
+        if "_username" not in base_df.columns:
+             base_df["_username"] = self.state.user.username
 
-        self.progress_win = ProgressWindow(self.root, title=f"Generating {mode}...")
+        # Disable button visually
+        self.btn_generate.config(state="disabled")
+        
+        # Create a specific window for THIS run
+        current_progress_win = ProgressWindow(self.root, title=f"Generating {mode}...")
+        self.progress_win = current_progress_win # Assign to global for cancel checks
 
         def worker():
             try:
                 def progress_callback(current, total, msg):
-                    self.root.after(0, lambda: self.progress_win.update_progress(current, total, msg))
+                    # SAFETY: Check if THIS specific window still exists AND catch exceptions
+                    # Use a lambda to capture current_progress_win
+                    def _do_update():
+                        try:
+                            if current_progress_win.winfo_exists():
+                                current_progress_win.update_progress(current, total, msg)
+                        except Exception:
+                            pass
+                            
+                    self.root.after(0, _do_update)
                 
                 def is_cancelled():
-                    return self.progress_win.cancelled
+                    try:
+                        return current_progress_win.cancelled
+                    except Exception:
+                        return True
 
                 result, meta, report_type_key, last_enriched, status_text = (
                     self.report_engine.generate_report(
@@ -581,7 +697,20 @@ class BrainzMRIGUI:
 
     def _on_report_success(self, result, meta, report_type_key, last_enriched, status_text, mode):
         """Called on main thread when worker finishes successfully."""
-        self.progress_win.destroy()
+        # SAFE DESTRUCTION PATTERN
+        if self.progress_win:
+            win = self.progress_win
+            try:
+                win.grab_release()
+                win.withdraw()
+                # Schedule actual destruction later to allow pending events to flush
+                self.root.after(100, win.destroy)
+            except Exception:
+                pass
+            self.progress_win = None
+        
+        self.processing = False # Release guard
+        self.btn_generate.config(state="normal")
         
         self.state.last_report_df = result
         self.state.last_meta = meta
@@ -603,7 +732,21 @@ class BrainzMRIGUI:
 
     def _on_report_error(self, error_msg, title):
         """Called on main thread when worker fails."""
-        self.progress_win.destroy()
+        # SAFE DESTRUCTION PATTERN
+        if self.progress_win:
+            win = self.progress_win
+            try:
+                win.grab_release()
+                win.withdraw()
+                # Schedule actual destruction later
+                self.root.after(100, win.destroy)
+            except Exception:
+                pass
+            self.progress_win = None
+        
+        self.processing = False # Release guard
+        self.btn_generate.config(state="normal")
+        
         messagebox.showerror(title, error_msg)
         self.set_status(f"Error: {error_msg}")
 
@@ -623,7 +766,12 @@ class BrainzMRIGUI:
 
         # Case 1: Favorite Artist Trend
         if mode == "Favorite Artist Trend":
-            df = self.state.user.get_listens().copy()
+            # PHASE 2.2: Use Playlist if active
+            if self.state.playlist_df is not None:
+                df = self.state.playlist_df.copy()
+            else:
+                df = self.state.user.get_listens().copy()
+                
             # Re-apply filters manually because we need "Top N Overall" logic
             t_start = params.get("time_start_days", 0)
             t_end = params.get("time_end_days", 0)
@@ -658,7 +806,6 @@ class BrainzMRIGUI:
                 gui_charts.show_new_music_stacked_bar(df)
             except Exception as e:
                 messagebox.showerror("Chart Error", f"Failed to generate chart: {e}")
-
 
     # ==================================================================
     # Saving reports

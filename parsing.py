@@ -1,7 +1,8 @@
 import zipfile
 import json
-from datetime import datetime, UTC
-from typing import Iterable, List, Tuple, Dict, Any, Set
+import os
+from datetime import datetime, UTC, timezone
+from typing import Iterable, List, Tuple, Dict, Any, Set, Optional
 
 import pandas as pd
 
@@ -9,20 +10,6 @@ import pandas as pd
 def parse_listenbrainz_zip(zip_path: str) -> Tuple[Dict[str, Any], list, list]:
     """
     Parse a ListenBrainz export ZIP and extract user info, feedback, and listens.
-
-    Parameters
-    ----------
-    zip_path : str
-        Path to the ListenBrainz export ZIP file.
-
-    Returns
-    -------
-    user_info : dict
-        User metadata from user.json.
-    feedback : list[dict]
-        Raw feedback entries from feedback.jsonl (may be empty).
-    listens : list[dict]
-        Raw listen entries from listens/*.jsonl.
     """
     with zipfile.ZipFile(zip_path, "r") as z:
         # User info
@@ -53,28 +40,6 @@ def normalize_listens(
 ) -> pd.DataFrame:
     """
     Normalize raw ListenBrainz listen objects into a flat canonical DataFrame.
-
-    Parameters
-    ----------
-    listens : iterable of dict
-        Raw listen objects as returned from parse_listenbrainz_zip.
-    origin : iterable of str, optional
-        One or more origin tags to attach to each listen.
-        For ListenBrainz ZIP imports this should be ["listenbrainz_zip"].
-
-    Returns
-    -------
-    df : pandas.DataFrame
-        Canonical listens table with at least these columns:
-        - artist (str)
-        - artist_mbid (str, optional)
-        - album (str)
-        - track_name (str)
-        - duration_ms (int)
-        - listened_at (datetime, UTC)
-        - recording_mbid (str, optional)
-        - release_mbid (str, optional, currently not populated)
-        - origin (list[str])
     """
     origin_list: List[str] = list(origin) if origin is not None else ["listenbrainz_zip"]
     records: List[Dict[str, Any]] = []
@@ -174,16 +139,6 @@ def normalize_listens(
 def load_feedback(feedback: Iterable[Dict[str, Any]]) -> Set[str]:
     """
     Extract liked recording MBIDs from feedback entries.
-
-    Parameters
-    ----------
-    feedback : iterable of dict
-        Raw feedback entries as returned from parse_listenbrainz_zip.
-
-    Returns
-    -------
-    likes : set of str
-        Set of recording MBIDs that have a positive score.
     """
     likes: Set[str] = set()
     for row in feedback:
@@ -195,23 +150,90 @@ def load_feedback(feedback: Iterable[Dict[str, Any]]) -> Set[str]:
 def load_listens_from_zip(zip_path: str) -> tuple[pd.DataFrame, Set[str]]:
     """
     Convenience loader for the GUI.
-
-    Parse a ListenBrainz export ZIP, normalize listens into the canonical schema,
-    and extract liked recording MBIDs from feedback.
-
-    Parameters
-    ----------
-    zip_path : str
-        Path to the ListenBrainz export ZIP file.
-
-    Returns
-    -------
-    df : pandas.DataFrame
-        Canonical listens DataFrame.
-    likes : set of str
-        Set of liked recording MBIDs from feedback.
     """
     user_info, feedback, listens = parse_listenbrainz_zip(zip_path)
     df = normalize_listens(listens, origin=["listenbrainz_zip"])
     likes = load_feedback(feedback)
     return df, likes
+
+
+# ------------------------------------------------------------
+# CSV Import Logic (Phase 2.1)
+# ------------------------------------------------------------
+
+def parse_generic_csv(filepath: str) -> pd.DataFrame:
+    """
+    Parse an arbitrary CSV file and attempt to map it to the canonical schema.
+    
+    Heuristics:
+    - Finds a column containing "artist" (excluding "album") -> 'artist'
+    - Finds a column containing "album" -> 'album'
+    - Finds a column containing "track" or "title" -> 'track_name'
+    
+    Raises ValueError if required columns cannot be uniquely identified.
+    """
+    try:
+        # Read without index, infer headers
+        raw_df = pd.read_csv(filepath)
+    except Exception as e:
+        raise ValueError(f"Failed to read CSV: {e}")
+
+    # clean headers: lowercase, strip whitespace
+    raw_cols = {c: c.lower().strip() for c in raw_df.columns}
+    
+    # --- 1. Identify Artist Column ---
+    # Must contain 'artist', must NOT contain 'album' (avoids 'Album Artist')
+    artist_candidates = [
+        orig for orig, clean in raw_cols.items() 
+        if "artist" in clean and "album" not in clean
+    ]
+    
+    if not artist_candidates:
+        raise ValueError("Unable to parse: Could not determine 'Artist' column.")
+    
+    # If multiple, prefer exact match 'artist' or 'artist name' if possible, else take first
+    artist_col = artist_candidates[0]
+    
+    # --- 2. Identify Album Column ---
+    album_candidates = [
+        orig for orig, clean in raw_cols.items() 
+        if "album" in clean
+    ]
+    if not album_candidates:
+        raise ValueError("Unable to parse: Could not determine 'Album' column.")
+    album_col = album_candidates[0]
+    
+    # --- 3. Identify Track Column ---
+    track_candidates = [
+        orig for orig, clean in raw_cols.items() 
+        if "track" in clean or "title" in clean
+    ]
+    if not track_candidates:
+        raise ValueError("Unable to parse: Could not determine 'Track'/'Title' column.")
+    track_col = track_candidates[0]
+    
+    # --- Construct Canonical DataFrame ---
+    df = pd.DataFrame()
+    
+    # Map and fill missing values with "Unknown"
+    df["artist"] = raw_df[artist_col].fillna("Unknown").astype(str)
+    df["album"] = raw_df[album_col].fillna("Unknown").astype(str)
+    df["track_name"] = raw_df[track_col].fillna("Unknown").astype(str)
+    
+    # Fill canonical technical columns
+    df["duration_ms"] = 0
+    df["listened_at"] = datetime.now(timezone.utc) # Mark import time as listen time? Or None?
+    # Better to leave listened_at as NaT or current time. 
+    # For a "Playlist", current time makes sense as "Imported At", 
+    # but for history analysis, it might skew "Last Listened". 
+    # Let's assume Import Time for now so they appear at the top of "Recent".
+    
+    df["recording_mbid"] = None
+    df["artist_mbid"] = None
+    df["release_mbid"] = None
+    df["origin"] = "csv_import"
+    
+    # Convert origin to list to match schema
+    df["origin"] = df["origin"].apply(lambda x: [x])
+
+    return df
