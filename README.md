@@ -78,6 +78,8 @@ python3 gui_main.py
 
 # Using the GUI
 
+
+
 ### 1. Select your ListenBrainz ZIP
 
 Click **“New User”** or select an existing user to begin. If creating a new user, you can ingest a ListenBrainz export ZIP. The app parses listens, feedback, and metadata.
@@ -113,6 +115,13 @@ You can set:
 ### 6. Save reports
 
 Click **“Save Report”** to export CSVs to `.../cache/users/username/reports`.
+
+
+### UI Examples
+
+![Main UI](example_main_ui.png)
+
+![Exapmle Graph](example_graph.png)
 
 ---
 

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import re
 import threading
+import time
 
 import reporting
 import enrichment
@@ -168,7 +169,7 @@ class BrainzMRIGUI:
         )
 
         # ------------------------------------------------------------
-        # Top Area: User Selection & Source Control (Fixed Layout)
+        # Top Area: User Selection & Source Control
         # ------------------------------------------------------------
         frm_top = tk.Frame(root)
         frm_top.pack(pady=10, fill="x", padx=10)
@@ -216,7 +217,6 @@ class BrainzMRIGUI:
             fg="black", 
             font=("Segoe UI", 8)
         )
-        # Packed dynamically when needed
 
         # ------------------------------------------------------------
         # Input fields container
@@ -253,11 +253,18 @@ class BrainzMRIGUI:
                 hover_delay=500,
             )
 
-        # Thresholds and Top N
-        self.ent_topn = self._create_labeled_entry(frm_inputs, "Top N (Number Of Results):", 200)
-        self.ent_min_listens = self._create_labeled_entry(frm_inputs, "Number of Listens Threshold:", 10)
-        self.ent_min_minutes = self._create_labeled_entry(frm_inputs, "Minutes Listened Threshold:", 15)
-        self.ent_min_likes = self._create_labeled_entry(frm_inputs, "Minimum Likes Threshold:", 0)
+        # Thresholds and Top N (Refactored to 2 columns)
+        self.ent_topn, self.ent_min_listens = self._create_dual_entry_row(
+            frm_inputs, 
+            "Top N (Number Of Results):", 200,
+            "Number of Listens Threshold:", 10
+        )
+        
+        self.ent_min_minutes, self.ent_min_likes = self._create_dual_entry_row(
+            frm_inputs, 
+            "Minutes Listened Threshold:", 15,
+            "Minimum Likes Threshold:", 0
+        )
         
         Hovertip(self.ent_topn, "Number of results to return.\nDefault: 200 results", hover_delay=500)
         Hovertip(self.ent_min_listens, "Minimum number of listens.\nWorks as an OR with minimum minutes.", hover_delay=500)
@@ -269,15 +276,19 @@ class BrainzMRIGUI:
                       self.ent_topn, self.ent_min_listens, self.ent_min_minutes, self.ent_min_likes]:
             entry.bind("<Return>", lambda event: self.run_report())
 
-        # Enrichment controls (Refactored)
+        # Enrichment controls
         frm_enrich_source = tk.Frame(frm_inputs)
         frm_enrich_source.pack(fill="x", pady=8, anchor="center")
+        
+        # Center the enrichment line contents
+        enrich_inner = tk.Frame(frm_enrich_source)
+        enrich_inner.pack(anchor="center")
 
-        tk.Label(frm_enrich_source, text="Genre Lookup (Enrichment) Source:", width=32, anchor="e").pack(side="left")
+        tk.Label(enrich_inner, text="Genre Lookup (Enrichment) Source:", width=32, anchor="e").pack(side="left")
 
         self.enrichment_mode_var = tk.StringVar(value="None (Data Only, No Genres)")
         self.cmb_enrich_source = ttk.Combobox(
-            frm_enrich_source,
+            enrich_inner,
             textvariable=self.enrichment_mode_var,
             values=[
                 "None (Data Only, No Genres)",
@@ -301,7 +312,7 @@ class BrainzMRIGUI:
 
         self.force_cache_update_var = tk.BooleanVar(value=False)
         chk_force_cache = tk.Checkbutton(
-            frm_enrich_source,
+            enrich_inner,
             text="Force Cache Update",
             variable=self.force_cache_update_var,
         )
@@ -320,12 +331,12 @@ class BrainzMRIGUI:
         _update_enrichment_controls()
 
         # ------------------------------------------------------------
-        # Buttons & Report Type Row (Consolidated)
+        # Buttons & Report Type Row
         # ------------------------------------------------------------
         btn_frame = tk.Frame(root)
         btn_frame.pack(pady=10)
 
-        # Report Type (Moved here)
+        # Report Type
         tk.Label(btn_frame, text="Report Type:").pack(side="left", padx=(0, 5))
         
         self.report_type = ttk.Combobox(
@@ -366,7 +377,6 @@ class BrainzMRIGUI:
             width=16,
         ).pack(side="left", padx=5)
 
-        # New Show Graph button
         self.btn_show_graph = tk.Button(
             btn_frame,
             text="Show Graph",
@@ -402,29 +412,49 @@ class BrainzMRIGUI:
     # UI Generators
     # ==================================================================
 
-    def _create_labeled_entry(self, parent, label: str, default) -> tk.Entry:
+    def _create_dual_entry_row(self, parent, label1, default1, label2, default2):
+        """Creates a centered row with two [Label | Entry] pairs."""
         row = tk.Frame(parent)
-        row.pack(fill="x", pady=3)
-        tk.Label(row, text=label, width=27, anchor="w").pack(side="left")
-        ent = tk.Entry(row, width=8)
-        ent.insert(0, str(default))
-        ent.pack(side="left")
-        return ent
+        row.pack(pady=2, anchor="center")
+
+        # Left Pair
+        # Using width 28 anchor 'e' creates a nice right-aligned label block next to the entry
+        tk.Label(row, text=label1, width=28, anchor="e").pack(side="left", padx=(0, 5))
+        ent1 = tk.Entry(row, width=8)
+        ent1.insert(0, str(default1))
+        ent1.pack(side="left")
+
+        # Spacer
+        tk.Frame(row, width=20).pack(side="left")
+
+        # Right Pair
+        tk.Label(row, text=label2, width=28, anchor="e").pack(side="left", padx=(0, 5))
+        ent2 = tk.Entry(row, width=8)
+        ent2.insert(0, str(default2))
+        ent2.pack(side="left")
+
+        return ent1, ent2
 
     def _create_labeled_double_entry(self, parent, label: str, default1, default2):
+        """Creates a centered row for a range (Start/End)."""
         frm = tk.Frame(parent)
         frm.pack(fill="x", pady=5)
+        
         tk.Label(frm, text=label).pack(anchor="center")
+        
         row = tk.Frame(frm)
         row.pack(anchor="center")
-        tk.Label(row, text="Start:", width=8).pack(side="left")
+        
+        tk.Label(row, text="Start:", width=8, anchor="e").pack(side="left")
         ent1 = tk.Entry(row, width=6)
         ent1.insert(0, str(default1))
         ent1.pack(side="left", padx=5)
-        tk.Label(row, text="End:", width=8).pack(side="left")
+        
+        tk.Label(row, text="End:", width=8, anchor="e").pack(side="left")
         ent2 = tk.Entry(row, width=6)
         ent2.insert(0, str(default2))
         ent2.pack(side="left", padx=5)
+        
         return ent1, ent2, frm
 
     # ==================================================================
