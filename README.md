@@ -230,3 +230,9 @@ Manages the `User` entity, ZIP ingestion, and gzipped JSONL storage.
 
 * **Configuration UI:** To be integrated directly into the User Editor (Phase 1.2).
 * **Documentation:** Maintain `BrainzMRI_Instantiation_v3.txt` for context recovery.
+
+### Report Presets
+* A convenient list of presets for reports, which pre-populates the filters and settings with interesting options. Examples:
+  * Love at First Sight: Liked Tracks with a single listen
+  * Forgotten Favorites: not recently listened, but liked, etc.
+  * Top 10 Trend: pre-populate defaults for the Top Artists Over Time Plot

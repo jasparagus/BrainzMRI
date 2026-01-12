@@ -5,7 +5,7 @@ Tkinter GUI for BrainzMRI, using reporting, enrichment, and user modules.
 
 import json
 import tkinter as tk
-from tkinter import filedialog, ttk, messagebox
+from tkinter import filedialog, ttk, messagebox, simpledialog
 from datetime import datetime, timedelta, timezone
 from idlelib.tooltip import Hovertip
 import os
@@ -28,6 +28,7 @@ from user import (
 from report_engine import ReportEngine
 from gui_user_editor import UserEditorWindow
 from gui_tableview import ReportTableView
+from api_client import ListenBrainzClient
 
 
 def open_file_default(path: str) -> None:
@@ -144,7 +145,7 @@ class BrainzMRIGUI:
         self.root = root
         self.root.title("BrainzMRI - ListenBrainz Metadata Review Instrument")
 
-        self.root.geometry("1000x750")
+        self.root.geometry("1000x800")
         self.root.minsize(1000, 700)
         self.root.resizable(True, True)
         self.root.update_idletasks()
@@ -386,8 +387,6 @@ class BrainzMRIGUI:
         )
         self.btn_show_graph.pack(side="left", padx=5)
 
-        self.status_bar.pack(fill="x", side="bottom")
-
         # ------------------------------------------------------------
         # Table viewer frame
         # ------------------------------------------------------------
@@ -396,6 +395,63 @@ class BrainzMRIGUI:
         self.table_frame.pack_propagate(False)
 
         self.table_view = ReportTableView(self.root, self.table_frame, self.state)
+
+        # ------------------------------------------------------------
+        # Upstream Actions Frame (Hidden by default)
+        # ------------------------------------------------------------
+        self.frm_upstream = tk.Frame(root, bg="#ECEFF1", bd=1, relief="groove")
+        # Packed dynamically in _on_report_success
+        
+        lbl_upstream = tk.Label(self.frm_upstream, text="Send To ListenBrainz Account:", bg="#ECEFF1", font=("Segoe UI", 9, "bold"))
+        lbl_upstream.pack(side="left", padx=(10, 5), pady=5)
+
+        self.dry_run_var = tk.BooleanVar(value=True)
+        chk_dry = tk.Checkbutton(
+            self.frm_upstream, 
+            text="Dry Run (Simulate Only)", 
+            variable=self.dry_run_var, 
+            bg="#ECEFF1",
+            activebackground="#ECEFF1"
+        )
+        chk_dry.pack(side="left", padx=(0, 15))
+        Hovertip(chk_dry, "If checked, actions will NOT send data to ListenBrainz.\nRequests will be printed to console only.", hover_delay=100)
+
+        # Like All Button
+        self.btn_like_all = tk.Button(
+            self.frm_upstream,
+            text="Like All Tracks",
+            command=self.action_like_all,
+            bg="#FFB74D",
+        )
+        self.btn_like_all.pack(side="left", padx=5)
+        Hovertip(self.btn_like_all, "Mark all tracks in the list as Liked via API.\nRequires an API key.", hover_delay=500)
+
+        # Like Selected Button
+        self.btn_like_selected = tk.Button(
+            self.frm_upstream,
+            text="Like Selected Tracks",
+            command=self.action_like_selected,
+            bg="#FFCC80", # Slightly lighter orange
+        )
+        self.btn_like_selected.pack(side="left", padx=5)
+        Hovertip(self.btn_like_selected, "Submit a like for all highlighted tracks via API.\nRequires an API key.", hover_delay=500)
+
+        # Export Playlist Button
+        self.btn_export_playlist = tk.Button(
+            self.frm_upstream,
+            text="Export as Playlist",
+            command=self.action_export_playlist,
+            bg="#9575CD",
+            fg="white"
+        )
+        self.btn_export_playlist.pack(side="left", padx=5)
+        Hovertip(self.btn_export_playlist, "Export all tracks in the list as a playlist via API.\nRequires an API key.", hover_delay=500)
+        
+        # ------------------------------------------------------------
+        # Status Bar
+        # ------------------------------------------------------------
+        self.status_bar.pack(fill="x", side="bottom")
+
 
         # Initialize
         self.refresh_user_list()
@@ -418,7 +474,6 @@ class BrainzMRIGUI:
         row.pack(pady=2, anchor="center")
 
         # Left Pair
-        # Using width 28 anchor 'e' creates a nice right-aligned label block next to the entry
         tk.Label(row, text=label1, width=28, anchor="e").pack(side="left", padx=(0, 5))
         ent1 = tk.Entry(row, width=8)
         ent1.insert(0, str(default1))
@@ -572,6 +627,7 @@ class BrainzMRIGUI:
         
         self.lbl_source_status.config(text="Active Source: User History", fg="gray")
         self.btn_close_csv.pack_forget() # Hide close button
+        self.frm_upstream.pack_forget() # Hide action bar
         
         # Clear view
         for widget in self.table_frame.winfo_children():
@@ -756,6 +812,24 @@ class BrainzMRIGUI:
         else:
             self.btn_show_graph.config(state="disabled")
 
+        # Determine if Upstream Actions should be visible
+        # We need either 'recording_mbid' (for likes) OR 'artist'/'track_name' (for playlists)
+        has_tracks = "track_name" in result.columns and "artist" in result.columns
+        has_mbids = "recording_mbid" in result.columns
+        
+        if has_tracks or has_mbids:
+            self.frm_upstream.pack(fill="x", side="bottom", before=self.status_bar, padx=5, pady=5)
+            
+            # Enable/Disable specific buttons
+            if has_mbids:
+                self.btn_like_all.config(state="normal")
+                self.btn_like_selected.config(state="normal")
+            else:
+                self.btn_like_all.config(state="disabled")
+                self.btn_like_selected.config(state="disabled")
+        else:
+            self.frm_upstream.pack_forget()
+
     def _on_report_error(self, error_msg, title):
         """Called on main thread when worker fails."""
         # SAFE DESTRUCTION PATTERN
@@ -775,6 +849,223 @@ class BrainzMRIGUI:
         
         messagebox.showerror(title, error_msg)
         self.set_status(f"Error: {error_msg}")
+        self.frm_upstream.pack_forget()
+
+    # ==================================================================
+    # Upstream Actions (Like / Playlist)
+    # ==================================================================
+
+    def _get_lb_client(self) -> ListenBrainzClient:
+        token = self.state.user.listenbrainz_token
+        dry_run = self.dry_run_var.get()
+        return ListenBrainzClient(token=token, dry_run=dry_run)
+
+    def _execute_like_task(self, mbids_to_process: list[str]):
+        """Generic threaded worker to submit likes for a list of MBIDs."""
+        count = len(mbids_to_process)
+        if count == 0:
+            messagebox.showinfo("No Tracks", "No valid MusicBrainz IDs found in selection.")
+            return
+
+        dry_run = self.dry_run_var.get()
+        mode_str = "SIMULATION" if dry_run else "LIVE ACTION"
+        
+        msg = f"Ready to 'Like' (score=1) {count} unique tracks.\nMode: {mode_str}\n\nProceed?"
+        if not messagebox.askyesno("Confirm Likes", msg):
+            return
+
+        client = self._get_lb_client()
+        
+        # UI State
+        self.btn_like_all.config(state="disabled")
+        self.btn_like_selected.config(state="disabled")
+        
+        current_progress_win = ProgressWindow(self.root, title="Submitting Feedback...")
+        self.progress_win = current_progress_win
+
+        def worker():
+            success_count = 0
+            fail_count = 0
+            
+            try:
+                for i, mbid in enumerate(mbids_to_process):
+                    if current_progress_win.cancelled:
+                        break
+                        
+                    # Update GUI
+                    def _update():
+                        if current_progress_win.winfo_exists():
+                            current_progress_win.update_progress(
+                                i, count, f"Liking track {i+1}/{count}..."
+                            )
+                    self.root.after(0, _update)
+
+                    try:
+                        client.submit_feedback(mbid, 1)
+                        success_count += 1
+                    except Exception as e:
+                        print(f"Error liking {mbid}: {e}")
+                        fail_count += 1
+                        
+                        # SAFETY: Abort immediately on critical API errors
+                        err_str = str(e)
+                        if "401" in err_str or "403" in err_str or "429" in err_str:
+                            self.root.after(0, lambda: messagebox.showerror(
+                                "API Error - Aborting", 
+                                f"Critical API error encountered (Auth or Rate Limit).\nStopping to protect your account.\n\nError: {e}"
+                            ))
+                            current_progress_win.cancelled = True # Signals the loop to stop
+                            break
+                    
+                    # Small delay to be nice to API
+                    if not dry_run:
+                        time.sleep(0.3)
+
+                def _finish():
+                    # Safe Destroy
+                    if current_progress_win.winfo_exists():
+                        current_progress_win.grab_release()
+                        current_progress_win.withdraw()
+                        self.root.after(100, current_progress_win.destroy)
+                    
+                    self.btn_like_all.config(state="normal")
+                    self.btn_like_selected.config(state="normal")
+                    
+                    result_msg = f"Finished.\nSuccessful: {success_count}\nFailed: {fail_count}"
+                    if dry_run:
+                        result_msg += "\n(Note: This was a Dry Run. No data sent.)"
+                    messagebox.showinfo("Feedback Complete", result_msg)
+
+                self.root.after(0, _finish)
+
+            except Exception as e:
+                self.root.after(0, lambda: self._on_report_error(f"Error in feedback worker: {e}", "Error"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def action_like_all(self):
+        """Submit feedback for ALL visible tracks."""
+        if self.state.filtered_df is None or self.state.filtered_df.empty:
+            return
+        
+        df = self.state.filtered_df
+        if "recording_mbid" not in df.columns:
+            return
+
+        valid_rows = df[df["recording_mbid"].notna() & (df["recording_mbid"] != "")].copy()
+        unique_mbids = list(valid_rows["recording_mbid"].unique())
+        
+        self._execute_like_task(unique_mbids)
+
+    def action_like_selected(self):
+        """Submit feedback for SELECTED tracks in the TreeView."""
+        if self.state.filtered_df is None:
+            return
+            
+        tree = self.table_view.tree
+        if not tree:
+            return
+            
+        selection = tree.selection()
+        if not selection:
+            messagebox.showinfo("No Selection", "Please select rows in the table first.")
+            return
+
+        # Map selection to MBIDs
+        # We need to find which column index holds 'recording_mbid'
+        cols = list(self.table_view.tree["columns"])
+        try:
+            mbid_idx = cols.index("recording_mbid")
+        except ValueError:
+            messagebox.showerror("Error", "Recording MBID column is not present in this view.")
+            return
+
+        selected_mbids = set()
+        for item in selection:
+            values = tree.item(item, "values")
+            # Values are strings; handle potential 'None' or empty strings
+            val = values[mbid_idx]
+            if val and val != "None" and val != "":
+                selected_mbids.add(val)
+        
+        self._execute_like_task(list(selected_mbids))
+
+    def action_export_playlist(self):
+        """Export visible rows as a JSPF playlist."""
+        if self.state.filtered_df is None or self.state.filtered_df.empty:
+            return
+
+        df = self.state.filtered_df
+        # Need at least artist and track name
+        if "artist" not in df.columns or "track_name" not in df.columns:
+            messagebox.showerror("Error", "Report must contain Artist and Track Name columns.")
+            return
+
+        dry_run = self.dry_run_var.get()
+        default_name = f"BrainzMRI Export {datetime.now().strftime('%Y-%m-%d')}"
+        
+        name = simpledialog.askstring("Create Playlist", "Enter Playlist Name:", initialvalue=default_name)
+        if not name:
+            return
+
+        client = self._get_lb_client()
+        
+        # Prepare track list
+        track_list = []
+        for _, row in df.iterrows():
+            item = {
+                "artist": str(row["artist"]),
+                "title": str(row["track_name"]),
+            }
+            if "album" in row and row["album"] != "Unknown":
+                item["album"] = str(row["album"])
+            if "recording_mbid" in row and row["recording_mbid"]:
+                item["mbid"] = str(row["recording_mbid"])
+            
+            track_list.append(item)
+
+        count = len(track_list)
+        
+        # Reuse progress window logic
+        self.btn_export_playlist.config(state="disabled")
+        current_progress_win = ProgressWindow(self.root, title="Uploading Playlist...")
+        self.progress_win = current_progress_win
+
+        def worker():
+            try:
+                # Update GUI
+                self.root.after(0, lambda: current_progress_win.update_progress(50, 100, "Generating JSPF Payload..."))
+
+                try:
+                    resp = client.create_playlist(name, track_list, description="Created via BrainzMRI")
+                    success = True
+                    msg = f"Playlist '{name}' created with {count} tracks."
+                    if dry_run:
+                        msg += "\n(Dry Run: JSON printed to console)"
+                except Exception as e:
+                    success = False
+                    msg = f"Failed to create playlist: {e}"
+
+                def _finish():
+                    # Safe Destroy
+                    if current_progress_win.winfo_exists():
+                        current_progress_win.grab_release()
+                        current_progress_win.withdraw()
+                        self.root.after(100, current_progress_win.destroy)
+                    
+                    self.btn_export_playlist.config(state="normal")
+                    
+                    if success:
+                        messagebox.showinfo("Success", msg)
+                    else:
+                        messagebox.showerror("Error", msg)
+
+                self.root.after(0, _finish)
+
+            except Exception as e:
+                self.root.after(0, lambda: self._on_report_error(f"Error in playlist worker: {e}", "Error"))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ==================================================================
     # Graphing
