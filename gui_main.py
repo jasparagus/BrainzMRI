@@ -252,7 +252,7 @@ class BrainzMRIGUI:
                 "Default: [0, 0] (days ago).",
                 hover_delay=500,
             )
-            
+
         # Thresholds and Top N
         self.ent_topn = self._create_labeled_entry(frm_inputs, "Top N (Number Of Results):", 200)
         self.ent_min_listens = self._create_labeled_entry(frm_inputs, "Number of Listens Threshold:", 10)
@@ -269,73 +269,67 @@ class BrainzMRIGUI:
                       self.ent_topn, self.ent_min_listens, self.ent_min_minutes, self.ent_min_likes]:
             entry.bind("<Return>", lambda event: self.run_report())
 
-        # Enrichment controls
-        self.do_enrich_var = tk.BooleanVar(value=False)
-        chk_enrich = tk.Checkbutton(
-            frm_inputs,
-            text="Perform Genre Lookup (Enrich Report)",
-            variable=self.do_enrich_var,
-        )
-        chk_enrich.pack(anchor="w", pady=5)
-
+        # Enrichment controls (Refactored)
         frm_enrich_source = tk.Frame(frm_inputs)
-        frm_enrich_source.pack(fill="x", pady=2, anchor="w")
+        frm_enrich_source.pack(fill="x", pady=8, anchor="center")
 
-        tk.Label(frm_enrich_source, text="Genre Enrichment Source:", width=32, anchor="w").pack(side="left")
+        tk.Label(frm_enrich_source, text="Genre Lookup (Enrichment) Source:", width=32, anchor="e").pack(side="left")
 
-        self.enrichment_mode_var = tk.StringVar(value="Cache Only")
+        self.enrichment_mode_var = tk.StringVar(value="None (Data Only, No Genres)")
         self.cmb_enrich_source = ttk.Combobox(
             frm_enrich_source,
             textvariable=self.enrichment_mode_var,
             values=[
+                "None (Data Only, No Genres)",
                 "Cache Only",
                 "Query MusicBrainz",
                 "Query Last.fm",
                 "Query All Sources (Slow)",
             ],
             state="readonly",
-            width=22,
+            width=28,
         )
-        self.cmb_enrich_source.pack(side="left")
+        self.cmb_enrich_source.pack(side="left", padx=(0, 10))
+        
+        Hovertip(
+            self.cmb_enrich_source,
+            "Note: API-based lookups are slow.\n"
+            "Unless 'Force Cache Update' is checked, API lookups will\n"
+            "use previously cached Genres when possible.",
+            hover_delay=500
+        )
 
         self.force_cache_update_var = tk.BooleanVar(value=False)
         chk_force_cache = tk.Checkbutton(
-            frm_inputs,
+            frm_enrich_source,
             text="Force Cache Update",
             variable=self.force_cache_update_var,
         )
-        chk_force_cache.pack(anchor="w", pady=2)
+        chk_force_cache.pack(side="left")
 
         def _update_enrichment_controls(*_):
-            do_enrich = self.do_enrich_var.get()
             mode = self.enrichment_mode_var.get()
-
-            if not do_enrich:
-                self.cmb_enrich_source.configure(state="disabled")
-                self.force_cache_update_var.set(False)
-                chk_force_cache.configure(state="disabled")
-                return
-
-            self.cmb_enrich_source.configure(state="readonly")
-            if mode == "Cache Only":
+            
+            if mode.startswith("None") or mode == "Cache Only":
                 self.force_cache_update_var.set(False)
                 chk_force_cache.configure(state="disabled")
             else:
                 chk_force_cache.configure(state="normal")
 
-        self.do_enrich_var.trace_add("write", lambda *args: _update_enrichment_controls())
         self.enrichment_mode_var.trace_add("write", lambda *args: _update_enrichment_controls())
         _update_enrichment_controls()
 
         # ------------------------------------------------------------
-        # Report type selection
+        # Buttons & Report Type Row (Consolidated)
         # ------------------------------------------------------------
-        frm_type = tk.Frame(root)
-        frm_type.pack(pady=10)
-        tk.Label(frm_type, text="Report Type:").pack(side="left", padx=5)
+        btn_frame = tk.Frame(root)
+        btn_frame.pack(pady=10)
 
+        # Report Type (Moved here)
+        tk.Label(btn_frame, text="Report Type:").pack(side="left", padx=(0, 5))
+        
         self.report_type = ttk.Combobox(
-            frm_type,
+            btn_frame,
             values=[
                 "By Artist", 
                 "By Album", 
@@ -346,18 +340,13 @@ class BrainzMRIGUI:
                 "Raw Listens"
             ],
             state="readonly",
+            width=18
         )
         self.report_type.current(0)
-        self.report_type.pack(side="left")
+        self.report_type.pack(side="left", padx=(0, 15))
         self.report_type.bind("<<ComboboxSelected>>", self.on_report_type_selected)
 
-        # ------------------------------------------------------------
         # Buttons
-        # ------------------------------------------------------------
-        btn_frame = tk.Frame(root)
-        btn_frame.pack(pady=10)
-
-        # Store reference to button to disable it
         self.btn_generate = tk.Button(
             btn_frame,
             text="Generate Report",
@@ -563,11 +552,9 @@ class BrainzMRIGUI:
     def on_report_type_selected(self, event=None):
         """Handle changes to the report type dropdown."""
         mode = self.report_type.get()
+        # Auto-enable enrichment for Genre Flavor if currently set to None
         if mode == "Genre Flavor":
-            # Automatically enable enrichment if it's currently off
-            if not self.do_enrich_var.get():
-                self.do_enrich_var.set(True)
-                # Default to Cache Only if we just auto-enabled it
+            if self.enrichment_mode_var.get().startswith("None"):
                 self.enrichment_mode_var.set("Cache Only")
 
     # ==================================================================
@@ -622,6 +609,10 @@ class BrainzMRIGUI:
             messagebox.showerror("Error With Filter Input", str(e))
             self.set_status(f"Error With Filter Input: {str(e)}")
             return
+        
+        # Determine enrichment boolean from dropdown string
+        enrich_mode_str = self.enrichment_mode_var.get()
+        do_enrich = not enrich_mode_str.startswith("None")
 
         params = {
             "mode": mode,
@@ -634,8 +625,8 @@ class BrainzMRIGUI:
             "min_minutes": min_minutes,
             "min_likes": min_likes,
             "topn": topn,
-            "do_enrich": self.do_enrich_var.get(),
-            "enrichment_mode": self.enrichment_mode_var.get(),
+            "do_enrich": do_enrich,
+            "enrichment_mode": enrich_mode_str,
             "force_cache_update": self.force_cache_update_var.get(),
         }
 

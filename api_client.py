@@ -8,7 +8,8 @@ import os
 import time
 import urllib.parse
 import urllib.request
-from typing import Dict, Any, List, Optional, Union
+import urllib.error
+from typing import Dict, Any, List, Optional
 
 # Constants
 NETWORK_DELAY_SECONDS = 1.0
@@ -142,8 +143,6 @@ class ListenBrainzClient:
     """
     Client for the ListenBrainz API.
     Handles authenticated WRITE operations (Feedback, Playlists).
-    
-    Includes a 'dry_run' mode for safety testing.
     """
 
     def __init__(self, token: Optional[str] = None, dry_run: bool = False):
@@ -155,15 +154,18 @@ class ListenBrainzClient:
         """
         Execute a POST request to ListenBrainz.
         """
-        if not self.token:
+        if not self.token and not self.dry_run:
             raise ValueError("ListenBrainz User Token is required for write operations.")
 
         url = f"{LISTENBRAINZ_API_ROOT}{endpoint}"
         json_data = json.dumps(payload).encode("utf-8")
         
         if self.dry_run:
-            print(f"[DRY RUN] POST {url}")
-            print(f"[DRY RUN] Payload: {json.dumps(payload, indent=2)}")
+            print(f"--- [DRY RUN] POST REQUEST ---")
+            print(f"URL: {url}")
+            print(f"HEADERS: Authorization: Token {'*' * 10}")
+            print(f"PAYLOAD:\n{json.dumps(payload, indent=2)}")
+            print(f"------------------------------")
             return {"status": "ok", "dry_run": True}
 
         req = urllib.request.Request(
