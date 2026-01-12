@@ -1,6 +1,6 @@
 """
 api_client.py
-Network layer for BrainzMRI. Handles API requests to MusicBrainz and Last.fm.
+Network layer for BrainzMRI. Handles API requests to MusicBrainz, Last.fm, and ListenBrainz.
 """
 
 import json
@@ -8,12 +8,13 @@ import os
 import time
 import urllib.parse
 import urllib.request
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 
 # Constants
 NETWORK_DELAY_SECONDS = 1.0
 LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/"
 MUSICBRAINZ_API_ROOT = "https://musicbrainz.org/ws/2/"
+LISTENBRAINZ_API_ROOT = "https://api.listenbrainz.org/1/"
 
 class MusicBrainzClient:
     """
@@ -135,3 +136,117 @@ class LastFMClient:
         params = {"method": method, **kwargs}
         data = self._request(params)
         return self._extract_tags(data, root_key)
+
+
+class ListenBrainzClient:
+    """
+    Client for the ListenBrainz API.
+    Handles authenticated WRITE operations (Feedback, Playlists).
+    
+    Includes a 'dry_run' mode for safety testing.
+    """
+
+    def __init__(self, token: Optional[str] = None, dry_run: bool = False):
+        self.token = token
+        self.dry_run = dry_run
+        self.user_agent = "BrainzMRI/1.0 (https://github.com/jasparagus/BrainzMRI)"
+
+    def _post(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute a POST request to ListenBrainz.
+        """
+        if not self.token:
+            raise ValueError("ListenBrainz User Token is required for write operations.")
+
+        url = f"{LISTENBRAINZ_API_ROOT}{endpoint}"
+        json_data = json.dumps(payload).encode("utf-8")
+        
+        if self.dry_run:
+            print(f"[DRY RUN] POST {url}")
+            print(f"[DRY RUN] Payload: {json.dumps(payload, indent=2)}")
+            return {"status": "ok", "dry_run": True}
+
+        req = urllib.request.Request(
+            url,
+            data=json_data,
+            headers={
+                "Authorization": f"Token {self.token}",
+                "Content-Type": "application/json",
+                "User-Agent": self.user_agent,
+            },
+            method="POST"
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if 200 <= resp.status < 300:
+                    return json.load(resp)
+                raise RuntimeError(f"API returned status {resp.status}")
+        except urllib.error.HTTPError as e:
+            # Try to read error message from body
+            try:
+                err_body = e.read().decode("utf-8")
+                raise RuntimeError(f"ListenBrainz API Error {e.code}: {err_body}")
+            except Exception:
+                raise RuntimeError(f"ListenBrainz API Error {e.code}")
+        except Exception as e:
+            raise RuntimeError(f"Network Error: {e}")
+
+    def submit_feedback(self, recording_mbid: str, score: int) -> Dict[str, Any]:
+        """
+        Submit feedback for a track.
+        score: 1 (Like), 0 (Neutral), -1 (Dislike)
+        """
+        if score not in (-1, 0, 1):
+            raise ValueError("Score must be -1, 0, or 1.")
+        
+        if not recording_mbid:
+            raise ValueError("Cannot submit feedback: Missing Recording MBID.")
+
+        payload = {
+            "recording_mbid": recording_mbid,
+            "score": score
+        }
+        return self._post("feedback/recording-feedback", payload)
+
+    def create_playlist(self, name: str, tracks: List[Dict[str, str]], description: str = "") -> Dict[str, Any]:
+        """
+        Create a new playlist on ListenBrainz using JSPF format.
+        
+        tracks: List of dicts containing:
+            - 'title': Track Name (Required)
+            - 'artist': Artist Name (Required)
+            - 'album': Album Name (Optional)
+            - 'mbid': Recording MBID (Optional but Recommended)
+        """
+        playlist_tracks = []
+        
+        for t in tracks:
+            track_obj = {
+                "title": t.get("title", "Unknown Title"),
+                "creator": t.get("artist", "Unknown Artist"),
+            }
+            
+            if t.get("album"):
+                track_obj["album"] = t.get("album")
+                
+            # Add MusicBrainz extension if MBID exists
+            if t.get("mbid"):
+                track_obj["extension"] = {
+                    "https://musicbrainz.org/doc/jspf#track": {
+                        "recording_identifier": f"https://musicbrainz.org/recording/{t['mbid']}"
+                    }
+                }
+            
+            playlist_tracks.append(track_obj)
+
+        jspf = {
+            "playlist": {
+                "title": name,
+                "annotation": description,
+                "creator": "BrainzMRI",
+                "track": playlist_tracks
+            }
+        }
+        
+        return self._post("playlist/create", jspf)

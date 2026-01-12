@@ -252,12 +252,17 @@ class BrainzMRIGUI:
                 "Default: [0, 0] (days ago).",
                 hover_delay=500,
             )
-
+            
         # Thresholds and Top N
         self.ent_topn = self._create_labeled_entry(frm_inputs, "Top N (Number Of Results):", 200)
         self.ent_min_listens = self._create_labeled_entry(frm_inputs, "Number of Listens Threshold:", 10)
         self.ent_min_minutes = self._create_labeled_entry(frm_inputs, "Minutes Listened Threshold:", 15)
         self.ent_min_likes = self._create_labeled_entry(frm_inputs, "Minimum Likes Threshold:", 0)
+        
+        Hovertip(self.ent_topn, "Number of results to return.\nDefault: 200 results", hover_delay=500)
+        Hovertip(self.ent_min_listens, "Minimum number of listens.\nWorks as an OR with minimum minutes.", hover_delay=500)
+        Hovertip(self.ent_min_minutes, "Minimum number of minutes listened.\nWorks as an OR with minimum listens.", hover_delay=500)
+        Hovertip(self.ent_min_likes, "Minimum number of unique liked tracks.\nDefault: 0 (disabled).", hover_delay=500)
 
         # Bind Enter key
         for entry in [self.ent_time_start, self.ent_time_end, self.ent_last_start, self.ent_last_end,
