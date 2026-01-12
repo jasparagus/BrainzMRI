@@ -614,8 +614,6 @@ class BrainzMRIGUI:
     def show_graph(self):
         """
         Prepare data and show the chart for the current report.
-        Re-filters the raw dataframe to ensure specific chart data requirements 
-        (like Top N Overall) are met.
         """
         mode = self.state.last_mode
         params = self.state.last_params
@@ -626,7 +624,7 @@ class BrainzMRIGUI:
         # Case 1: Favorite Artist Trend
         if mode == "Favorite Artist Trend":
             df = self.state.user.get_listens().copy()
-            # Re-apply filters manually because we need "Top N Overall" logic, not per-bin
+            # Re-apply filters manually because we need "Top N Overall" logic
             t_start = params.get("time_start_days", 0)
             t_end = params.get("time_end_days", 0)
             if not (t_start == 0 and t_end == 0):
@@ -642,24 +640,22 @@ class BrainzMRIGUI:
                     messagebox.showinfo("No Data", "Not enough data to generate a chart.")
                     return
                 
-                win = gui_charts.ChartWindow(self.root, title="Favorite Artist Trend (Stacked)")
-                win.draw_artist_trend_area_chart(chart_df)
+                # UPDATED: Call standalone function
+                gui_charts.show_artist_trend_chart(chart_df)
                 
             except Exception as e:
                 messagebox.showerror("Chart Error", f"Failed to generate chart: {e}")
 
         # Case 2: New Music By Year
         elif mode == "New Music By Year":
-            # For this report, the tabular data is exactly what we need for the chart.
-            # No re-calculation needed.
             df = self.state.last_report_df
             if df is None or df.empty:
                 messagebox.showinfo("No Data", "No data available.")
                 return
             
             try:
-                win = gui_charts.ChartWindow(self.root, title="New Music By Year (New vs Recurring)")
-                win.draw_new_music_stacked_bar(df)
+                # UPDATED: Call standalone function
+                gui_charts.show_new_music_stacked_bar(df)
             except Exception as e:
                 messagebox.showerror("Chart Error", f"Failed to generate chart: {e}")
 
