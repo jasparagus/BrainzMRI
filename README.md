@@ -116,8 +116,9 @@ You can set:
 
 Click **“Save Report”** to export CSVs to `.../cache/users/username/reports`.
 
+---
 
-### UI Examples
+# UI Examples
 
 ![Main UI](example_main_ui.png)
 
