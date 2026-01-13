@@ -36,7 +36,6 @@ class MusicBrainzClient:
             headers={"User-Agent": self.user_agent},
         )
         
-        # Blocking call with simple rate limiting
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 result = json.load(resp)
@@ -48,7 +47,6 @@ class MusicBrainzClient:
     def _extract_tags(self, data: Dict[str, Any]) -> List[str]:
         """Extract flat tag list from MB response."""
         tags = []
-        # Combine user tags and genres
         for key in ["tags", "genres"]:
             items = data.get(key, [])
             for item in items:
@@ -58,28 +56,12 @@ class MusicBrainzClient:
         return tags
 
     def get_entity_tags(self, entity_type: str, mbid: str) -> List[str]:
-        """
-        Fetch tags for a specific entity by MBID.
-        entity_type: 'recording', 'release', 'artist'
-        """
-        if not mbid:
-            return []
-        
-        data = self._request(
-            f"{entity_type}/{mbid}", 
-            {"fmt": "json", "inc": "tags+genres"}
-        )
+        if not mbid: return []
+        data = self._request(f"{entity_type}/{mbid}", {"fmt": "json", "inc": "tags+genres"})
         return self._extract_tags(data)
 
     def search_entity_tags(self, entity_type: str, query: str, result_list_key: str) -> List[str]:
-        """
-        Search for an entity and return tags from the top result.
-        """
-        data = self._request(
-            entity_type, 
-            {"query": query, "fmt": "json", "limit": "1"}
-        )
-        
+        data = self._request(entity_type, {"query": query, "fmt": "json", "limit": "1"})
         results = data.get(result_list_key, [])
         if results:
             return self._extract_tags(results[0])
@@ -89,17 +71,13 @@ class MusicBrainzClient:
 class LastFMClient:
     """
     Client for the Last.fm API.
-    Requires an API key (defaults to env var BRAINZMRI_LASTFM_API_KEY).
     """
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.environ.get("BRAINZMRI_LASTFM_API_KEY", "")
 
     def _request(self, params: Dict[str, str]) -> Dict[str, Any]:
-        """Execute a GET request against Last.fm."""
-        if not self.api_key:
-            return {}
-            
+        if not self.api_key: return {}
         params = params.copy()
         params["api_key"] = self.api_key
         params["format"] = "json"
@@ -117,23 +95,13 @@ class LastFMClient:
             return {}
 
     def _extract_tags(self, data: Dict[str, Any], root_key: str) -> List[str]:
-        """Extract tags from Last.fm response structure."""
         toplevel = data.get(root_key) or {}
         tags_block = toplevel.get("toptags") or toplevel.get("tags") or {}
         tags_list = tags_block.get("tag") or []
-        
-        if isinstance(tags_list, dict): 
-            tags_list = [tags_list]
-            
+        if isinstance(tags_list, dict): tags_list = [tags_list]
         return [t.get("name") for t in tags_list if t.get("name")]
 
     def get_tags(self, method: str, root_key: str, **kwargs) -> List[str]:
-        """
-        Generic helper for Last.fm tag fetching.
-        method: e.g., 'track.getInfo'
-        root_key: e.g., 'track' (the top level key in the response)
-        kwargs: arguments for the API call (artist=..., track=...)
-        """
         params = {"method": method, **kwargs}
         data = self._request(params)
         return self._extract_tags(data, root_key)
@@ -185,9 +153,9 @@ class ListenBrainzClient:
                     return json.load(resp)
                 raise RuntimeError(f"API returned status {resp.status}")
         except urllib.error.HTTPError as e:
-            # Try to read error message from body
             try:
                 err_body = e.read().decode("utf-8")
+                print(f"[API ERROR BODY]: {err_body}")
                 raise RuntimeError(f"ListenBrainz API Error {e.code}: {err_body}")
             except Exception:
                 raise RuntimeError(f"ListenBrainz API Error {e.code}")
@@ -214,39 +182,34 @@ class ListenBrainzClient:
     def create_playlist(self, name: str, tracks: List[Dict[str, str]], description: str = "") -> Dict[str, Any]:
         """
         Create a new playlist on ListenBrainz using JSPF format.
-        
-        tracks: List of dicts containing:
-            - 'title': Track Name (Required)
-            - 'artist': Artist Name (Required)
-            - 'album': Album Name (Optional)
-            - 'mbid': Recording MBID (Optional but Recommended)
         """
         playlist_tracks = []
         
         for t in tracks:
+            # Basic info (always safe)
             track_obj = {
                 "title": t.get("title", "Unknown Title"),
                 "creator": t.get("artist", "Unknown Artist"),
             }
-            
             if t.get("album"):
                 track_obj["album"] = t.get("album")
-                
-            # Add MusicBrainz extension if MBID exists
+            
+            # Identifier must be a single string URI
             if t.get("mbid"):
-                track_obj["extension"] = {
-                    "https://musicbrainz.org/doc/jspf#track": {
-                        "recording_identifier": f"https://musicbrainz.org/recording/{t['mbid']}"
-                    }
-                }
+                track_obj["identifier"] = f"https://musicbrainz.org/recording/{t['mbid']}"
             
             playlist_tracks.append(track_obj)
 
+        # The extension block with 'public' is mandatory
         jspf = {
             "playlist": {
                 "title": name,
                 "annotation": description,
-                "creator": "BrainzMRI",
+                "extension": {
+                    "https://musicbrainz.org/doc/jspf#playlist": {
+                        "public": False
+                    }
+                },
                 "track": playlist_tracks
             }
         }

@@ -971,23 +971,36 @@ class BrainzMRIGUI:
             messagebox.showinfo("No Selection", "Please select rows in the table first.")
             return
 
-        # Map selection to MBIDs
-        # We need to find which column index holds 'recording_mbid'
-        cols = list(self.table_view.tree["columns"])
-        try:
-            mbid_idx = cols.index("recording_mbid")
-        except ValueError:
-            messagebox.showerror("Error", "Recording MBID column is not present in this view.")
-            return
-
-        selected_mbids = set()
-        for item in selection:
-            values = tree.item(item, "values")
-            # Values are strings; handle potential 'None' or empty strings
-            val = values[mbid_idx]
-            if val and val != "None" and val != "":
-                selected_mbids.add(val)
+        # Map selection to MBIDs safely via DataFrame lookups (since columns might be hidden)
+        df = self.state.filtered_df
         
+        # We assume the treeview order matches the filtered_df order
+        # ReportTableView.populate() iterates filtered_df rows
+        # If user sorts in UI, ReportTableView resorts filtered_df before repopulating
+        # So tree index matches filtered_df index
+        
+        selected_mbids = set()
+        
+        # Get all children to find indices
+        all_children = tree.get_children()
+        
+        for item in selection:
+            try:
+                idx = all_children.index(item)
+                if idx < len(df):
+                    # We can now safely grab the MBID from the dataframe
+                    if "recording_mbid" in df.columns:
+                        val = df.iloc[idx]["recording_mbid"]
+                        # Check for valid string/not-null
+                        if val and isinstance(val, str) and val.strip() and val != "None":
+                            selected_mbids.add(val)
+            except ValueError:
+                continue
+        
+        if not selected_mbids and "recording_mbid" not in df.columns:
+             messagebox.showerror("Error", "Underlying data is missing MusicBrainz IDs.")
+             return
+
         self._execute_like_task(list(selected_mbids))
 
     def action_export_playlist(self):
