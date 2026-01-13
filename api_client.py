@@ -9,10 +9,12 @@ import time
 import urllib.parse
 import urllib.request
 import urllib.error
+import http.client
 from typing import Dict, Any, List, Optional
 
 # Constants
 NETWORK_DELAY_SECONDS = 1.0
+MAX_RETRIES = 3
 LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/"
 MUSICBRAINZ_API_ROOT = "https://musicbrainz.org/ws/2/"
 LISTENBRAINZ_API_ROOT = "https://api.listenbrainz.org/1/"
@@ -27,7 +29,7 @@ class MusicBrainzClient:
         self.user_agent = "BrainzMRI/1.0 (https://github.com/jasparagus/BrainzMRI)"
 
     def _request(self, path: str, params: Dict[str, str]) -> Dict[str, Any]:
-        """Execute a GET request against MusicBrainz."""
+        """Execute a GET request against MusicBrainz with retries."""
         query = urllib.parse.urlencode(params)
         url = f"{MUSICBRAINZ_API_ROOT}{path}?{query}"
         
@@ -36,13 +38,24 @@ class MusicBrainzClient:
             headers={"User-Agent": self.user_agent},
         )
         
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                result = json.load(resp)
-            time.sleep(NETWORK_DELAY_SECONDS)
-            return result
-        except Exception:
-            return {}
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    result = json.load(resp)
+                time.sleep(NETWORK_DELAY_SECONDS)
+                return result
+            except (urllib.error.URLError, http.client.IncompleteRead) as e:
+                last_error = e
+                # Exponential backoff: 1s, 2s, 4s...
+                time.sleep(1 * (2 ** attempt))
+            except Exception as e:
+                # Non-network errors (parsing, etc) fail immediately
+                print(f"Non-retriable error in MB lookup: {e}")
+                return {}
+        
+        print(f"MB Lookup failed after {MAX_RETRIES} attempts: {last_error}")
+        return {}
 
     def _extract_tags(self, data: Dict[str, Any]) -> List[str]:
         """Extract flat tag list from MB response."""
@@ -86,13 +99,20 @@ class LastFMClient:
         url = f"{LASTFM_API_ROOT}?{query}"
         req = urllib.request.Request(url)
         
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                result = json.load(resp)
-            time.sleep(NETWORK_DELAY_SECONDS)
-            return result
-        except Exception:
-            return {}
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    result = json.load(resp)
+                time.sleep(NETWORK_DELAY_SECONDS)
+                return result
+            except (urllib.error.URLError, http.client.IncompleteRead) as e:
+                last_error = e
+                time.sleep(1 * (2 ** attempt))
+            except Exception:
+                return {}
+        
+        return {}
 
     def _extract_tags(self, data: Dict[str, Any], root_key: str) -> List[str]:
         toplevel = data.get(root_key) or {}
@@ -120,7 +140,7 @@ class ListenBrainzClient:
 
     def _post(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute a POST request to ListenBrainz.
+        Execute a POST request to ListenBrainz with Retries.
         """
         if not self.token and not self.dry_run:
             raise ValueError("ListenBrainz User Token is required for write operations.")
@@ -147,20 +167,41 @@ class ListenBrainzClient:
             method="POST"
         )
 
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                if 200 <= resp.status < 300:
-                    return json.load(resp)
-                raise RuntimeError(f"API returned status {resp.status}")
-        except urllib.error.HTTPError as e:
+        last_error = None
+        for attempt in range(MAX_RETRIES):
             try:
-                err_body = e.read().decode("utf-8")
-                print(f"[API ERROR BODY]: {err_body}")
-                raise RuntimeError(f"ListenBrainz API Error {e.code}: {err_body}")
-            except Exception:
-                raise RuntimeError(f"ListenBrainz API Error {e.code}")
-        except Exception as e:
-            raise RuntimeError(f"Network Error: {e}")
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    if 200 <= resp.status < 300:
+                        return json.load(resp)
+                    raise RuntimeError(f"API returned status {resp.status}")
+            
+            except urllib.error.HTTPError as e:
+                # HTTP Errors (400, 401, 403, 429) are usually logical, not transient.
+                # However, 500s or 503s might be transient.
+                if e.code in [500, 502, 503, 504]:
+                    last_error = e
+                    time.sleep(1 * (2 ** attempt))
+                    continue
+                
+                # Fatal errors (400 Bad Request, 401 Auth) should fail immediately
+                try:
+                    err_body = e.read().decode("utf-8")
+                    print(f"[API ERROR BODY]: {err_body}")
+                    raise RuntimeError(f"ListenBrainz API Error {e.code}: {err_body}")
+                except Exception:
+                    raise RuntimeError(f"ListenBrainz API Error {e.code}")
+
+            except (urllib.error.URLError, http.client.IncompleteRead) as e:
+                # Connection reset, DNS failure, etc.
+                last_error = e
+                time.sleep(1 * (2 ** attempt))
+                continue
+            
+            except Exception as e:
+                raise RuntimeError(f"Network Error: {e}")
+
+        # If we exit loop, we failed
+        raise RuntimeError(f"Network Error after {MAX_RETRIES} attempts: {last_error}")
 
     def submit_feedback(self, recording_mbid: str, score: int) -> Dict[str, Any]:
         """
@@ -186,14 +227,14 @@ class ListenBrainzClient:
         playlist_tracks = []
         
         for t in tracks:
-            # Basic info (always safe)
+            # Basic info
             track_obj = {
                 "title": t.get("title", "Unknown Title"),
                 "creator": t.get("artist", "Unknown Artist"),
             }
             if t.get("album"):
                 track_obj["album"] = t.get("album")
-            
+                
             # Identifier must be a single string URI
             if t.get("mbid"):
                 track_obj["identifier"] = f"https://musicbrainz.org/recording/{t['mbid']}"

@@ -971,14 +971,14 @@ class BrainzMRIGUI:
             messagebox.showinfo("No Selection", "Please select rows in the table first.")
             return
 
-        # Map selection to MBIDs safely via DataFrame lookups (since columns might be hidden)
+        # Map selection to MBIDs safely via DataFrame lookups
         df = self.state.filtered_df
         
-        # We assume the treeview order matches the filtered_df order
-        # ReportTableView.populate() iterates filtered_df rows
-        # If user sorts in UI, ReportTableView resorts filtered_df before repopulating
-        # So tree index matches filtered_df index
-        
+        # Ensure we have the column
+        if "recording_mbid" not in df.columns:
+             messagebox.showerror("Error", "Underlying data is missing MusicBrainz IDs.")
+             return
+
         selected_mbids = set()
         
         # Get all children to find indices
@@ -989,22 +989,21 @@ class BrainzMRIGUI:
                 idx = all_children.index(item)
                 if idx < len(df):
                     # We can now safely grab the MBID from the dataframe
-                    if "recording_mbid" in df.columns:
-                        val = df.iloc[idx]["recording_mbid"]
-                        # Check for valid string/not-null
-                        if val and isinstance(val, str) and val.strip() and val != "None":
-                            selected_mbids.add(val)
+                    val = df.iloc[idx]["recording_mbid"]
+                    # Check for valid string/not-null
+                    if val and isinstance(val, str) and val.strip() and val != "None":
+                        selected_mbids.add(val)
             except ValueError:
                 continue
         
-        if not selected_mbids and "recording_mbid" not in df.columns:
-             messagebox.showerror("Error", "Underlying data is missing MusicBrainz IDs.")
+        if not selected_mbids:
+             messagebox.showinfo("No Data", "No valid MBIDs found in selected rows.")
              return
 
         self._execute_like_task(list(selected_mbids))
 
     def action_export_playlist(self):
-        """Export visible rows as a JSPF playlist."""
+        """Export visible rows as a JSPF playlist, scrubbing items without MBIDs."""
         if self.state.filtered_df is None or self.state.filtered_df.empty:
             return
 
@@ -1023,23 +1022,36 @@ class BrainzMRIGUI:
 
         client = self._get_lb_client()
         
-        # Prepare track list
+        # SCRUBBING LOGIC
         track_list = []
+        skipped_count = 0
+        
         for _, row in df.iterrows():
+            # Check for MBID first
+            mbid = row.get("recording_mbid")
+            has_mbid = mbid and isinstance(mbid, str) and mbid.strip() and mbid != "None"
+            
+            if not has_mbid:
+                skipped_count += 1
+                continue
+
             item = {
                 "artist": str(row["artist"]),
                 "title": str(row["track_name"]),
+                "mbid": str(mbid)
             }
             if "album" in row and row["album"] != "Unknown":
                 item["album"] = str(row["album"])
-            if "recording_mbid" in row and row["recording_mbid"]:
-                item["mbid"] = str(row["recording_mbid"])
             
             track_list.append(item)
 
         count = len(track_list)
         
-        # Reuse progress window logic
+        if count == 0:
+            messagebox.showwarning("No Tracks", "No tracks with valid MusicBrainz IDs were found.\nPlaylist export aborted.")
+            return
+
+        #Reuse progress window logic
         self.btn_export_playlist.config(state="disabled")
         current_progress_win = ProgressWindow(self.root, title="Uploading Playlist...")
         self.progress_win = current_progress_win
@@ -1053,6 +1065,10 @@ class BrainzMRIGUI:
                     resp = client.create_playlist(name, track_list, description="Created via BrainzMRI")
                     success = True
                     msg = f"Playlist '{name}' created with {count} tracks."
+                    
+                    if skipped_count > 0:
+                        msg += f"\n({skipped_count} tracks were scrubbed due to missing metadata.)"
+                        
                     if dry_run:
                         msg += "\n(Dry Run: JSON printed to console)"
                 except Exception as e:
