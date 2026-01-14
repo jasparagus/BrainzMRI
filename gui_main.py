@@ -935,14 +935,23 @@ class BrainzMRIGUI:
                     self.state.original_df = df_resolved.copy()
                     self.state.filtered_df = df_resolved.copy() # Reset filters to show all
                     
-                    # Update Playlist State if active (so it persists)
+                    # Update Playlist State if active (so it persists across re-runs)
                     if self.state.playlist_df is not None:
-                        # We need to map the resolved MBIDs back to the playlist DF
-                        # Simpler: just overwrite if dimensions match, or merge
-                        # Merging back to source is tricky if the report was filtered.
-                        # For now, let's just assume the report IS the view.
-                        # Ideally, we'd update self.state.playlist_df by merging on Artist/Track/Album
-                        pass 
+                        # We merge the resolved MBIDs/Albums back into the playlist source
+                        # using the dataframe index (assuming the report was generated from it)
+                        
+                        # Note: This simple assignment works best if the report hasn't been 
+                        # aggressively aggregated (like "By Artist"). 
+                        # For "Raw Listens" or "By Track", this works well.
+                        try:
+                            # Update only the rows that exist in both (intersection)
+                            common_indices = df_resolved.index.intersection(self.state.playlist_df.index)
+                            
+                            if len(common_indices) > 0:
+                                self.state.playlist_df.loc[common_indices, "recording_mbid"] = df_resolved.loc[common_indices, "recording_mbid"]
+                                self.state.playlist_df.loc[common_indices, "album"] = df_resolved.loc[common_indices, "album"]
+                        except Exception as e:
+                            print(f"Warning: Could not persist resolved metadata to playlist session: {e}")
 
                     # Refresh Table
                     self.table_view.show_table(df_resolved)

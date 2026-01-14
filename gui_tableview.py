@@ -139,30 +139,52 @@ class ReportTableView:
     # ------------------------------------------------------------
 
     def sort_column(self, tree: ttk.Treeview, df, col: str) -> None:
+        """
+        Sort the underlying DataFrame and refresh the view.
+        This ensures the visual order matches the data order for index-based lookups.
+        """
+        # Toggle sort order
         descending = tree._sort_state.get(col, False)
         tree._sort_state[col] = not descending
 
-        data = [(tree.set(k, col), k) for k in tree.get_children("")]
+        # Sort the state dataframe, not just the tree items
+        if self.state.filtered_df is not None:
+            try:
+                # Attempt numeric sort if possible, otherwise string
+                self.state.filtered_df = self.state.filtered_df.sort_values(
+                    by=col, 
+                    ascending=not descending,
+                    kind="mergesort" # Stable sort
+                )
+            except Exception:
+                # Fallback for mixed types
+                self.state.filtered_df = self.state.filtered_df.sort_values(
+                    by=col, 
+                    ascending=not descending, 
+                    key=lambda x: x.astype(str)
+                )
+            
+            # Re-render the table with the sorted data
+            self.show_table(self.state.filtered_df)
+            
+            # Restore the sort arrow indicator
+            # (show_table wipes headings, so we need to re-apply the arrow)
+            new_tree = self.tree
+            for c in self.state.filtered_df.columns:
+                if c not in [col for col in self.state.filtered_df.columns if col.endswith("_mbid")]:
+                    indicator = ""
+                    if c == col:
+                        indicator = " ▼" if descending else " ▲"
+                    
+                    new_tree.heading(
+                        c, 
+                        text=c + indicator,
+                        command=lambda c=c: self.sort_column(new_tree, self.state.filtered_df, c)
+                    )
+            
+            # Preserve sort state
+            new_tree._sort_state = tree._sort_state
 
-        try:
-            data = [(float(v), k) for v, k in data]
-        except ValueError:
-            pass
-
-        data.sort(reverse=tree._sort_state[col])
-
-        for index, (_, k) in enumerate(data):
-            tree.move(k, "", index)
-
-        for c in df.columns:
-            indicator = ""
-            if c == col:
-                indicator = " ▲" if not descending else " ▼"
-            tree.heading(
-                c,
-                text=c + indicator,
-                command=lambda c=c: self.sort_column(tree, df, c),
-            )
 
     # ------------------------------------------------------------
     # Filtering
