@@ -1,104 +1,127 @@
 """
 gui_charts.py
-Handles chart rendering using the native Matplotlib UI.
+Matplotlib visualization logic for BrainzMRI.
 """
 
-import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import tkinter as tk
 import pandas as pd
 import numpy as np
+import squarify  # Requires: pip install squarify
 
-# Ensure we use the TkAgg backend to share the loop with the main GUI
-matplotlib.use("TkAgg")
+def _show_figure_window(fig, title="Chart"):
+    """Helper to display a matplotlib figure in a new Tkinter window."""
+    window = tk.Toplevel()
+    window.title(title)
+    window.geometry("1000x700")
+    
+    canvas = FigureCanvasTkAgg(fig, master=window)
+    canvas.draw()
+    canvas.get_tk_widget().pack(fill="both", expand=True)
 
-
-def show_artist_trend_chart(pivot_df: pd.DataFrame):
+def show_artist_trend_chart(df: pd.DataFrame):
     """
-    Draw a Stacked Area Chart for the Artist Trend report in a native window.
+    Generate a Stacked Area Chart for Artist Trends.
     """
-    # Create a new figure manager
+    chart_df = df.copy()
+    if not isinstance(chart_df.index, pd.DatetimeIndex):
+        try:
+            chart_df.index = pd.to_datetime(chart_df.index)
+        except Exception:
+            pass 
+    
+    chart_df = chart_df.sort_index()
+
     fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
     
-    x = range(len(pivot_df.index))
-    artists = pivot_df.columns.tolist()
-    y_stack = [pivot_df[artist].values for artist in artists]
+    x = chart_df.index
+    y = [chart_df[col].values for col in chart_df.columns]
+    labels = chart_df.columns
+
+    ax.stackplot(x, y, labels=labels, alpha=0.8)
     
-    cmap = plt.get_cmap("tab20")
-    colors = [cmap(i % 20) for i in range(len(artists))]
-    
-    ax.stackplot(x, y_stack, labels=artists, colors=colors, alpha=0.8)
-    
-    ax.set_title("Top Artists Over Time (Stacked Trend)", fontsize=12, pad=15)
+    ax.set_title("Top Artist Dominance Over Time")
     ax.set_xlabel("Time Period")
     ax.set_ylabel("Listens")
-    ax.margins(0, 0)
-    
-    # X-Axis Labels
-    labels = [str(p) for p in pivot_df.index]
-    tick_indices = list(range(len(labels)))
-    
-    if len(labels) > 15:
-        step = len(labels) // 10
-        tick_indices = tick_indices[::step]
-        labels = [labels[i] for i in tick_indices]
-        
-    ax.set_xticks(tick_indices)
-    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=9)
-    
-    # Legend - Keep outside for this one as it can be large
-    handles, lbls = ax.get_legend_handles_labels()
-    # Reverse legend to match visual stack order
-    ax.legend(handles[::-1], lbls[::-1], loc='upper left', bbox_to_anchor=(1.02, 1), fontsize=9)
+    ax.legend(loc='upper left', bbox_to_anchor=(1, 1), title="Artists")
     
     plt.tight_layout()
-    
-    # Show native non-blocking window (with Zoom/Pan toolbar)
-    plt.show(block=False)
-
+    _show_figure_window(fig, title="Favorite Artist Trend")
 
 def show_new_music_stacked_bar(df: pd.DataFrame):
     """
-    Draw 3 Subplots (Artists, Albums, Tracks) showing New vs Recurring counts.
-    Legends are placed INSIDE each subplot to prevent cropping.
+    Generate a Stacked Bar Chart for New Music By Year.
     """
-    if df.empty:
-        return
-
-    # Create a new figure manager
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 6), dpi=100, sharex=True)
+    fig, axes = plt.subplots(1, 3, figsize=(14, 6), dpi=100, sharey=False)
     
-    years = df["Year"].astype(str).tolist()
-    x = np.arange(len(years))
-    width = 0.6
-
-    # Helper to plot one subplot
-    def plot_entity(ax, title, unique_col, new_col):
-        total = df[unique_col].values
-        new_count = df[new_col].values
-        recurring_count = total - new_count
+    metrics = [
+        ("New Artists", "Recurring Artists", "Artists"),
+        ("New Albums", "Recurring Albums", "Albums"),
+        ("New Tracks", "Recurring Tracks", "Tracks"),
+    ]
+    
+    years = df["Year"]
+    
+    for ax, (new_col, rec_col, title) in zip(axes, metrics):
+        if new_col not in df.columns or rec_col not in df.columns:
+            ax.text(0.5, 0.5, "Data Missing", ha='center')
+            continue
+            
+        ax.bar(years, df[new_col], label="New", alpha=0.8, color="#4CAF50") # Green
+        ax.bar(years, df[rec_col], bottom=df[new_col], label="Recurring", alpha=0.8, color="#2196F3") # Blue
         
-        # Plot "Recurring" at bottom (Blue)
-        ax.bar(x, recurring_count, width, label='Recurring', color='#4c72b0', alpha=0.9)
-        # Plot "New" on top (Orange)
-        ax.bar(x, new_count, width, bottom=recurring_count, label='New (First Listen)', color='#dd8452', alpha=0.9)
-        
-        ax.set_title(title, fontsize=11, pad=10)
-        ax.set_xticks(x)
-        ax.set_xticklabels(years, rotation=45, ha="right")
-        ax.grid(axis='y', linestyle='--', alpha=0.5)
-        
-        # LEGEND FIX: Place inside the plot area (best fit)
-        ax.legend(loc='best', fontsize=9, framealpha=0.9)
+        ax.set_title(title)
+        ax.set_xlabel("Year")
+        if ax == axes[0]:
+            ax.set_ylabel("Count")
+            ax.legend()
 
-    # 1. Artists
-    plot_entity(ax1, "Unique Artists", "Unique Artists", "New Artists")
-    ax1.set_ylabel("Count")
-
-    # 2. Albums
-    plot_entity(ax2, "Unique Albums", "Unique Albums", "New Albums")
-
-    # 3. Tracks
-    plot_entity(ax3, "Unique Tracks", "Unique Tracks", "New Tracks")
-
+    plt.suptitle("New vs. Recurring Music Discovery")
     plt.tight_layout()
-    plt.show(block=False)
+    _show_figure_window(fig, title="New Music By Year")
+
+def show_genre_flavor_treemap(df: pd.DataFrame):
+    """
+    Generate a Treemap for Genre Flavor using squarify.
+    Expects a DataFrame with a string column (Genre) and numeric column (Count).
+    """
+    # 1. Identify Columns
+    str_cols = df.select_dtypes(include=['object', 'string']).columns
+    num_cols = df.select_dtypes(include=['number']).columns
+    
+    if len(str_cols) == 0 or len(num_cols) == 0:
+        raise ValueError("Data must have at least one text column and one numeric column.")
+        
+    label_col = str_cols[0]
+    value_col = num_cols[0]
+    
+    # 2. Filter Top 30
+    plot_df = df.sort_values(by=value_col, ascending=False).head(30)
+    
+    # 3. Plot
+    fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
+    
+    # Generate label text with counts: "Metal\n(7619)"
+    labels = [
+        f"{row[label_col]}\n({row[value_col]})" 
+        for _, row in plot_df.iterrows()
+    ]
+    
+    # Create color palette (viridis reversed looks nice for frequency)
+    colors = plt.cm.viridis(np.linspace(0.8, 0.2, len(plot_df)))
+    
+    squarify.plot(
+        sizes=plot_df[value_col], 
+        label=labels, 
+        color=colors, 
+        alpha=0.8, 
+        text_kwargs={'fontsize': 9, 'color': 'white', 'weight': 'bold'},
+        ax=ax
+    )
+    
+    ax.axis('off')
+    ax.set_title(f"Top {len(plot_df)} Genres (Treemap)", fontsize=14)
+    
+    plt.tight_layout()
+    _show_figure_window(fig, title="Genre Flavor Profile")

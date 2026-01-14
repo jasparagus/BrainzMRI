@@ -807,7 +807,7 @@ class BrainzMRIGUI:
         self.set_status(status_text)
         
         # Enable Graph button if supported
-        if mode == "Favorite Artist Trend" or mode == "New Music By Year":
+        if mode in ["Favorite Artist Trend", "New Music By Year", "Genre Flavor"]:
             self.btn_show_graph.config(state="normal")
         else:
             self.btn_show_graph.config(state="disabled")
@@ -1150,6 +1150,19 @@ class BrainzMRIGUI:
             try:
                 # UPDATED: Call standalone function
                 gui_charts.show_new_music_stacked_bar(df)
+            except Exception as e:
+                messagebox.showerror("Chart Error", f"Failed to generate chart: {e}")
+                
+        # Case 3: Genre Flavor (NEW)
+        elif mode == "Genre Flavor":
+            df = self.state.last_report_df
+            if df is None or df.empty:
+                messagebox.showinfo("No Data", "No data available.")
+                return
+            
+            try:
+                # UPDATED: Call the new Treemap function
+                gui_charts.show_genre_flavor_treemap(df)
             except Exception as e:
                 messagebox.showerror("Chart Error", f"Failed to generate chart: {e}")
 
