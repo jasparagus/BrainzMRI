@@ -86,20 +86,14 @@ python3 gui_main.py
     * **Resolve Metadata:** If your list has missing IDs (e.g., imported CSV), click "Resolve Metadata" to fetch them from MusicBrainz.
     * **Export Playlist:** Click "Export as Playlist" to turn your current view into a playlist on your profile.
 
+---
+
 # UI Examples
 
 ![Main UI](example_main_ui.png)
 
 ![Example Graph](example_graph.png)
 
----
-
-## UI Examples
-
-![Main UI](example_main_ui.png)
-
-
-![Exapmle Graph](example_graph.png)
 
 ---
 
