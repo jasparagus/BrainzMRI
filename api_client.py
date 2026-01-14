@@ -80,6 +80,53 @@ class MusicBrainzClient:
             return self._extract_tags(results[0])
         return []
 
+    def search_recording_details(self, artist: str, track: str, release: str = None, threshold: int = 85) -> Optional[Dict[str, str]]:
+        """
+        Search for a recording and return its MBID and Metadata (Album, etc).
+        Returns {'mbid': '...', 'album': '...', 'title': '...'} or None.
+        """
+        if not artist or not track:
+            return None
+
+        # Lucene Query
+        query_parts = [f'artist:"{artist}"', f'recording:"{track}"']
+        
+        if release and release.lower() != "unknown":
+            query_parts.append(f'release:"{release}"')
+            
+        q = " AND ".join(query_parts)
+        
+        data = self._request("recording", {"query": q, "fmt": "json", "limit": "3"})
+        results = data.get("recordings", [])
+        
+        if not results:
+            return None
+            
+        best = results[0]
+        try:
+            score = int(best.get("score", "0"))
+        except ValueError:
+            score = 0
+            
+        if score >= threshold:
+            # Extract basic details
+            info = {
+                "mbid": best.get("id"),
+                "title": best.get("title", track), # Use MB title if available
+                "album": "Unknown"
+            }
+            
+            # Try to find an album (release) name
+            releases = best.get("releases", [])
+            if releases:
+                # Prioritize a release that matches our query if possible, otherwise first
+                # For now, just taking the first one is standard behavior
+                info["album"] = releases[0].get("title", "Unknown")
+            
+            return info
+            
+        return None
+
 
 class LastFMClient:
     """
@@ -206,7 +253,6 @@ class ListenBrainzClient:
     def submit_feedback(self, recording_mbid: str, score: int) -> Dict[str, Any]:
         """
         Submit feedback for a track.
-        score: 1 (Like), 0 (Neutral), -1 (Dislike)
         """
         if score not in (-1, 0, 1):
             raise ValueError("Score must be -1, 0, or 1.")

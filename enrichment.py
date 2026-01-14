@@ -56,6 +56,10 @@ def _get_enrichment_cache_path(entity_type: str) -> str:
         raise ValueError(f"Unknown entity_type for enrichment cache: {entity_type}")
     return os.path.join(global_dir, filename)
 
+def _get_resolver_cache_path() -> str:
+    """Return the path to the MBID resolver cache."""
+    global_dir = _get_global_dir()
+    return os.path.join(global_dir, "mbid_resolver_cache.json")
 
 def _get_noise_tags_path() -> str:
     """Return the path to the noise tags configuration file."""
@@ -523,3 +527,146 @@ def enrich_report(
     }
     
     return enriched_df, final_stats
+
+
+# ------------------------------------------------------------
+# MBID RESOLVER (New in Phase 4.1)
+# ------------------------------------------------------------
+
+def resolve_missing_mbids(
+    df: pd.DataFrame,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    is_cancelled: Optional[Callable[[], bool]] = None
+) -> Tuple[pd.DataFrame, int, int]:
+    """
+    Scan DataFrame for rows missing recording_mbid and attempt to resolve them.
+    Fills in: recording_mbid AND album name (if Unknown/Missing).
+    """
+    if "recording_mbid" not in df.columns:
+        return df, 0, 0
+    
+    # Work on a copy
+    df_out = df.copy()
+    
+    # Identify unique rows that need help (Missing or None/NaN)
+    mask_missing = (
+        df_out["recording_mbid"].isna() | 
+        (df_out["recording_mbid"] == "") | 
+        (df_out["recording_mbid"] == "None")
+    )
+    
+    # Create unique keys for lookup
+    candidates = df_out[mask_missing][["artist", "track_name", "album"]].drop_duplicates()
+    
+    total = len(candidates)
+    if total == 0:
+        return df_out, 0, 0
+        
+    # Load Resolver Cache
+    cache_path = _get_resolver_cache_path()
+    cache = _load_json_dict(cache_path)
+    
+    count_resolved = 0
+    count_failed = 0
+    
+    # Helper to generate cache key
+    def make_key(r):
+        a = str(r["artist"]).strip().lower()
+        t = str(r["track_name"]).strip().lower()
+        b = str(r["album"]).strip().lower()
+        return f"{a}|{t}|{b}"
+
+    # Results map: key -> {"mbid": "...", "album": "..."}
+    results_map = {}
+    
+    for i, (_, row) in enumerate(candidates.iterrows()):
+        if is_cancelled and is_cancelled():
+            break
+            
+        key = make_key(row)
+        
+        # 1. Check Cache
+        cached_entry = cache.get(key)
+        
+        if cached_entry:
+            # Handle legacy string cache (convert to dict on the fly)
+            if isinstance(cached_entry, str):
+                if cached_entry == "NOT_FOUND":
+                    count_failed += 1
+                else:
+                    results_map[key] = {"mbid": cached_entry, "album": row["album"]} # Keep old album if legacy cache
+                    count_resolved += 1
+            # Handle new dict cache
+            elif isinstance(cached_entry, dict):
+                if cached_entry.get("status") == "NOT_FOUND":
+                    count_failed += 1
+                else:
+                    results_map[key] = cached_entry
+                    count_resolved += 1
+            
+            if progress_callback:
+                progress_callback(i+1, total, f"Resolving (Cached) {i+1}/{total}...")
+            continue
+            
+        # 2. Hit API
+        if progress_callback:
+            progress_callback(i+1, total, f"Resolving (API) {i+1}/{total}...")
+            
+        # Returns dict: {'mbid': '...', 'album': '...', 'title': '...'}
+        details = mb_client.search_recording_details(row["artist"], row["track_name"], row["album"], threshold=85)
+        
+        if details:
+            # Cache success
+            cache[key] = details
+            results_map[key] = details
+            count_resolved += 1
+        else:
+            # Cache failure (negative caching)
+            cache[key] = {"status": "NOT_FOUND"}
+            count_failed += 1
+            
+        # Save cache periodically
+        if (i % 5) == 0:
+            _save_json_dict(cache_path, cache)
+            
+    # Final save
+    _save_json_dict(cache_path, cache)
+    
+    # 3. Apply to DataFrame using vectorized apply
+    # We update both MBID and Album (if album is Unknown)
+    
+    def filler(row):
+        existing_mbid = row["recording_mbid"]
+        existing_album = row["album"]
+        
+        # If we already have an ID, we don't touch it
+        if existing_mbid and str(existing_mbid) != "None" and str(existing_mbid) != "":
+            return pd.Series([existing_mbid, existing_album], index=["recording_mbid", "album"])
+            
+        # Try to find resolved data
+        k = make_key(row)
+        res = results_map.get(k)
+        
+        if res and isinstance(res, dict) and "mbid" in res:
+            new_mbid = res["mbid"]
+            new_album = res.get("album", existing_album)
+            
+            # Logic: Only overwrite album if current is "Unknown" or empty
+            # But wait, user might prefer the MB canonical album name over their own
+            # Let's stick to: Overwrite if current is "Unknown"
+            final_album = existing_album
+            if str(existing_album).lower() == "unknown":
+                final_album = new_album
+                
+            return pd.Series([new_mbid, final_album], index=["recording_mbid", "album"])
+            
+        # Fallback (legacy string cache handling implicit if result_map not cleaned)
+        # But we normalized results_map above, so we are good.
+        
+        return pd.Series([existing_mbid, existing_album], index=["recording_mbid", "album"])
+        
+    # Update columns
+    if not df_out.empty:
+        df_out[["recording_mbid", "album"]] = df_out.apply(filler, axis=1)
+    
+    return df_out, count_resolved, count_failed

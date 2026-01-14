@@ -436,6 +436,16 @@ class BrainzMRIGUI:
         self.btn_like_selected.pack(side="left", padx=5)
         Hovertip(self.btn_like_selected, "Submit a like for all highlighted tracks via API.\nRequires an API key.", hover_delay=500)
 
+        # Resolve Metadata Button (Hidden by default, shown if needed)
+        self.btn_resolve = tk.Button(
+            self.frm_upstream,
+            text="Resolve Metadata",
+            command=self.action_resolve_metadata,
+            bg="#4DD0E1", # Cyan/Light Blue
+        )
+        # Packed in _on_report_success if needed
+        Hovertip(self.btn_resolve, "Search MusicBrainz for missing MBIDs (slow).\nRequired to Like tracks from generic CSVs.", hover_delay=500)
+
         # Export Playlist Button
         self.btn_export_playlist = tk.Button(
             self.frm_upstream,
@@ -813,20 +823,38 @@ class BrainzMRIGUI:
             self.btn_show_graph.config(state="disabled")
 
         # Determine if Upstream Actions should be visible
-        # We need either 'recording_mbid' (for likes) OR 'artist'/'track_name' (for playlists)
         has_tracks = "track_name" in result.columns and "artist" in result.columns
-        has_mbids = "recording_mbid" in result.columns
+        has_mbids = False
+        if "recording_mbid" in result.columns:
+            # Check if we have ANY valid mbids
+            valid = result["recording_mbid"].notna() & (result["recording_mbid"] != "") & (result["recording_mbid"] != "None")
+            has_mbids = valid.any()
         
+        # Check for missing MBIDs to show Resolve button
+        has_missing_mbids = False
+        if "recording_mbid" in result.columns:
+            missing = result["recording_mbid"].isna() | (result["recording_mbid"] == "") | (result["recording_mbid"] == "None")
+            has_missing_mbids = missing.any()
+        elif has_tracks:
+            # If column is missing entirely but we have tracks, they are all missing
+            has_missing_mbids = True
+
         if has_tracks or has_mbids:
             self.frm_upstream.pack(fill="x", side="bottom", before=self.status_bar, padx=5, pady=5)
             
-            # Enable/Disable specific buttons
+            # Button Logic
             if has_mbids:
                 self.btn_like_all.config(state="normal")
                 self.btn_like_selected.config(state="normal")
             else:
                 self.btn_like_all.config(state="disabled")
                 self.btn_like_selected.config(state="disabled")
+            
+            # Show Resolve Button if needed
+            if has_missing_mbids:
+                self.btn_resolve.pack(side="left", padx=5)
+            else:
+                self.btn_resolve.pack_forget()
         else:
             self.frm_upstream.pack_forget()
 
@@ -852,13 +880,91 @@ class BrainzMRIGUI:
         self.frm_upstream.pack_forget()
 
     # ==================================================================
-    # Upstream Actions (Like / Playlist)
+    # Upstream Actions (Like / Playlist / Resolve)
     # ==================================================================
 
     def _get_lb_client(self) -> ListenBrainzClient:
         token = self.state.user.listenbrainz_token
         dry_run = self.dry_run_var.get()
         return ListenBrainzClient(token=token, dry_run=dry_run)
+
+    def action_resolve_metadata(self):
+        """Phase 4.1: Resolve missing MBIDs."""
+        if self.state.last_report_df is None:
+            return
+            
+        self.btn_resolve.config(state="disabled")
+        
+        current_progress_win = ProgressWindow(self.root, title="Resolving Metadata...")
+        self.progress_win = current_progress_win
+        
+        # Data
+        df_in = self.state.last_report_df.copy()
+        
+        def worker():
+            try:
+                def progress_callback(current, total, msg):
+                    def _do_update():
+                        try:
+                            if current_progress_win.winfo_exists():
+                                current_progress_win.update_progress(current, total, msg)
+                        except Exception: pass
+                    self.root.after(0, _do_update)
+                
+                def is_cancelled():
+                    try: return current_progress_win.cancelled
+                    except Exception: return True
+
+                # Run Resolver
+                df_resolved, count_res, count_fail = enrichment.resolve_missing_mbids(
+                    df_in, 
+                    progress_callback=progress_callback, 
+                    is_cancelled=is_cancelled
+                )
+                
+                def _finish():
+                    if current_progress_win.winfo_exists():
+                        current_progress_win.grab_release()
+                        current_progress_win.withdraw()
+                        self.root.after(100, current_progress_win.destroy)
+                    
+                    self.btn_resolve.config(state="normal")
+                    
+                    # Update State
+                    self.state.last_report_df = df_resolved
+                    self.state.original_df = df_resolved.copy()
+                    self.state.filtered_df = df_resolved.copy() # Reset filters to show all
+                    
+                    # Update Playlist State if active (so it persists)
+                    if self.state.playlist_df is not None:
+                        # We need to map the resolved MBIDs back to the playlist DF
+                        # Simpler: just overwrite if dimensions match, or merge
+                        # Merging back to source is tricky if the report was filtered.
+                        # For now, let's just assume the report IS the view.
+                        # Ideally, we'd update self.state.playlist_df by merging on Artist/Track/Album
+                        pass 
+
+                    # Refresh Table
+                    self.table_view.show_table(df_resolved)
+                    
+                    # Re-run success logic to update buttons
+                    self._on_report_success(
+                        df_resolved, 
+                        self.state.last_meta, 
+                        self.state.last_report_type_key, 
+                        self.state.last_enriched, 
+                        f"Resolved {count_res} tracks ({count_fail} failed).", 
+                        self.state.last_mode
+                    )
+                    
+                    messagebox.showinfo("Resolution Complete", f"Successfully resolved {count_res} new MusicBrainz IDs.\n{count_fail} items could not be matched with high confidence.")
+
+                self.root.after(0, _finish)
+
+            except Exception as e:
+                self.root.after(0, lambda: self._on_report_error(f"Error in resolver: {e}", "Error"))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _execute_like_task(self, mbids_to_process: list[str]):
         """Generic threaded worker to submit likes for a list of MBIDs."""
