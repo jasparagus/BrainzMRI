@@ -84,7 +84,12 @@ python3 gui_main.py
 * **Like Selected:** Highlight rows and click "Like Selected Tracks" to batch-like them on ListenBrainz.
 * **Export Playlist:** Click "Export as Playlist" to turn your current view into a playlist on your profile.
 
+## UI Examples
 
+![Main UI](example_main_ui.png)
+
+
+![Exapmle Graph](example_graph.png)
 
 ---
 
