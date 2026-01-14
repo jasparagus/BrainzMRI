@@ -28,6 +28,7 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 ### 4. Upstream Actions (Read/Write)
 * **Batch Likes:** Mark filtered lists of tracks as "Loved" on ListenBrainz in bulk.
 * **Playlist Creation:** Export any generated report or filtered view directly to a ListenBrainz JSPF playlist.
+* **Metadata Resolver:** Automatically query MusicBrainz to find missing IDs for generic CSV imports, upgrading "dumb" text lists into fully linkable, "Like"-able data.
 * **Safety First:** Includes a **"Dry Run"** mode (on by default) to simulate API requests without modifying your account.
 * **Data Hygiene:** Automatically scrubs tracks with poor metadata (missing MusicBrainz IDs) before uploading playlists to prevent API errors.
 
@@ -77,12 +78,21 @@ python3 gui_main.py
 
 # Usage Guide
 
-1. **Setup User:** Click "New User" (or "Edit User") to enter your ListenBrainz Username and User Token (found on your ListenBrainz settings page).
-2. **Generate Report:** Select a time range (e.g., enter "0, 365" for the last year) and a Report Type (e.g., "By Artist"). Click "Generate Report".
-3. **Filter:** Use the filter bar at the top of the table to search for specific artists or albums using Regex.
-4. **Actions:**
-* **Like Selected:** Highlight rows and click "Like Selected Tracks" to batch-like them on ListenBrainz.
-* **Export Playlist:** Click "Export as Playlist" to turn your current view into a playlist on your profile.
+1.  **Setup User:** Click "New User" (or "Edit User") to enter your ListenBrainz Username and User Token (found on your ListenBrainz settings page).
+2.  **Generate Report:** Select a time range (e.g., enter "0, 365" for the last year) and a Report Type (e.g., "By Artist"). Click "Generate Report".
+3.  **Filter:** Use the filter bar at the top of the table to search for specific artists or albums using Regex.
+4.  **Actions:**
+    * **Like Selected:** Highlight rows and click "Like Selected Tracks" to batch-like them on ListenBrainz.
+    * **Resolve Metadata:** If your list has missing IDs (e.g., imported CSV), click "Resolve Metadata" to fetch them from MusicBrainz.
+    * **Export Playlist:** Click "Export as Playlist" to turn your current view into a playlist on your profile.
+
+# UI Examples
+
+![Main UI](example_main_ui.png)
+
+![Example Graph](example_graph.png)
+
+---
 
 ## UI Examples
 
@@ -114,32 +124,22 @@ BrainzMRI/
 ├── README.md
 ├── requirements.txt
 └── config.json                   # Auto-created settings
-
 ```
 
 ---
 
 # Master Roadmap
 
-* [ ] **Metadata Resolver:**
-* *Goal:* The current version requires imported CSVs to have MusicBrainz IDs (MBIDs) to perform "Like" actions.
-* *Task:* Add a "Resolve" feature to query the MusicBrainz API and find MBIDs for tracks based on Artist/Title names, allowing generic CSVs to be "Upgraded" to linkable data.
+* **[ ] Report Presets:**
+    * *Goal:* Quick-access configurations for common queries.
+    * *Examples:* "Love at First Sight" (Liked tracks with 1 listen), "Forgotten Favorites" (Liked but not listened in >1 year), "Top 10 Trend".
 
+* **[ ] Multi-Column Sorting:**
+    * *Goal:* Stable sorting in the Table View.
+    * *Task:* Implement logic to preserve the previous sort column as a secondary key (e.g., clicking "Track" then "Artist" sorts by Artist, then Track).
 
-* [ ] **Report Presets:**
-* *Goal:* Quick-access configurations for common queries.
-* *Examples:* "Love at First Sight" (Liked tracks with 1 listen), "Forgotten Favorites" (Liked but not listened in >1 year), "Top 10 Trend".
+* **[ ] Advanced Filtering:**
+    * *Goal:* Enhanced Regex support for complex inclusion/exclusion rules on the dataset.
 
-
-* [ ] **Multi-Column Sorting:**
-* *Goal:* Stable sorting in the Table View.
-* *Task:* Implement logic to preserve the previous sort column as a secondary key (e.g., clicking "Track" then "Artist" sorts by Artist, then Track).
-
-
-* [ ] **Advanced Filtering:**
-* *Goal:* Enhanced Regex support for complex inclusion/exclusion rules on the dataset.
-
-
-* [ ] **Heatmaps:**
-* *Goal:* Visualizations for listening density (Hour of Day vs. Day of Week).
-
+* **[ ] Heatmaps:**
+    * *Goal:* Visualizations for listening density (Hour of Day vs. Day of Week).
