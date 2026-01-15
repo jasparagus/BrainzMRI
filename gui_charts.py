@@ -52,8 +52,22 @@ def show_artist_trend_chart(df: pd.DataFrame):
 def show_new_music_stacked_bar(df: pd.DataFrame):
     """
     Generate a Stacked Bar Chart for New Music By Year.
+    Legend removed; Title color-coded manually.
     """
-    fig, axes = plt.subplots(1, 3, figsize=(14, 6), dpi=100, sharey=False)
+    # Work on a copy to avoid modifying the source view
+    plot_df = df.copy()
+
+    # Calculate missing "Recurring" columns if they don't exist
+    if "Recurring Artists" not in plot_df.columns and "Unique Artists" in plot_df.columns:
+        plot_df["Recurring Artists"] = plot_df["Unique Artists"] - plot_df["New Artists"]
+    
+    if "Recurring Albums" not in plot_df.columns and "Unique Albums" in plot_df.columns:
+        plot_df["Recurring Albums"] = plot_df["Unique Albums"] - plot_df["New Albums"]
+
+    if "Recurring Tracks" not in plot_df.columns and "Unique Tracks" in plot_df.columns:
+        plot_df["Recurring Tracks"] = plot_df["Unique Tracks"] - plot_df["New Tracks"]
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 7), dpi=100, sharey=False)
     
     metrics = [
         ("New Artists", "Recurring Artists", "Artists"),
@@ -61,24 +75,44 @@ def show_new_music_stacked_bar(df: pd.DataFrame):
         ("New Tracks", "Recurring Tracks", "Tracks"),
     ]
     
-    years = df["Year"]
+    years = plot_df["Year"]
     
+    # Colors
+    c_new = "#4CAF50" # Green
+    c_rec = "#2196F3" # Blue
+
     for ax, (new_col, rec_col, title) in zip(axes, metrics):
-        if new_col not in df.columns or rec_col not in df.columns:
+        if new_col not in plot_df.columns or rec_col not in plot_df.columns:
             ax.text(0.5, 0.5, "Data Missing", ha='center')
             continue
             
-        ax.bar(years, df[new_col], label="New", alpha=0.8, color="#4CAF50") # Green
-        ax.bar(years, df[rec_col], bottom=df[new_col], label="Recurring", alpha=0.8, color="#2196F3") # Blue
+        ax.bar(years, plot_df[new_col], label="New", alpha=0.8, color=c_new)
+        ax.bar(years, plot_df[rec_col], bottom=plot_df[new_col], label="Recurring", alpha=0.8, color=c_rec)
         
         ax.set_title(title)
         ax.set_xlabel("Year")
         if ax == axes[0]:
             ax.set_ylabel("Count")
-            ax.legend()
+            # LEGEND REMOVED as per request
+            # ax.legend()
 
-    plt.suptitle("New vs. Recurring Music Discovery")
-    plt.tight_layout()
+    # Custom Multi-Colored Title Construction
+    # We use fig.text relative coordinates to simulate a rich-text title
+    
+    # Main Header
+    fig.text(0.5, 0.96, "Music Discovery by Year", ha='center', fontsize=16, weight='bold')
+    
+    # Color-coded Sub-header acting as Title + Legend
+    # Centered alignment logic: 
+    # [New Artists] [vs.] [Recurring Artists]
+    
+    fig.text(0.42, 0.92, "New Artists", color=c_new, weight='bold', ha='right', fontsize=12)
+    fig.text(0.50, 0.92, "vs.", color='black', ha='center', fontsize=12)
+    fig.text(0.58, 0.92, "Recurring Artists", color=c_rec, weight='bold', ha='left', fontsize=12)
+
+    # Adjust layout to make room for the custom header
+    plt.tight_layout(rect=[0, 0.03, 1, 0.90])
+    
     _show_figure_window(fig, title="New Music By Year")
 
 def show_genre_flavor_treemap(df: pd.DataFrame):
