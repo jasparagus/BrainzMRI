@@ -206,7 +206,8 @@ class ReportEngine:
                 result, meta = func(base_df)
 
             elif func is reporting.report_raw_listens:
-                result, meta = func(df, topn=topn)
+                # Updated: Pass liked_mbids for the "Liked" column
+                result, meta = func(df, topn=topn, liked_mbids=liked_mbids)
 
             else:
                 result, meta = func(df, **kwargs)

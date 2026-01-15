@@ -20,12 +20,13 @@ import os
 # ------------------------------------------------------------
 
 PREFERRED_COLUMN_ORDER = [
+    "Liked",                # New: Visual indicator column
     "artist",
     "album",
     "track_name",
     "total_listens",
+    "unique_liked_tracks",  # New: Aggregated count
     "total_hours_listened",
-    "unique_liked_tracks",
     "last_listened",
     "first_listened",
     "Genres",
@@ -87,9 +88,20 @@ def apply_column_order(df: pd.DataFrame) -> pd.DataFrame:
 # Raw Listens Report
 # ------------------------------------------------------------
 
-def report_raw_listens(df: pd.DataFrame, topn: int = None):
-    """Generate a simple Raw Listens report."""
-    result = df.head(topn) if (topn is not None and topn > 0) else df
+def report_raw_listens(df: pd.DataFrame, topn: int = None, liked_mbids: set = None):
+    """
+    Generate a simple Raw Listens report.
+    Adds a 'Liked' column if liked_mbids are provided.
+    """
+    # Create a copy to safely add columns
+    result = df.head(topn).copy() if (topn is not None and topn > 0) else df.copy()
+    
+    # Calculate Liked column (Universal Like Aggregation)
+    if liked_mbids and "recording_mbid" in result.columns:
+        result["Liked"] = result["recording_mbid"].apply(
+            lambda x: "❤️" if x in liked_mbids else ""
+        )
+    
     meta = {
         "entity": "RawListens",
         "topn": topn if topn else "All",
@@ -198,7 +210,9 @@ def report_top(
 
     grouped = grouped.drop(columns=["total_duration_ms"]).reset_index()
 
-    if min_likes > 0:
+    # --- Universal Like Aggregation ---
+    # Always merge likes info if we have the data, regardless of filter settings
+    if liked_mbids:
         likes_df = _compute_unique_likes(df, liked_mbids, group_col)
         join_cols = ["artist"]
         if group_col == "album": join_cols = ["artist", "album"]
@@ -206,8 +220,19 @@ def report_top(
 
         grouped = grouped.merge(likes_df, on=join_cols, how="left")
         grouped["unique_liked_tracks"] = grouped["unique_liked_tracks"].fillna(0).astype(int)
-        grouped = grouped[grouped["unique_liked_tracks"] >= min_likes]
+    
+    # --- Threshold Filtering ---
+    
+    # 1. Like Threshold
+    if min_likes > 0:
+        if "unique_liked_tracks" in grouped.columns:
+            grouped = grouped[grouped["unique_liked_tracks"] >= min_likes]
+        else:
+            # If no likes data was merged (e.g. liked_mbids was empty), 
+            # but min_likes > 0, we must return empty.
+            grouped = grouped.iloc[0:0]
 
+    # 2. Activity Thresholds
     if min_listens > 0 or min_minutes > 0:
         grouped = grouped[
             (grouped["total_listens"] >= min_listens)
