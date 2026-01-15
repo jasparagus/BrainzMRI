@@ -1,25 +1,20 @@
 """
-gui.py
-Tkinter GUI for BrainzMRI, using reporting, enrichment, and user modules.
+gui_tableview.py
+Report Table View logic for BrainzMRI.
+Handles rendering, regex filtering, and multi-column sorting.
 """
 
-import json
 import tkinter as tk
-from tkinter import filedialog, ttk, messagebox
-from idlelib.tooltip import Hovertip
+from tkinter import ttk, messagebox
 import re
-
-
-# ======================================================================
-# Report Table View (unchanged from v2026.01.06)
-# ======================================================================
+from typing import Any
 
 class ReportTableView:
     """
-    Encapsulates table rendering, filtering, and sorting.
+    Encapsulates table rendering, filtering, and multi-column sorting.
     """
 
-    def __init__(self, root: tk.Tk, container: tk.Frame, state: GUIState) -> None:
+    def __init__(self, root: tk.Tk, container: tk.Frame, state: Any) -> None:
         self.root = root
         self.container = container
         self.state = state
@@ -27,6 +22,11 @@ class ReportTableView:
         # Filter state
         self.filter_by_var = tk.StringVar(value="All")
         self.filter_entry: tk.Entry | None = None
+
+        # Sort state: List of tuples (column_name, ascending_bool)
+        # Example: [('artist', True), ('year', False)]
+        # Index 0 is the Primary Sort Key.
+        self.sort_stack = []
 
         # UI containers
         self.filter_frame: tk.Frame | None = None
@@ -83,7 +83,10 @@ class ReportTableView:
     # ------------------------------------------------------------
 
     def show_table(self, df):
-
+        """
+        Render the DataFrame into the Treeview.
+        Applies current sort stack visuals.
+        """
         if not self.filter_entry or not self.filter_entry.winfo_exists():
             self.build_filter_bar()
 
@@ -91,17 +94,21 @@ class ReportTableView:
         if self.filter_entry and self.filter_entry.winfo_exists():
             current_filter = self.filter_entry.get()
 
-        # Hide MBID columns from display
+        # Hide ID columns from display
         df = df.drop(columns=[c for c in df.columns if c.endswith("_mbid")], errors="ignore")
         cols = list(df.columns)
+        
+        # Update dropdown
         self.filter_by_dropdown["values"] = ["All"] + cols
         if self.filter_by_var.get() not in ["All"] + cols:
             self.filter_by_var.set("All")
 
+        # Restore filter text
         self.filter_entry.delete(0, tk.END)
         if current_filter:
             self.filter_entry.insert(0, current_filter)
 
+        # Re-build container
         if not self.table_container or not self.table_container.winfo_exists():
             self.table_container = tk.Frame(self.container)
             self.table_container.pack(fill="both", expand=True)
@@ -118,73 +125,86 @@ class ReportTableView:
         scrollbar.pack(side="right", fill="y")
         tree.configure(yscrollcommand=scrollbar.set)
 
-        tree._sort_state = {}
         self.tree = tree
 
+        # Bindings
         tree.bind("<Control-c>", self.copy_selection_to_clipboard)
         tree.bind("<Control-C>", self.copy_selection_to_clipboard)
 
+        # Clean Sort Stack (remove columns that no longer exist in this report)
+        valid_cols = set(cols)
+        self.sort_stack = [s for s in self.sort_stack if s[0] in valid_cols]
+
+        # Setup Columns
         tree["columns"] = cols
         for col in cols:
+            # Determine header text (Add arrow if Primary sort)
+            header_text = col
+            if self.sort_stack and self.sort_stack[0][0] == col:
+                is_asc = self.sort_stack[0][1]
+                header_text += " ▲" if is_asc else " ▼"
+
             tree.heading(
-                col, text=col, command=lambda c=col: self.sort_column(tree, df, c)
+                col, 
+                text=header_text, 
+                command=lambda c=col: self.sort_column(c)
             )
             tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
 
+        # Insert Data
         for _, row in df.iterrows():
             tree.insert("", "end", values=list(row))
 
     # ------------------------------------------------------------
-    # Sorting
+    # Sorting (Multi-Column Stack)
     # ------------------------------------------------------------
 
-    def sort_column(self, tree: ttk.Treeview, df, col: str) -> None:
+    def sort_column(self, col: str) -> None:
         """
-        Sort the underlying DataFrame and refresh the view.
-        This ensures the visual order matches the data order for index-based lookups.
+        Update the sort stack and re-sort the DataFrame.
+        Logic:
+        - If col is already Primary (index 0): Toggle Asc/Desc.
+        - If col is not Primary: Move to Index 0 (become Primary), default Asc.
+        - Max stack depth: 3.
         """
-        # Toggle sort order
-        descending = tree._sort_state.get(col, False)
-        tree._sort_state[col] = not descending
+        # 1. Update Stack
+        if self.sort_stack and self.sort_stack[0][0] == col:
+            # Toggle current primary
+            curr_col, curr_asc = self.sort_stack[0]
+            self.sort_stack[0] = (curr_col, not curr_asc)
+        else:
+            # Move to front (Remove existing instance if any)
+            self.sort_stack = [s for s in self.sort_stack if s[0] != col]
+            # Insert as new Primary (Ascending default)
+            self.sort_stack.insert(0, (col, True))
+        
+        # Limit depth
+        if len(self.sort_stack) > 3:
+            self.sort_stack = self.sort_stack[:3]
 
-        # Sort the state dataframe, not just the tree items
+        # 2. Sort DataFrame
         if self.state.filtered_df is not None:
+            cols = [s[0] for s in self.sort_stack]
+            ascs = [s[1] for s in self.sort_stack]
+            
             try:
-                # Attempt numeric sort if possible, otherwise string
+                # Use stable sort (mergesort) for multi-level consistency
                 self.state.filtered_df = self.state.filtered_df.sort_values(
-                    by=col, 
-                    ascending=not descending,
-                    kind="mergesort" # Stable sort
+                    by=cols, 
+                    ascending=ascs,
+                    kind="mergesort"
                 )
             except Exception:
-                # Fallback for mixed types
+                # Fallback for mixed types that pandas can't natively compare
+                # We coerce to string for sorting in worst-case scenarios
                 self.state.filtered_df = self.state.filtered_df.sort_values(
-                    by=col, 
-                    ascending=not descending, 
+                    by=cols, 
+                    ascending=ascs, 
                     key=lambda x: x.astype(str)
                 )
             
-            # Re-render the table with the sorted data
+            # 3. Refresh View (Redraws tree and updates header arrows)
             self.show_table(self.state.filtered_df)
-            
-            # Restore the sort arrow indicator
-            # (show_table wipes headings, so we need to re-apply the arrow)
-            new_tree = self.tree
-            for c in self.state.filtered_df.columns:
-                if c not in [col for col in self.state.filtered_df.columns if col.endswith("_mbid")]:
-                    indicator = ""
-                    if c == col:
-                        indicator = " ▼" if descending else " ▲"
-                    
-                    new_tree.heading(
-                        c, 
-                        text=c + indicator,
-                        command=lambda c=c: self.sort_column(new_tree, self.state.filtered_df, c)
-                    )
-            
-            # Preserve sort state
-            new_tree._sort_state = tree._sort_state
-
 
     # ------------------------------------------------------------
     # Filtering
@@ -219,12 +239,24 @@ class ReportTableView:
             mask = df[col_choice].astype(str).str.contains(regex, regex=True)
 
         self.state.filtered_df = df[mask]
+        
+        # Re-apply current sort to the filtered results if needed
+        # (Though usually user filters first, then sorts. 
+        # But if we want sticky sort, we could re-run sort_column logic here.
+        # For now, let's just show. The sort stack persists, so next click will use it.)
         self.show_table(self.state.filtered_df)
 
     def clear_filter(self) -> None:
         if self.state.original_df is None or self.filter_entry is None:
             return
+        
+        # Reset filtered_df to original
         self.state.filtered_df = self.state.original_df.copy()
+        
+        # We also reset the sort stack on Clear Filter to return to "Native" order
+        # (or comment this out if you prefer sort to persist across clear)
+        self.sort_stack = [] 
+        
         self.show_table(self.state.original_df)
         self.filter_entry.delete(0, tk.END)
 
@@ -253,5 +285,3 @@ class ReportTableView:
         self.root.update()
 
         return "break"
-        
-        
