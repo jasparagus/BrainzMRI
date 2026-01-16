@@ -8,6 +8,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import re
 from typing import Any
+import pandas as pd
+import parsing # Ensure parsing is imported to access normalize_sort_key
 
 class ReportTableView:
     """
@@ -200,29 +202,49 @@ class ReportTableView:
         if len(self.sort_stack) > 3:
             self.sort_stack = self.sort_stack[:3]
 
-        # 2. Sort DataFrame
-        if self.state.filtered_df is not None:
-            cols = [s[0] for s in self.sort_stack]
-            ascs = [s[1] for s in self.sort_stack]
+        # 2. Apply Sort using helper
+        self._apply_sort()
+
+    def _apply_sort(self):
+        """
+        Internal helper to apply the current sort_stack to self.state.filtered_df
+        using the regularized sort key logic.
+        """
+        if self.state.filtered_df is None or not self.sort_stack:
+            # If no sort, just refresh (or do nothing)
+            if self.state.filtered_df is not None:
+                self.show_table(self.state.filtered_df)
+            return
+
+        cols = [s[0] for s in self.sort_stack]
+        ascs = [s[1] for s in self.sort_stack]
+
+        # Define the Key Wrapper for "Regularized Sorting"
+        def sort_key_wrapper(col_series):
+            # If numeric or date, let Pandas handle it natively
+            if pd.api.types.is_numeric_dtype(col_series) or pd.api.types.is_datetime64_any_dtype(col_series):
+                return col_series
             
-            try:
-                # Use stable sort (mergesort) for multi-level consistency
-                self.state.filtered_df = self.state.filtered_df.sort_values(
-                    by=cols, 
-                    ascending=ascs,
-                    kind="mergesort"
-                )
-            except Exception:
-                # Fallback for mixed types that pandas can't natively compare
-                # We coerce to string for sorting in worst-case scenarios
-                self.state.filtered_df = self.state.filtered_df.sort_values(
-                    by=cols, 
-                    ascending=ascs, 
-                    key=lambda x: x.astype(str)
-                )
-            
-            # 3. Refresh View (Redraws tree and updates header arrows)
-            self.show_table(self.state.filtered_df)
+            # Otherwise, use our smart string normalizer
+            return parsing.normalize_sort_key(col_series)
+
+        try:
+            # Use stable sort (mergesort)
+            self.state.filtered_df = self.state.filtered_df.sort_values(
+                by=cols, 
+                ascending=ascs,
+                kind="mergesort",
+                key=sort_key_wrapper  # <--- The Magic Hook
+            )
+        except Exception as e:
+            print(f"Sort failed, falling back to string sort: {e}")
+            self.state.filtered_df = self.state.filtered_df.sort_values(
+                by=cols, 
+                ascending=ascs, 
+                key=lambda x: x.astype(str)
+            )
+        
+        self.show_table(self.state.filtered_df)
 
     # ------------------------------------------------------------
     # Filtering
@@ -258,28 +280,8 @@ class ReportTableView:
 
         self.state.filtered_df = df[mask]
         
-        # FIX 1.2: Re-apply current sort stack to the filtered results
-        if self.sort_stack:
-            # We call sort_column with the primary key, but we need to cheat slightly
-            # because sort_column toggles the direction.
-            # Instead, we just manually re-run the sort logic using the existing stack.
-            cols = [s[0] for s in self.sort_stack]
-            ascs = [s[1] for s in self.sort_stack]
-            
-            try:
-                self.state.filtered_df = self.state.filtered_df.sort_values(
-                    by=cols, 
-                    ascending=ascs,
-                    kind="mergesort"
-                )
-            except Exception:
-                self.state.filtered_df = self.state.filtered_df.sort_values(
-                    by=cols, 
-                    ascending=ascs, 
-                    key=lambda x: x.astype(str)
-                )
-
-        self.show_table(self.state.filtered_df)
+        # Re-apply current sort stack to the filtered results using the shared helper
+        self._apply_sort()
 
     def clear_filter(self) -> None:
         if self.state.original_df is None or self.filter_entry is None:

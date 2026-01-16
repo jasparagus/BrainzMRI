@@ -3,6 +3,8 @@ import json
 import os
 from datetime import datetime, UTC, timezone
 from typing import Iterable, List, Tuple, Dict, Any, Set, Optional
+import unicodedata
+import re
 
 import pandas as pd
 
@@ -262,3 +264,51 @@ def make_track_key_series(df: pd.DataFrame) -> pd.Series:
         df["track_name"].astype(str).str.strip().str.lower() + "|" +
         df["album"].astype(str).str.strip().str.lower()
     )
+
+# ------------------------------------------------------------
+# Sort Normalization (New for Regularized Sorting)
+# ------------------------------------------------------------
+
+def normalize_sort_key(series: pd.Series) -> pd.Series:
+    """
+    Normalize a series of strings for sorting logic only.
+    - Lowercase
+    - Expand ligatures (Æ -> ae) manually (NFKD misses some Latin ones)
+    - Strip accents/diacritics (é -> e)
+    - Remove leading "The " (English specific)
+    """
+    # 1. Ensure string and lowercase
+    s = series.astype(str).str.lower()
+    
+    # 2. Remove "the " prefix
+    s = s.str.replace(r"^the\s+", "", regex=True)
+    
+    # 3. Manual Ligature Expansion
+    # NFKD does not decompose these common Latin ligatures, so we do it manually.
+    ligatures = {
+        "æ": "ae",
+        "œ": "oe",
+        "ß": "ss",  # German Sharp S
+        # 'ﬁ' and 'ﬂ' ARE handled by NFKD, so we don't need them here
+    }
+    for char, replacement in ligatures.items():
+        s = s.str.replace(char, replacement, regex=False)
+    
+    # 4. Unicode Normalization
+    def _clean_text(val):
+        if not isinstance(val, str):
+            return str(val)
+            
+        # NFKD compatibility decomposition:
+        # Handles accents ('é' -> 'e') and compatibility chars ('ﬁ' -> 'fi')
+        val = unicodedata.normalize('NFKD', val)
+        
+        # Filter out non-spacing mark characters (the accents)
+        val = "".join([c for c in val if not unicodedata.combining(c)])
+        
+        return val
+
+    # Apply the heavy lifting
+    s = s.map(_clean_text)
+    
+    return s
