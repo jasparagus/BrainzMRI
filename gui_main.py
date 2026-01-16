@@ -334,6 +334,13 @@ class BrainzMRIGUI:
             variable=self.force_cache_update_var,
         )
         chk_force_cache.pack(side="left", padx=5)
+        Hovertip(
+            chk_force_cache,
+            "Forces querying the API for new genre data.\n"
+            "Normal behavior will only query for missing genres.\n"
+            "Any new metadata will update cached genre data.",
+            hover_delay=500
+        )
 
         # Deep Query Checkbox (NEW)
         self.deep_query_var = tk.BooleanVar(value=False)

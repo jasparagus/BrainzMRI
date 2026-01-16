@@ -20,11 +20,11 @@ import os
 # ------------------------------------------------------------
 
 PREFERRED_COLUMN_ORDER = [
-    "Liked",                # Visual indicator column
     "artist",
     "album",
     "track_name",
     "total_listens",
+    "Liked",                # Visual indicator column
     "unique_liked_tracks",  # Aggregated count
     "total_hours_listened",
     "last_listened",
