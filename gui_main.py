@@ -91,7 +91,7 @@ class ProgressWindow(tk.Toplevel):
         self.lbl_status = tk.Label(self, text="Initializing...", anchor="w")
         self.lbl_status.pack(fill="x", padx=20, pady=(20, 5))
 
-        self.progress = ttk.Progressbar(self, orient="horizontal", mode="determinate")
+        self.progress = ttk.Progressbar(self, orient="horizontal", mode="indeterminate") # Default to indeterminate for crawls
         self.progress.pack(fill="x", padx=20, pady=5)
 
         self.btn_cancel = tk.Button(self, text="Cancel", command=self.cancel, width=10)
@@ -112,11 +112,15 @@ class ProgressWindow(tk.Toplevel):
                 return
             
             self.lbl_status.config(text=message)
+            
             if total > 0:
+                self.progress.config(mode="determinate")
                 pct = (current / total) * 100
                 self.progress["value"] = pct
             else:
-                self.progress["value"] = 0
+                self.progress.config(mode="indeterminate")
+                self.progress.start(10)
+                
         except Exception:
             # Ignore errors if window is in a transitional state
             pass
@@ -195,11 +199,21 @@ class BrainzMRIGUI:
         tk.Button(frm_user, text="New User", command=self.new_user).pack(side="left", padx=2)
         tk.Button(frm_user, text="Edit User", command=self.edit_user).pack(side="left", padx=2)
 
-        # Row 2: Source Control (CSV Import / Status)
+        # Row 2: Source Control (CSV Import / Get Listens / Status)
         frm_source_controls = tk.Frame(frm_top)
         frm_source_controls.pack(pady=(5, 0))
 
-        tk.Button(frm_source_controls, text="Import CSV...", command=self.import_csv).pack(side="left", padx=(5, 10))
+        tk.Button(frm_source_controls, text="Import CSV...", command=self.import_csv).pack(side="left", padx=(5, 5))
+        
+        # Get New Listens Button (Incremental Update)
+        self.btn_get_listens = tk.Button(
+            frm_source_controls, 
+            text="Get New Listens", 
+            command=self.action_get_new_listens,
+            state="disabled" # Enabled only if user has API config
+        )
+        self.btn_get_listens.pack(side="left", padx=(0, 10))
+        Hovertip(self.btn_get_listens, "Fetch recent listens from ListenBrainz API.\nRequires username in profile.", hover_delay=500)
 
         # Active Source Indicator
         self.lbl_source_status = tk.Label(
@@ -605,6 +619,16 @@ class BrainzMRIGUI:
         # But we still need to set status if close_csv didn't (because playlist was already None)
         self.lbl_source_status.config(text="Active Source: User History", fg="gray")
         self.set_status(f"User '{username}' loaded.")
+        
+        # Check API status to enable "Get New Listens"
+        self._check_api_status()
+
+    def _check_api_status(self):
+        """Enable/Disable API buttons based on user config."""
+        if self.state.user and self.state.user.get_listenbrainz_username():
+            self.btn_get_listens.config(state="normal")
+        else:
+            self.btn_get_listens.config(state="disabled")
 
     def import_csv(self):
         """Phase 2.2: Import arbitrary CSV playlist."""
@@ -907,6 +931,182 @@ class BrainzMRIGUI:
         token = self.state.user.listenbrainz_token
         dry_run = self.dry_run_var.get()
         return ListenBrainzClient(token=token, dry_run=dry_run)
+
+    # ------------------------------------------------------------------
+    # Incremental Update (New Listens)
+    # ------------------------------------------------------------------
+
+    def action_get_new_listens(self):
+        """
+        Incrementally fetch recent listens from ListenBrainz using a robust
+        'Backwards Crawl' strategy with an intermediate file cache.
+        """
+        if not self.state.user or not self.state.user.get_listenbrainz_username():
+            messagebox.showerror("Error", "ListenBrainz Username required.")
+            return
+
+        # 1. Determine Local Anchor
+        local_head_ts = self.state.user.get_latest_listen_timestamp()
+        
+        # 2. Check Intermediate Cache (Resume capability)
+        # If intermediate cache exists, we resume from where it left off (its oldest record)
+        intermediate_df = self.state.user.load_intermediate_listens()
+        resume_mode = False
+        fetched_total = 0
+        
+        if not intermediate_df.empty:
+            # We have a "floating island". We must bridge it to local_head.
+            # Get the oldest timestamp in the island.
+            if pd.api.types.is_datetime64_any_dtype(intermediate_df["listened_at"]):
+                try:
+                    start_ts = int(intermediate_df["listened_at"].min().timestamp())
+                    resume_mode = True
+                    fetched_total = len(intermediate_df)
+                except Exception:
+                    # Fallback if corrupt timestamps
+                    start_ts = int(time.time())
+            else:
+                start_ts = int(time.time())
+        else:
+            # Start fresh from NOW
+            start_ts = int(time.time())
+
+        # Setup Worker
+        self.btn_get_listens.config(state="disabled")
+        self.processing = True
+        
+        title = "Fetching New Listens..."
+        if resume_mode:
+            title = "Resuming Fetch (Intermediate Cache Found)..."
+            
+        current_progress_win = ProgressWindow(self.root, title=title)
+        self.progress_win = current_progress_win
+        
+        client = self._get_lb_client()
+        username = self.state.user.get_listenbrainz_username()
+        
+        def worker():
+            try:
+                nonlocal fetched_total
+                current_max_ts = start_ts
+                gap_closed = False
+                api_calls = 0
+                warning_triggered = False
+                
+                # Fetch Loop
+                while not current_progress_win.cancelled:
+                    # GUI Update
+                    def _upd(c, m):
+                        if current_progress_win.winfo_exists():
+                            current_progress_win.update_progress(0, 0, f"{m} (Total: {c})")
+                    self.root.after(0, _upd, fetched_total, "Fetching batch...")
+
+                    # Fetch Batch
+                    try:
+                        resp = client.get_user_listens(username, max_ts=current_max_ts, count=100)
+                    except Exception as e:
+                        print(f"API Error during fetch: {e}")
+                        break
+                        
+                    payload = resp.get("payload", {})
+                    listens = payload.get("listens", [])
+                    
+                    if not listens:
+                        # No more data from API
+                        gap_closed = True # Effectively closed if we hit end of history
+                        break
+                        
+                    # Calculate timestamps for this batch
+                    # listens are usually new -> old
+                    batch_ts = [l["listened_at"] for l in listens]
+                    batch_min = min(batch_ts)
+                    batch_max = max(batch_ts)
+                    
+                    # 1. Append to Intermediate
+                    self.state.user.append_to_intermediate_cache(listens)
+                    fetched_total += len(listens)
+                    api_calls += 1
+                    
+                    # 2. Check Overlap (Gap Closure)
+                    if batch_min <= local_head_ts:
+                        gap_closed = True
+                        break
+                        
+                    # 3. Prepare next iteration
+                    current_max_ts = batch_min
+                    
+                    # 4. Check Safety Threshold
+                    if fetched_total > 5000 and not warning_triggered:
+                        warning_triggered = True # Ask only once
+                        
+                        # We need to pause and ask user on Main Thread
+                        response_event = threading.Event()
+                        user_response = [False]
+                        
+                        def _ask():
+                            if messagebox.askyesno(
+                                "Large Download Warning", 
+                                f"Fetched {fetched_total} listens so far.\nGap to local history not yet closed.\n\nContinue fetching?"
+                            ):
+                                user_response[0] = True
+                            response_event.set()
+                        
+                        self.root.after(0, _ask)
+                        response_event.wait()
+                        
+                        if not user_response[0]:
+                            # User said NO.
+                            # We break loop. gap_closed is False.
+                            # We still merge what we have (preserving the "Island" in main cache 
+                            # so next time we start closer).
+                            break
+                            
+                    # Rate limit sleep
+                    time.sleep(1.0) 
+                
+                # Loop Finished. 
+                
+                # CRITICAL CHANGE: Only merge if the gap was successfully closed.
+                # If aborted or stopped early, we leave the intermediate file alone 
+                # so the next run can resume.
+                
+                def _finish():
+                    # Safe Destroy
+                    if current_progress_win.winfo_exists():
+                        current_progress_win.grab_release()
+                        current_progress_win.withdraw()
+                        self.root.after(100, current_progress_win.destroy)
+                    
+                    self.btn_get_listens.config(state="normal")
+                    self.processing = False
+                    
+                    if gap_closed:
+                        # Success - Commit the data
+                        self.state.user.merge_intermediate_cache()
+                        msg = f"Update Complete.\nImported {fetched_total} new listens.\nHistory is fully continuous."
+                        messagebox.showinfo("Update Complete", msg)
+                        
+                        # Refresh View if showing raw listens
+                        if self.report_type.get() == "Raw Listens":
+                            self.run_report()
+                    else:
+                        # Aborted or Failed - Persist Intermediate
+                        msg = (
+                            f"Fetch stopped after {fetched_total} listens.\n"
+                            "Gap to local history NOT closed yet.\n"
+                            "Progress has been saved to a temporary file.\n"
+                            "Run 'Get New Listens' again to resume."
+                        )
+                        messagebox.showwarning("Update Incomplete", msg)
+
+                self.root.after(0, _finish)
+
+            except Exception as e:
+                err_msg = f"Error in update worker: {e}"
+                self.root.after(0, lambda: self._on_report_error(err_msg, "Error"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
 
     def action_resolve_metadata(self):
         """Phase 4.1: Resolve missing MBIDs."""

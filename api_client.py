@@ -185,7 +185,7 @@ class LastFMClient:
 class ListenBrainzClient:
     """
     Client for the ListenBrainz API.
-    Handles authenticated WRITE operations (Feedback, Playlists).
+    Handles authenticated WRITE operations (Feedback, Playlists) and READ operations (User Listens).
     """
 
     def __init__(self, token: Optional[str] = None, dry_run: bool = False):
@@ -193,33 +193,32 @@ class ListenBrainzClient:
         self.dry_run = dry_run
         self.user_agent = "BrainzMRI/1.0 (https://github.com/jasparagus/BrainzMRI)"
 
-    def _post(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _request_generic(self, endpoint: str, method: str, params: Dict[str, Any] = None, data: bytes = None) -> Dict[str, Any]:
         """
-        Execute a POST request to ListenBrainz with Retries.
+        Core request handler for ListenBrainz.
         """
-        if not self.token and not self.dry_run:
-            raise ValueError("ListenBrainz User Token is required for write operations.")
-
         url = f"{LISTENBRAINZ_API_ROOT}{endpoint}"
-        json_data = json.dumps(payload).encode("utf-8")
         
-        if self.dry_run:
-            print(f"--- [DRY RUN] POST REQUEST ---")
-            print(f"URL: {url}")
-            print(f"HEADERS: Authorization: Token {'*' * 10}")
-            print(f"PAYLOAD:\n{json.dumps(payload, indent=2)}")
-            print(f"------------------------------")
-            return {"status": "ok", "dry_run": True}
+        headers = {
+            "User-Agent": self.user_agent,
+        }
+        
+        # Add Auth if available (required for writes, optional for reads but good practice)
+        if self.token:
+            headers["Authorization"] = f"Token {self.token}"
+
+        if method == "POST":
+            headers["Content-Type"] = "application/json"
+            
+        if params:
+            query = urllib.parse.urlencode(params)
+            url = f"{url}?{query}"
 
         req = urllib.request.Request(
             url,
-            data=json_data,
-            headers={
-                "Authorization": f"Token {self.token}",
-                "Content-Type": "application/json",
-                "User-Agent": self.user_agent,
-            },
-            method="POST"
+            data=data,
+            headers=headers,
+            method=method
         )
 
         last_error = None
@@ -231,8 +230,12 @@ class ListenBrainzClient:
                     raise RuntimeError(f"API returned status {resp.status}")
             
             except urllib.error.HTTPError as e:
-                # HTTP Errors (400, 401, 403, 429) are usually logical, not transient.
-                # However, 500s or 503s might be transient.
+                # 429 Too Many Requests
+                if e.code == 429:
+                    print(f"Rate Limited (429). Sleeping 5s...")
+                    time.sleep(5.0)
+                    continue
+
                 if e.code in [500, 502, 503, 504]:
                     last_error = e
                     time.sleep(1 * (2 ** attempt))
@@ -260,6 +263,21 @@ class ListenBrainzClient:
 
         # If we exit loop, we failed
         raise RuntimeError(f"Network Error after {MAX_RETRIES} attempts: {last_error}")
+
+    def _get(self, endpoint: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        return self._request_generic(endpoint, "GET", params=params)
+
+    def _post(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if self.dry_run:
+            print(f"--- [DRY RUN] POST REQUEST ---")
+            print(f"URL: {endpoint}")
+            print(f"PAYLOAD:\n{json.dumps(payload, indent=2)}")
+            return {"status": "ok", "dry_run": True}
+            
+        data = json.dumps(payload).encode("utf-8")
+        return self._request_generic(endpoint, "POST", data=data)
+
+    # --- Write Methods ---
 
     def submit_feedback(self, recording_mbid: str, score: int) -> Dict[str, Any]:
         """
@@ -313,3 +331,19 @@ class ListenBrainzClient:
         }
         
         return self._post("playlist/create", jspf)
+
+    # --- Read Methods ---
+
+    def get_user_listens(self, username: str, max_ts: int = None, count: int = 100) -> Dict[str, Any]:
+        """
+        Fetch listens for a user.
+        :param max_ts: UNIX timestamp. If provided, returns listens BEFORE this time.
+        :param count: Number of listens to retrieve (max 100).
+        """
+        params = {
+            "count": count
+        }
+        if max_ts:
+            params["max_ts"] = max_ts
+        
+        return self._get(f"user/{username}/listens", params)

@@ -40,16 +40,17 @@ def get_user_cache_dir(username: str) -> str:
 
 def get_cached_usernames() -> list[str]:
     """
-    Return a sorted list of cached usernames based on the user cache directory.
+    Return a sorted list of cached usernames based on the user cache directory structure.
     """
     cache_root = get_cache_root()
     users_root = os.path.join(cache_root, "users")
     if not os.path.exists(users_root):
         return []
+    
     names = []
     for entry in os.listdir(users_root):
-        full = os.path.join(users_root, entry)
-        if os.path.isdir(full):
+        full_path = os.path.join(users_root, entry)
+        if os.path.isdir(full_path):
             names.append(entry)
     return sorted(names)
 
@@ -57,21 +58,15 @@ def get_cached_usernames() -> list[str]:
 @dataclass
 class User:
     """
-    Represents a BrainzMRI user and their canonical listens/feedback.
+    Represents a BrainzMRI User.
+    Manages loading/saving of personal data (listens, likes, api tokens).
     """
-
-    username: str  # App username
+    username: str
     listens_df: pd.DataFrame = field(repr=False)
     liked_mbids: Set[str] = field(repr=False)
     cache_dir: str
     sources: dict = field(default_factory=dict)
-    
-    # Auth tokens (New in v3.1)
     listenbrainz_token: Optional[str] = None
-
-    # -------------------------
-    # Construction helpers
-    # -------------------------
 
     @classmethod
     def from_sources(
@@ -81,52 +76,49 @@ class User:
         listenbrainz_username: Optional[str] = None,
         listenbrainz_token: Optional[str] = None,
         listenbrainz_zips: Optional[List[Dict[str, Any]]] = None,
-        cache_root: Optional[str] = None,
+        cache_root: Optional[str] = None
     ) -> "User":
         """
-        Create a new User from source metadata only.
+        Create a new User from scratch (import mode).
         """
         if cache_root is None:
             cache_root = get_cache_root()
-
+            
         cache_dir = get_user_cache_dir(username)
-
+        
         sources = {
             "lastfm_username": lastfm_username or None,
             "listenbrainz_username": listenbrainz_username or None,
             "listenbrainz_zips": listenbrainz_zips or [],
         }
 
+        # Create empty user
         user = cls(
             username=username,
             listens_df=_empty_listens_df(),
             liked_mbids=set(),
             cache_dir=cache_dir,
             sources=sources,
-            listenbrainz_token=listenbrainz_token,
+            listenbrainz_token=listenbrainz_token
         )
-
+        
+        # Initial Save
         user.save_cache()
         return user
 
     @classmethod
-    def from_cache(
-        cls,
-        username: str,
-        cache_root: Optional[str] = None,
-    ) -> "User":
+    def from_cache(cls, username: str, cache_root: Optional[str] = None) -> "User":
         """
-        Load a User from an existing cache on disk.
+        Load an existing user from the local cache.
         """
         if cache_root is None:
             cache_root = get_cache_root()
-
+            
         cache_dir = get_user_cache_dir(username)
-
         listens_path = os.path.join(cache_dir, "listens.jsonl.gz")
         likes_path = os.path.join(cache_dir, "likes.json")
         sources_path = os.path.join(cache_dir, "sources.json")
-        auth_path = os.path.join(cache_dir, "auth.json") # New separate file for tokens
+        auth_path = os.path.join(cache_dir, "auth.json")
 
         if os.path.exists(listens_path):
             listens_df = _load_listens_jsonl_gz(listens_path)
@@ -145,7 +137,6 @@ class User:
         with open(sources_path, "r", encoding="utf-8") as f:
             sources = json.load(f)
             
-        # Load Auth (handle missing file for backward compat)
         listenbrainz_token = None
         if os.path.exists(auth_path):
             try:
@@ -161,17 +152,11 @@ class User:
             liked_mbids=liked_mbids,
             cache_dir=cache_dir,
             sources=sources,
-            listenbrainz_token=listenbrainz_token,
+            listenbrainz_token=listenbrainz_token
         )
 
-    # -------------------------
-    # Cache I/O
-    # -------------------------
-
     def save_cache(self) -> None:
-        """
-        Write listens, likes, sources, and auth to the user cache directory.
-        """
+        """Persist user data to disk."""
         listens_path = os.path.join(self.cache_dir, "listens.jsonl.gz")
         likes_path = os.path.join(self.cache_dir, "likes.json")
         sources_path = os.path.join(self.cache_dir, "sources.json")
@@ -185,38 +170,29 @@ class User:
         with open(sources_path, "w", encoding="utf-8") as f:
             json.dump(self.sources, f, indent=2)
             
-        # Save tokens securely-ish (in a separate file)
         auth_data = {"listenbrainz_token": self.listenbrainz_token}
         with open(auth_path, "w", encoding="utf-8") as f:
             json.dump(auth_data, f, indent=2)
 
-    # -------------------------
-    # Ingestion from sources
-    # -------------------------
-
     def ingest_listenbrainz_zip(self, zip_path: str) -> None:
         """
-        Ingest a ListenBrainz ZIP into this user's canonical listens and likes.
+        Parse a ZIP file and merge it into the current history.
         """
         user_info, feedback, listens = parsing.parse_listenbrainz_zip(zip_path)
-
         df_new = parsing.normalize_listens(listens, origin=["listenbrainz_zip"])
         likes_new = parsing.load_feedback(feedback)
 
+        # Merge Listens
         if self.listens_df is None or self.listens_df.empty:
             combined = df_new.copy()
         else:
             combined = pd.concat([self.listens_df, df_new], ignore_index=True)
 
-        # Dedupe
+        # Deduplicate
         if not combined.empty:
-            dedupe_cols = [
-                "artist",
-                "album",
-                "track_name",
-                "listened_at",
-                "recording_mbid",
-            ]
+            # We assume unique on artist/album/track/timestamp
+            dedupe_cols = ["artist", "album", "track_name", "listened_at", "recording_mbid"]
+            # Filter cols that actually exist
             existing_cols = [c for c in dedupe_cols if c in combined.columns]
             if existing_cols:
                 combined = combined.drop_duplicates(subset=existing_cols, keep="first")
@@ -224,20 +200,15 @@ class User:
         self.listens_df = combined
         self.liked_mbids.update(likes_new)
 
+        # Record Source
         zips_list = self.sources.get("listenbrainz_zips") or []
-        zips_list.append(
-            {
-                "path": os.path.abspath(zip_path),
-                "ingested_at": datetime.now(timezone.utc).isoformat(),
-            }
-        )
+        zips_list.append({
+            "path": os.path.abspath(zip_path),
+            "ingested_at": datetime.now(timezone.utc).isoformat()
+        })
         self.sources["listenbrainz_zips"] = zips_list
 
         self.save_cache()
-
-    # -------------------------
-    # Convenience accessors
-    # -------------------------
 
     def get_listens(self) -> pd.DataFrame:
         return self.listens_df
@@ -251,19 +222,112 @@ class User:
     def get_listenbrainz_username(self) -> Optional[str]:
         return self.sources.get("listenbrainz_username")
 
-    def update_sources(
-        self,
-        lastfm_username: Optional[str],
-        listenbrainz_username: Optional[str],
-        listenbrainz_token: Optional[str],
-    ) -> None:
-        """
-        Update source metadata and auth tokens.
-        """
+    def update_sources(self, lastfm_username: Optional[str], listenbrainz_username: Optional[str], listenbrainz_token: Optional[str]) -> None:
         self.sources["lastfm_username"] = lastfm_username or None
         self.sources["listenbrainz_username"] = listenbrainz_username or None
         self.listenbrainz_token = listenbrainz_token or None
         self.save_cache()
+
+    # -------------------------
+    # Incremental Update Support
+    # -------------------------
+
+    @property
+    def intermediate_cache_path(self) -> str:
+        """Path to the temporary intermediate cache file."""
+        return os.path.join(self.cache_dir, "intermediate_listens.jsonl")
+
+    def get_latest_listen_timestamp(self) -> int:
+        """
+        Return the UNIX timestamp of the most recent listen in the primary cache.
+        Returns 0 if no listens exist.
+        """
+        if self.listens_df is None or self.listens_df.empty:
+            return 0
+        
+        # Ensure listened_at is datetime
+        if not pd.api.types.is_datetime64_any_dtype(self.listens_df["listened_at"]):
+            return 0
+            
+        try:
+            # Get max, convert to UTC timestamp
+            latest = self.listens_df["listened_at"].max()
+            return int(latest.timestamp())
+        except Exception:
+            return 0
+
+    def load_intermediate_listens(self) -> pd.DataFrame:
+        """
+        Load the intermediate cache if it exists. 
+        Returns normalized DataFrame or empty DataFrame.
+        """
+        path = self.intermediate_cache_path
+        if not os.path.exists(path):
+            return _empty_listens_df()
+            
+        records = []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        records.append(json.loads(line))
+        except Exception:
+            # If corrupt, discard/return empty
+            return _empty_listens_df()
+            
+        if not records:
+            return _empty_listens_df()
+            
+        # These records are raw listen objects from API.
+        # Normalize them to match the main DataFrame schema.
+        return parsing.normalize_listens(records, origin=["api_incremental"])
+
+    def append_to_intermediate_cache(self, raw_listens: List[Dict[str, Any]]) -> None:
+        """
+        Append raw API listen objects to the intermediate JSONL file.
+        """
+        path = self.intermediate_cache_path
+        with open(path, "a", encoding="utf-8") as f:
+            for listen in raw_listens:
+                f.write(json.dumps(listen, ensure_ascii=False) + "\n")
+
+    def merge_intermediate_cache(self) -> None:
+        """
+        Loads intermediate cache, merges with main cache, deduplicates, saves, 
+        and deletes the intermediate file.
+        """
+        df_new = self.load_intermediate_listens()
+        if df_new.empty:
+            # Just clean up file if empty
+            if os.path.exists(self.intermediate_cache_path):
+                os.remove(self.intermediate_cache_path)
+            return
+
+        if self.listens_df is None or self.listens_df.empty:
+            combined = df_new.copy()
+        else:
+            combined = pd.concat([self.listens_df, df_new], ignore_index=True)
+
+        # Dedupe based on content
+        dedupe_cols = ["artist", "album", "track_name", "listened_at", "recording_mbid"]
+        existing_cols = [c for c in dedupe_cols if c in combined.columns]
+        
+        if existing_cols:
+            # Sort to ensure we keep the most "complete" or recent version if duplicates exist
+            combined = combined.sort_values(by="listened_at", ascending=False)
+            combined = combined.drop_duplicates(subset=existing_cols, keep="first")
+
+        self.listens_df = combined
+        self.save_cache()
+        
+        # Delete intermediate
+        if os.path.exists(self.intermediate_cache_path):
+            os.remove(self.intermediate_cache_path)
+
+    def discard_intermediate_cache(self) -> None:
+        """Force delete the intermediate cache."""
+        if os.path.exists(self.intermediate_cache_path):
+            os.remove(self.intermediate_cache_path)
 
 
 # -------------------------
@@ -308,12 +372,14 @@ def _load_listens_jsonl_gz(path: str) -> pd.DataFrame:
             if not line:
                 continue
             records.append(json.loads(line))
-
+    
     if not records:
         return _empty_listens_df()
-
+        
     df = pd.DataFrame.from_records(records)
+    
+    # Restore datetime objects
     if "listened_at" in df.columns:
         df["listened_at"] = pd.to_datetime(df["listened_at"], utc=True)
-
+        
     return df

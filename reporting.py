@@ -1,5 +1,6 @@
 """
-Reporting module for BrainzMRI.
+reporting.py
+Reporting logic for BrainzMRI.
 
 This module is responsible for:
 - Aggregating listens data into Top-N reports.
@@ -14,18 +15,17 @@ from datetime import datetime, timezone, timedelta
 import time
 import os
 
-
 # ------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------
 
 PREFERRED_COLUMN_ORDER = [
-    "Liked",                # New: Visual indicator column
+    "Liked",                # Visual indicator column
     "artist",
     "album",
     "track_name",
     "total_listens",
-    "unique_liked_tracks",  # New: Aggregated count
+    "unique_liked_tracks",  # Aggregated count
     "total_hours_listened",
     "last_listened",
     "first_listened",
@@ -57,6 +57,7 @@ def filter_by_recency(df: pd.DataFrame, entity_cols: list[str], start_days: int,
     min_dt = now - timedelta(days=end_days)
     max_dt = now - timedelta(days=start_days)
 
+    # 1. Calculate the TRUE last listen date for every entity (ignoring time range filters)
     true_last = (
         df.groupby(entity_cols)["listened_at"]
         .max()
@@ -64,12 +65,43 @@ def filter_by_recency(df: pd.DataFrame, entity_cols: list[str], start_days: int,
         .rename(columns={"listened_at": "true_last_listened"})
     )
 
+    # 2. Find entities where the last listen falls in the window
     allowed = true_last[
         (true_last["true_last_listened"] >= min_dt)
         & (true_last["true_last_listened"] <= max_dt)
     ]
 
+    # 3. Filter original DF to only include those entities
     return df.merge(allowed[entity_cols], on=entity_cols, how="inner")
+
+
+def filter_by_thresholds(
+    df: pd.DataFrame, 
+    min_listens: int = 0, 
+    min_minutes: float = 0.0,
+    min_likes: int = 0
+) -> pd.DataFrame:
+    """
+    Filter aggregated report by metrics.
+    Applies OR logic for Activity (Listens OR Minutes) and AND logic for Likes.
+    """
+    mask = pd.Series(True, index=df.index)
+    
+    # OR logic for listens/minutes (if either is met, keep it)
+    if min_listens > 0 or min_minutes > 0:
+        mask_listens = (df["total_listens"] >= min_listens)
+        mask_minutes = (df["total_hours_listened"] * 60 >= min_minutes)
+        mask = mask_listens | mask_minutes
+    
+    # AND logic for likes (must be met if set)
+    if min_likes > 0:
+        if "unique_liked_tracks" in df.columns:
+            mask = mask & (df["unique_liked_tracks"] >= min_likes)
+        else:
+            # If min_likes is requested but data is missing, return empty
+            return df.iloc[0:0]
+        
+    return df[mask]
 
 
 # ------------------------------------------------------------
@@ -101,6 +133,8 @@ def report_raw_listens(df: pd.DataFrame, topn: int = None, liked_mbids: set = No
         result["Liked"] = result["recording_mbid"].apply(
             lambda x: "❤️" if x in liked_mbids else ""
         )
+    else:
+        result["Liked"] = ""
     
     meta = {
         "entity": "RawListens",
@@ -211,7 +245,6 @@ def report_top(
     grouped = grouped.drop(columns=["total_duration_ms"]).reset_index()
 
     # --- Universal Like Aggregation ---
-    # Always merge likes info if we have the data, regardless of filter settings
     if liked_mbids:
         likes_df = _compute_unique_likes(df, liked_mbids, group_col)
         join_cols = ["artist"]
@@ -219,25 +252,26 @@ def report_top(
         elif group_col == "track": join_cols = ["artist", "track_name"]
 
         grouped = grouped.merge(likes_df, on=join_cols, how="left")
-        grouped["unique_liked_tracks"] = grouped["unique_liked_tracks"].fillna(0).astype(int)
+        
+        # PANDAS FIX: Explicitly cast to float before filling NaNs to avoid FutureWarning
+        if "unique_liked_tracks" in grouped.columns:
+            grouped["unique_liked_tracks"] = grouped["unique_liked_tracks"].astype(float).fillna(0).astype(int)
+        
+        # Add visual heart indicator for Track reports
+        if group_col == "track" and "recording_mbid" in grouped.columns:
+             grouped["Liked"] = grouped["recording_mbid"].apply(
+                lambda x: "❤️" if x in liked_mbids else ""
+            )
+        else:
+             grouped["Liked"] = ""
+    else:
+        # PANDAS FIX: Ensure column exists even if no likes provided
+        grouped["unique_liked_tracks"] = 0
+        grouped["Liked"] = ""
     
     # --- Threshold Filtering ---
-    
-    # 1. Like Threshold
-    if min_likes > 0:
-        if "unique_liked_tracks" in grouped.columns:
-            grouped = grouped[grouped["unique_liked_tracks"] >= min_likes]
-        else:
-            # If no likes data was merged (e.g. liked_mbids was empty), 
-            # but min_likes > 0, we must return empty.
-            grouped = grouped.iloc[0:0]
-
-    # 2. Activity Thresholds
-    if min_listens > 0 or min_minutes > 0:
-        grouped = grouped[
-            (grouped["total_listens"] >= min_listens)
-            | (grouped["total_hours_listened"] >= (min_minutes / 60.0))
-        ]
+    # RESTORED FIX: Use the dedicated helper to ensure filters are applied
+    grouped = filter_by_thresholds(grouped, min_listens, min_minutes, min_likes)
 
     sorted_df = grouped.sort_values(by, ascending=False)
     result = sorted_df if (topn is None or topn == 0) else sorted_df.head(topn)
@@ -284,6 +318,9 @@ def report_new_music_by_year(df: pd.DataFrame):
         }
 
     df = df.copy()
+    if not pd.api.types.is_datetime64_any_dtype(df["listened_at"]):
+        df["listened_at"] = pd.to_datetime(df["listened_at"], utc=True)
+        
     df["year"] = df["listened_at"].dt.year
 
     min_year = int(df["year"].min())

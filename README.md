@@ -6,35 +6,40 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 
 ## Key Features
 
-### 1. Data Analysis & Reporting
-* **User History:** Downloads and caches your entire ListenBrainz history (via ZIP export).
-* **Report Types:**
-    * **Top N:** By Artist, Album, or Track (filtered by date range, listen count, etc.).
-    * **Genre Flavor:** Weighted analysis of your most-listened genres based on MusicBrainz and Last.fm tags.
-    * **Favorite Artist Trends:** Time-series visualization of artist dominance over specific periods.
-    * **New Music by Year:** Breakdown of discovery rates vs. recurring favorites.
-    * **Raw Listens:** Deep dive into specific datasets with regex filtering.
-* **Visualizations:** Interactive charts (Stacked Area, Stacked Bar) powered by Matplotlib.
+### Advanced Analysis & Reporting
+* **Top N Reports:** Aggregate by **Artist**, **Album**, or **Track**.
+    * **Filters:** Time Range (e.g., "Last 365 Days"), Recency (e.g., "Last Listened > 1 year ago"), and Activity Thresholds.
+    * **Visual Indicators:** Tracks liked on ListenBrainz are marked with a ❤️.
+* **Genre Flavor:** A weighted analysis of your listening habits. Unlike simple tag counts, this report weights genres by the *volume of listens*, giving a more accurate picture of your actual musical "diet."
+* **Favorite Artist Trends:** A time-series analysis that bins your history (Daily/Weekly/Monthly) to show the rise and fall of your top artists over time.
+* **New Music by Year:** A discovery analysis comparing "New Discoveries" (artists heard for the first time that year) vs. "Catalog" (re-listening to known artists).
+* **Raw Listens:** A forensic view of your individual listen events, useful for verifying imports and data integrity.
 
-### 2. External Data Ingestion
-* **CSV Import:** Load arbitrary CSV playlists (e.g., from Spotify exports or other tools) to analyze them using BrainzMRI's matching engine.
-* **Contextual Analysis:** Compare imported playlists against your personal listening history.
+### Rich Visualizations
+* **Genre Treemap:** A rectangular visualization of genre dominance .
+* **Stacked Area Chart:** Visualizes the "Favorite Artist Trend" report, showing how artist dominance shifts over periods .
+* **Stacked Bar Chart:** Visualizes the "New Music by Year" report, highlighting your discovery rates over time.
 
-### 3. Metadata Enrichment
-* **Genre Fetching:** Automatically queries MusicBrainz and Last.fm APIs to fetch tags for your top tracks.
-* **Smart Caching:** Tags are cached locally (`user_cache/`) to minimize API traffic and provide instant results for subsequent reports.
-* **Pipeline Stats:** Real-time feedback on enrichment performance (Cached vs. Fetched vs. Empty).
+### Metadata Enrichment & Deep Query
+* **Smart Enrichment:** Automatically fetches metadata from MusicBrainz and Last.fm.
+* **Deep Query Mode:** An optional "Slow" mode that fetches detailed metadata for Albums and Tracks, not just Artists.
+* **Resolver Engine:** Can scan generic CSV imports (which lack IDs) and query MusicBrainz to resolve missing **Recording MBIDs**, upgrading "dumb" text lists into fully linkable, "Like"-able data.
+* **"Æ" Sorting:** Custom sorting logic that handles special characters (e.g., normalizing "Æ" to "AE") so that artists sort intuitively rather than at the bottom of the list.
 
-### 4. Upstream Actions (Read/Write)
-* **Batch Likes:** Mark filtered lists of tracks as "Loved" on ListenBrainz in bulk.
+### Upstream Actions (Read/Write)
+* **Batch Likes:** Highlight rows and mark them as "Loved" on ListenBrainz in bulk.
 * **Playlist Creation:** Export any generated report or filtered view directly to a ListenBrainz JSPF playlist.
-* **Metadata Resolver:** Automatically query MusicBrainz to find missing IDs for generic CSV imports, upgrading "dumb" text lists into fully linkable, "Like"-able data.
 * **Safety First:** Includes a **"Dry Run"** mode (on by default) to simulate API requests without modifying your account.
-* **Data Hygiene:** Automatically scrubs tracks with poor metadata (missing MusicBrainz IDs) before uploading playlists to prevent API errors.
+
+### Robust Data Ingestion
+* **Transactional Updates:** The "Get New Listens" feature uses a "Backwards Crawl" strategy with intermediate staging. This ensures that even if an update is aborted or crashes, your data remains consistent. It safely bridges the gap between your local history and the server without data corruption.
+* **Resume Capability:** Interrupted downloads automatically save their progress to an "Island" cache and resume exactly where they left off.
+* **CSV Import:** Load arbitrary CSV playlists (e.g., from Spotify exports) to analyze them using BrainzMRI's matching engine.
 
 ---
 
 ## Attribution
+
 This project was developed with assistance from **Microsoft Copilot** and **Google Gemini** as a fun test/experiment with "Vibe Coding".
 
 ---
@@ -78,21 +83,32 @@ python3 gui_main.py
 
 # Usage Guide
 
-1.  **Setup User:** Click "New User" (or "Edit User") to enter your ListenBrainz Username and User Token (found on your ListenBrainz settings page).
-2.  **Generate Report:** Select a time range (e.g., enter "0, 365" for the last year) and a Report Type (e.g., "By Artist"). Click "Generate Report".
-3.  **Filter:** Use the filter bar at the top of the table to search for specific artists or albums using Regex.
-4.  **Actions:**
-    * **Like Selected:** Highlight rows and click "Like Selected Tracks" to batch-like them on ListenBrainz.
-    * **Resolve Metadata:** If your list has missing IDs (e.g., imported CSV), click "Resolve Metadata" to fetch them from MusicBrainz.
-    * **Export Playlist:** Click "Export as Playlist" to turn your current view into a playlist on your profile.
+1. **Setup User:**
+* Click "New User" (or "Edit User") to enter your ListenBrainz Username and User Token (found on your ListenBrainz settings page).
+* If you have a previous ListenBrainz JSON export, you can ingest the ZIP file here to instantly populate your history.
 
----
 
-# UI Examples
+2. **Fetch Data:**
+* **Incremental Update:** Click **"Get New Listens"** to fetch recent tracks from the server. This process is safe to interrupt; it will resume from where it left off next time.
+* **Import CSV:** Alternatively, click "Import CSV" to load an external playlist for analysis.
 
-![Main UI](example_main_ui.png)
 
-![Example Graph](example_graph.png)
+3. **Generate Report:**
+* Select a **Report Type** (e.g., "Genre Flavor", "By Artist").
+* **Time Filters:** Enter "0, 365" to analyze the last year.
+* **Enrichment:** Select "Query MusicBrainz" to fetch genres. Check "Deep Query" if you need album-level precision (slower).
+* Click **"Generate Report"**.
+
+
+4. **Visualize:**
+* For supported reports (Artist Trend, Genre Flavor, New Music), click **"Show Graph"** to open a Matplotlib visualization window.
+
+
+5. **Refine & Act:**
+* **Filter:** Use the Regex filter bar to drill down (e.g., `Rock|Metal` to find matches for either).
+* **Resolve:** If data is missing IDs (common with CSV imports), click **"Resolve Metadata"** to query MusicBrainz.
+* **Action:** Highlight tracks and click **"Like Selected Tracks"** or **"Export as Playlist"** to push changes back to ListenBrainz.
+
 
 
 ---
@@ -103,52 +119,49 @@ python3 gui_main.py
 BrainzMRI/
 │
 ├── BrainzMRI.bat                 # Windows launcher
-├── gui_main.py                   # Main GUI orchestrator & Threading
-├── gui_charts.py                 # Matplotlib visualization logic
-├── gui_tableview.py              # Table rendering & Regex filtering
-├── gui_user_editor.py            # User creation dialog
-├── api_client.py                 # Network layer (MB/Last.fm/ListenBrainz)
-├── report_engine.py              # Report routing & Pipeline logic
-├── reporting.py                  # Math, Aggregation, & Data Prep
-├── enrichment.py                 # Metadata fetching logic & Caching
-├── user.py                       # Data Model & File I/O
-├── parsing.py                    # JSON/CSV normalization
+├── gui_main.py                   # Main Orchestrator: Threading, Updates, & Workflow
+├── gui_charts.py                 # Matplotlib Logic: Treemaps, Stacked Area/Bar Charts
+├── gui_tableview.py              # Table Logic: Rendering, Regex Filter, & "Æ" Sorting
+├── gui_user_editor.py            # User Profile Management & ZIP Ingestion
+├── api_client.py                 # Network Layer: Retries, Rate Limiting (MB/Last.fm/LB)
+├── report_engine.py              # Report Routing & Status Management
+├── reporting.py                  # Core Logic: Aggregation, Statistics, & Pandas operations
+├── enrichment.py                 # Metadata Logic: Caching, Fetching, & MBID Resolution
+├── user.py                       # Persistence: Data I/O, Deduplication, & Intermediate Cache
+├── parsing.py                    # Utilities: Key Generation, Normalization, & File Parsing
 │
 ├── tests/                        # Unit tests
 ├── README.md
 ├── requirements.txt
 └── config.json                   # Auto-created settings
+
 ```
 
 ---
 
 # Master Roadmap
 
-## Stability & Core Experience (Immediate)
-* **[ ] Code Hygiene (Refactoring):**
-    * *Goal:* Centralize data identity logic to prevent logic drift.
-    * *Task:* Extract `generate_entity_key(artist, track, album)` into `parsing.py` and replace hardcoded key generation in `gui_main.py` and `enrichment.py`.
-
-## Advanced Visualization
 * **[ ] Heatmaps:**
-    * *Goal:* Visualizations for listening density.
-    * *Task:* Add a "Listening Clock" report (Radial or Matrix heatmap) showing `Hour of Day` vs `Day of Week`.
-* **[ ] Survival Analysis:**
-    * *Goal:* Visualize artist longevity.
-    * *Task:* A 2D Histogram showing "First Listened Date" vs "Last Listened Date" to identify long-term favorites vs. short-term obsessions.
+* *Goal:* Visualizations for listening density (Hour of Day vs Day of Week).
 
-## Deep Analytics
+
 * **[ ] Streak Detection:**
-    * *Goal:* Identify "Binge Listening" sessions.
-    * *Task:* Algorithm to find consecutive days/hours where a specific Artist or Album constituted >X% of listens.
-* **[ ] "Forgotten Favorites" Engine:**
-    * *Goal:* Intelligent recommendation.
-    * *Task:* A specific report preset finding tracks that have: `High Play Count` + `High Like Score` + `Last Listened > 1 Year Ago`.
+* *Goal:* Identify "Binge Listening" sessions (consecutive days/hours of specific artists).
 
-## Quality of Life
+
+* **[ ] "Forgotten Favorites" Engine:**
+* *Goal:* Intelligent recommendation report (`High Play Count` + `Last Listened > 1 Year Ago`).
+
+
 * **[ ] Report Presets:**
-    * *Goal:* One-click configuration.
-    * *Task:* A dropdown menu to pre-fill the Filter/Threshold inputs (e.g., "Deep Cuts", "Heavy Rotation", "Forgotten Favorites", "Love at First Sight").
+* *Goal:* Dropdown menu to pre-fill complex filter configurations.
+
+
 * **[ ] Advanced Filtering:**
-    * *Goal:* Power-user querying.
-    * *Task:* Add specific inclusion/exclusion fields (e.g., "Artist DOES NOT match regex").
+* *Goal:* "Negative" filtering (e.g., "Artist DOES NOT match regex").
+
+
+
+```
+
+```
