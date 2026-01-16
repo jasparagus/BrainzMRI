@@ -14,7 +14,7 @@ from typing import Dict, Any, List, Optional
 
 # Constants
 NETWORK_DELAY_SECONDS = 1.0
-MAX_RETRIES = 3
+MAX_RETRIES = 5  # Increased for stability
 LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/"
 MUSICBRAINZ_API_ROOT = "https://musicbrainz.org/ws/2/"
 LISTENBRAINZ_API_ROOT = "https://api.listenbrainz.org/1/"
@@ -47,7 +47,15 @@ class MusicBrainzClient:
                 return result
             except (urllib.error.URLError, http.client.IncompleteRead) as e:
                 last_error = e
-                # Exponential backoff: 1s, 2s, 4s...
+                err_str = str(e)
+                
+                # STABILITY FIX: Handle Connection Reset (WinError 10054) specifically
+                if "10054" in err_str or "Connection reset" in err_str:
+                    print(f"MB Connection Reset. Cooling down 5s... (Attempt {attempt+1}/{MAX_RETRIES})")
+                    time.sleep(5.0)
+                    continue
+                
+                # Standard exponential backoff: 1s, 2s, 4s...
                 time.sleep(1 * (2 ** attempt))
             except Exception as e:
                 # Non-network errors (parsing, etc) fail immediately
@@ -241,7 +249,10 @@ class ListenBrainzClient:
             except (urllib.error.URLError, http.client.IncompleteRead) as e:
                 # Connection reset, DNS failure, etc.
                 last_error = e
-                time.sleep(1 * (2 ** attempt))
+                if "10054" in str(e) or "Connection reset" in str(e):
+                     time.sleep(5.0)
+                else:
+                     time.sleep(1 * (2 ** attempt))
                 continue
             
             except Exception as e:

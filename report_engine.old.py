@@ -242,12 +242,7 @@ class ReportEngine:
         if progress_callback:
             progress_callback(100, 100, "Complete.")
 
-
-        # Get base status (e.g. "Track report generated.")
-        base_msg = self.get_status(mode).rstrip(".")
-        
-        # Inject row count
-        status_text = f"{base_msg} ({len(result)} Rows)."
+        status_text = self.get_status(mode)
         
         if last_enriched and enrichment_stats:
             if is_cancelled and is_cancelled():

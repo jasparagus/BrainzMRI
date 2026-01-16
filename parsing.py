@@ -237,3 +237,28 @@ def parse_generic_csv(filepath: str) -> pd.DataFrame:
     df["origin"] = df["origin"].apply(lambda x: [x])
 
     return df
+
+# ------------------------------------------------------------
+# Identity & Key Generation (Phase 1 Refactor)
+# ------------------------------------------------------------
+
+def make_track_key(artist: Any, track: Any, album: Any = "") -> str:
+    """
+    Generate a normalized unique key for a track: 'artist|track|album'.
+    Used for caching and matching resolved metadata.
+    """
+    a = str(artist).strip().lower()
+    t = str(track).strip().lower()
+    b = str(album).strip().lower() if album else ""
+    return f"{a}|{t}|{b}"
+
+def make_track_key_series(df: pd.DataFrame) -> pd.Series:
+    """
+    Generate a normalized unique key Series for a DataFrame: 'artist|track|album'.
+    Used for vectorized matching in write-back operations.
+    """
+    return (
+        df["artist"].astype(str).str.strip().str.lower() + "|" +
+        df["track_name"].astype(str).str.strip().str.lower() + "|" +
+        df["album"].astype(str).str.strip().str.lower()
+    )

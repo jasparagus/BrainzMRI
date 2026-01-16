@@ -1,5 +1,5 @@
 """
-gui.py
+gui_main.py
 Tkinter GUI for BrainzMRI, using reporting, enrichment, and user modules.
 """
 
@@ -14,6 +14,7 @@ import sys
 import re
 import threading
 import time
+import pandas as pd # Explicit import for write-back logic
 
 import reporting
 import enrichment
@@ -311,13 +312,24 @@ class BrainzMRIGUI:
             hover_delay=500
         )
 
+        # Force Cache Checkbox
         self.force_cache_update_var = tk.BooleanVar(value=False)
         chk_force_cache = tk.Checkbutton(
             enrich_inner,
             text="Force Cache Update",
             variable=self.force_cache_update_var,
         )
-        chk_force_cache.pack(side="left")
+        chk_force_cache.pack(side="left", padx=5)
+
+        # Deep Query Checkbox (NEW)
+        self.deep_query_var = tk.BooleanVar(value=False)
+        chk_deep_query = tk.Checkbutton(
+            enrich_inner,
+            text="Deep Query (Slow)",
+            variable=self.deep_query_var,
+        )
+        chk_deep_query.pack(side="left", padx=5)
+        Hovertip(chk_deep_query, "If checked, fetches metadata for Albums and Tracks.\nIf unchecked (Default), fetches Artists only (Fast).", hover_delay=500)
 
         def _update_enrichment_controls(*_):
             mode = self.enrichment_mode_var.get()
@@ -325,8 +337,11 @@ class BrainzMRIGUI:
             if mode.startswith("None") or mode == "Cache Only":
                 self.force_cache_update_var.set(False)
                 chk_force_cache.configure(state="disabled")
+                self.deep_query_var.set(False)
+                chk_deep_query.configure(state="disabled")
             else:
                 chk_force_cache.configure(state="normal")
+                chk_deep_query.configure(state="normal")
 
         self.enrichment_mode_var.trace_add("write", lambda *args: _update_enrichment_controls())
         _update_enrichment_controls()
@@ -724,6 +739,7 @@ class BrainzMRIGUI:
             "do_enrich": do_enrich,
             "enrichment_mode": enrich_mode_str,
             "force_cache_update": self.force_cache_update_var.get(),
+            "deep_query": self.deep_query_var.get(), # NEW: Pass Deep Query flag
         }
 
         # Store params for potential graph regeneration
@@ -780,9 +796,13 @@ class BrainzMRIGUI:
                 ))
 
             except ValueError as e:
-                self.root.after(0, lambda: self._on_report_error(str(e), "Error Executing Report"))
+                # Capture exception string immediately
+                err_msg = str(e)
+                self.root.after(0, lambda: self._on_report_error(err_msg, "Error Executing Report"))
             except Exception as e:
-                self.root.after(0, lambda: self._on_report_error(f"{type(e).__name__}: {e}", "Unexpected Error"))
+                # Capture exception string immediately
+                err_msg = f"{type(e).__name__}: {e}"
+                self.root.after(0, lambda: self._on_report_error(err_msg, "Unexpected Error"))
 
         t = threading.Thread(target=worker, daemon=True)
         t.start()
@@ -936,20 +956,43 @@ class BrainzMRIGUI:
                     self.state.filtered_df = df_resolved.copy() # Reset filters to show all
                     
                     # Update Playlist State if active (so it persists across re-runs)
+                    # FIX 1.1: ROBUST WRITE-BACK (Content-Based Matching)
                     if self.state.playlist_df is not None:
-                        # We merge the resolved MBIDs/Albums back into the playlist source
-                        # using the dataframe index (assuming the report was generated from it)
-                        
-                        # Note: This simple assignment works best if the report hasn't been 
-                        # aggressively aggregated (like "By Artist"). 
-                        # For "Raw Listens" or "By Track", this works well.
                         try:
-                            # Update only the rows that exist in both (intersection)
-                            common_indices = df_resolved.index.intersection(self.state.playlist_df.index)
+                            # 1. Create unique keys for matching (Artist|Track|Album)
+                            # Using centralized key generation from parsing.py
+                            # We only care about rows that actually got resolved
+                            resolved_subset = df_resolved[
+                                df_resolved["recording_mbid"].notna() & 
+                                (df_resolved["recording_mbid"] != "") & 
+                                (df_resolved["recording_mbid"] != "None")
+                            ].copy()
                             
-                            if len(common_indices) > 0:
-                                self.state.playlist_df.loc[common_indices, "recording_mbid"] = df_resolved.loc[common_indices, "recording_mbid"]
-                                self.state.playlist_df.loc[common_indices, "album"] = df_resolved.loc[common_indices, "album"]
+                            if not resolved_subset.empty:
+                                resolved_subset["_merge_key"] = parsing.make_track_key_series(resolved_subset)
+                                
+                                # Create a lookup map: key -> {mbid, album}
+                                # Drop duplicates to avoid explosion
+                                update_map = resolved_subset.drop_duplicates(subset=["_merge_key"]).set_index("_merge_key")[["recording_mbid", "album"]]
+                                
+                                # Prepare source
+                                self.state.playlist_df["_merge_key"] = parsing.make_track_key_series(self.state.playlist_df)
+                                
+                                # Iterate and update
+                                # Vectorized update using map is safest
+                                # Map MBID
+                                self.state.playlist_df["recording_mbid"] = self.state.playlist_df["_merge_key"].map(
+                                    update_map["recording_mbid"]
+                                ).fillna(self.state.playlist_df["recording_mbid"]) # Keep old if no match
+                                
+                                # Map Album
+                                self.state.playlist_df["album"] = self.state.playlist_df["_merge_key"].map(
+                                    update_map["album"]
+                                ).fillna(self.state.playlist_df["album"])
+
+                                # Cleanup
+                                self.state.playlist_df.drop(columns=["_merge_key"], inplace=True)
+                                
                         except Exception as e:
                             print(f"Warning: Could not persist resolved metadata to playlist session: {e}")
 
@@ -971,7 +1014,9 @@ class BrainzMRIGUI:
                 self.root.after(0, _finish)
 
             except Exception as e:
-                self.root.after(0, lambda: self._on_report_error(f"Error in resolver: {e}", "Error"))
+                # CRITICAL FIX: Convert exception to string BEFORE lambda closure captures it
+                err_msg = f"Error in resolver: {e}"
+                self.root.after(0, lambda: self._on_report_error(err_msg, "Error"))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1054,7 +1099,9 @@ class BrainzMRIGUI:
                 self.root.after(0, _finish)
 
             except Exception as e:
-                self.root.after(0, lambda: self._on_report_error(f"Error in feedback worker: {e}", "Error"))
+                # CRITICAL FIX: Convert exception to string BEFORE lambda closure captures it
+                err_msg = f"Error in feedback worker: {e}"
+                self.root.after(0, lambda: self._on_report_error(err_msg, "Error"))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1207,7 +1254,9 @@ class BrainzMRIGUI:
                 self.root.after(0, _finish)
 
             except Exception as e:
-                self.root.after(0, lambda: self._on_report_error(f"Error in playlist worker: {e}", "Error"))
+                # CRITICAL FIX: Convert exception to string BEFORE lambda closure captures it
+                err_msg = f"Error in playlist worker: {e}"
+                self.root.after(0, lambda: self._on_report_error(err_msg, "Error"))
 
         threading.Thread(target=worker, daemon=True).start()
 

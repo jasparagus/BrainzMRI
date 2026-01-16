@@ -124,16 +124,31 @@ BrainzMRI/
 
 # Master Roadmap
 
-* **[ ] Report Presets:**
-    * *Goal:* Quick-access configurations for common queries.
-    * *Examples:* "Love at First Sight" (Liked tracks with 1 listen), "Forgotten Favorites" (Liked but not listened in >1 year), "Top 10 Trend".
+## Stability & Core Experience (Immediate)
+* **[ ] Code Hygiene (Refactoring):**
+    * *Goal:* Centralize data identity logic to prevent logic drift.
+    * *Task:* Extract `generate_entity_key(artist, track, album)` into `parsing.py` and replace hardcoded key generation in `gui_main.py` and `enrichment.py`.
 
-* **[ ] Multi-Column Sorting:**
-    * *Goal:* Stable sorting in the Table View.
-    * *Task:* Implement logic to preserve the previous sort column as a secondary key (e.g., clicking "Track" then "Artist" sorts by Artist, then Track).
-
-* **[ ] Advanced Filtering:**
-    * *Goal:* Enhanced Regex support for complex inclusion/exclusion rules on the dataset.
-
+## Advanced Visualization
 * **[ ] Heatmaps:**
-    * *Goal:* Visualizations for listening density (Hour of Day vs. Day of Week).
+    * *Goal:* Visualizations for listening density.
+    * *Task:* Add a "Listening Clock" report (Radial or Matrix heatmap) showing `Hour of Day` vs `Day of Week`.
+* **[ ] Survival Analysis:**
+    * *Goal:* Visualize artist longevity.
+    * *Task:* A 2D Histogram showing "First Listened Date" vs "Last Listened Date" to identify long-term favorites vs. short-term obsessions.
+
+## Deep Analytics
+* **[ ] Streak Detection:**
+    * *Goal:* Identify "Binge Listening" sessions.
+    * *Task:* Algorithm to find consecutive days/hours where a specific Artist or Album constituted >X% of listens.
+* **[ ] "Forgotten Favorites" Engine:**
+    * *Goal:* Intelligent recommendation.
+    * *Task:* A specific report preset finding tracks that have: `High Play Count` + `High Like Score` + `Last Listened > 1 Year Ago`.
+
+## Quality of Life
+* **[ ] Report Presets:**
+    * *Goal:* One-click configuration.
+    * *Task:* A dropdown menu to pre-fill the Filter/Threshold inputs (e.g., "Deep Cuts", "Heavy Rotation", "Forgotten Favorites", "Love at First Sight").
+* **[ ] Advanced Filtering:**
+    * *Goal:* Power-user querying.
+    * *Task:* Add specific inclusion/exclusion fields (e.g., "Artist DOES NOT match regex").

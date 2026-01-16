@@ -116,14 +116,32 @@ class ReportTableView:
             for widget in self.table_container.winfo_children():
                 widget.destroy()
 
-        tree = ttk.Treeview(self.table_container, show="headings")
-        tree.pack(side="left", fill="both", expand=True)
+        # --- SCROLLBARS & TABLE SETUP (Updated to Grid for 2D scrolling) ---
+        
+        # Initialize Scrollbars
+        vsb = ttk.Scrollbar(self.table_container, orient="vertical")
+        hsb = ttk.Scrollbar(self.table_container, orient="horizontal")
 
-        scrollbar = ttk.Scrollbar(
-            self.table_container, orient="vertical", command=tree.yview
+        # Initialize Treeview with scroll commands linked
+        tree = ttk.Treeview(
+            self.table_container, 
+            show="headings",
+            yscrollcommand=vsb.set,
+            xscrollcommand=hsb.set
         )
-        scrollbar.pack(side="right", fill="y")
-        tree.configure(yscrollcommand=scrollbar.set)
+        
+        # Link scrollbars back to tree
+        vsb.configure(command=tree.yview)
+        hsb.configure(command=tree.xview)
+
+        # Layout using Grid
+        tree.grid(column=0, row=0, sticky='nsew')
+        vsb.grid(column=1, row=0, sticky='ns')
+        hsb.grid(column=0, row=1, sticky='ew')
+
+        # Configure weights so tree expands to fill space
+        self.table_container.grid_columnconfigure(0, weight=1)
+        self.table_container.grid_rowconfigure(0, weight=1)
 
         self.tree = tree
 
@@ -240,10 +258,27 @@ class ReportTableView:
 
         self.state.filtered_df = df[mask]
         
-        # Re-apply current sort to the filtered results if needed
-        # (Though usually user filters first, then sorts. 
-        # But if we want sticky sort, we could re-run sort_column logic here.
-        # For now, let's just show. The sort stack persists, so next click will use it.)
+        # FIX 1.2: Re-apply current sort stack to the filtered results
+        if self.sort_stack:
+            # We call sort_column with the primary key, but we need to cheat slightly
+            # because sort_column toggles the direction.
+            # Instead, we just manually re-run the sort logic using the existing stack.
+            cols = [s[0] for s in self.sort_stack]
+            ascs = [s[1] for s in self.sort_stack]
+            
+            try:
+                self.state.filtered_df = self.state.filtered_df.sort_values(
+                    by=cols, 
+                    ascending=ascs,
+                    kind="mergesort"
+                )
+            except Exception:
+                self.state.filtered_df = self.state.filtered_df.sort_values(
+                    by=cols, 
+                    ascending=ascs, 
+                    key=lambda x: x.astype(str)
+                )
+
         self.show_table(self.state.filtered_df)
 
     def clear_filter(self) -> None:
