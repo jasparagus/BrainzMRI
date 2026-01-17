@@ -14,7 +14,7 @@ def _show_figure_window(fig, title="Chart"):
     """Helper to display a matplotlib figure in a new Tkinter window."""
     window = tk.Toplevel()
     window.title(title)
-    window.geometry("1000x800")  # Increased height for 2 rows
+    window.geometry("1000x800")
     
     canvas = FigureCanvasTkAgg(fig, master=window)
     canvas.draw()
@@ -22,7 +22,9 @@ def _show_figure_window(fig, title="Chart"):
 
 def show_artist_trend_chart(df: pd.DataFrame):
     """
-    Generate a Stacked Area Chart for Artist Trends.
+    Generate a Stacked Area Chart for Artist Trends (2 Rows).
+    Top Row: Absolute Counts.
+    Bottom Row: Normalized (Percentage) Dominance.
     """
     chart_df = df.copy()
     if not isinstance(chart_df.index, pd.DatetimeIndex):
@@ -33,19 +35,41 @@ def show_artist_trend_chart(df: pd.DataFrame):
     
     chart_df = chart_df.sort_index()
 
-    fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
+    # Calculate Normalized Data (Row-wise percentage)
+    # Divide each row by its sum to get fractions (0.0 - 1.0)
+    # fillna(0) handles potential division by zero if a time block has 0 listens
+    norm_df = chart_df.div(chart_df.sum(axis=1), axis=0).fillna(0)
+
+    # Setup 2x1 Grid
+    fig, axes = plt.subplots(2, 1, figsize=(10, 10), dpi=100, sharex=True)
+    
+    ax_abs = axes[0]
+    ax_norm = axes[1]
     
     x = chart_df.index
-    y = [chart_df[col].values for col in chart_df.columns]
     labels = chart_df.columns
+    
+    # 1. Plot Absolute (Top)
+    y_abs = [chart_df[col].values for col in chart_df.columns]
+    ax_abs.stackplot(x, y_abs, labels=labels, alpha=0.8)
+    
+    ax_abs.set_title("Top Artist Dominance Over Time (Absolute)")
+    ax_abs.set_ylabel("Listens")
+    # Legend only on the top plot to avoid clutter
+    ax_abs.legend(loc='upper left', bbox_to_anchor=(1, 1), title="Artists")
+    
+    # 2. Plot Normalized (Bottom)
+    y_norm = [norm_df[col].values for col in norm_df.columns]
+    ax_norm.stackplot(x, y_norm, labels=labels, alpha=0.8)
+    
+    ax_norm.set_title("Relative Dominance (Normalized)")
+    ax_norm.set_ylabel("Fraction")
+    ax_norm.set_xlabel("Time Period")
+    ax_norm.set_ylim(0, 1.0)
+    
+    # Add a faint 50% line for reference
+    ax_norm.axhline(y=0.5, color='gray', linestyle='--', alpha=0.3, linewidth=1)
 
-    ax.stackplot(x, y, labels=labels, alpha=0.8)
-    
-    ax.set_title("Top Artist Dominance Over Time")
-    ax.set_xlabel("Time Period")
-    ax.set_ylabel("Listens")
-    ax.legend(loc='upper left', bbox_to_anchor=(1, 1), title="Artists")
-    
     plt.tight_layout()
     _show_figure_window(fig, title="Favorite Artist Trend")
 
@@ -134,7 +158,6 @@ def show_new_music_stacked_bar(df: pd.DataFrame):
     fig.text(0.58, 0.93, "Recurring Artists", color=c_rec, weight='bold', ha='left', fontsize=12)
 
     # Adjust layout to make room for the custom header
-    # rect=[left, bottom, right, top]
     plt.tight_layout(rect=[0, 0.03, 1, 0.91])
     
     _show_figure_window(fig, title="New Music By Year")
