@@ -4,6 +4,15 @@
 
 Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache of your data, allowing for instant filtering, complex queries, offline analysis, and bulk management of your collection.
 
+
+## Gallery
+
+| Main Interface | Artist Trends | New Music Discovery |
+| :---: | :---: | :---: |
+| <img src="example_main_ui.png" width="250" /> | <img src="example_artist_trend.png" width="250" /> | <img src="example_music_discovery.png" width="250" /> |
+
+---
+
 ## Key Features
 
 ### Advanced Analysis & Reporting
@@ -17,8 +26,8 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 
 ### Rich Visualizations
 * **Genre Treemap:** A rectangular visualization of genre dominance .
-* **Stacked Area Chart:** Visualizes the "Favorite Artist Trend" report, showing how artist dominance shifts over periods .
-* **Stacked Bar Chart:** Visualizes the "New Music by Year" report, highlighting your discovery rates over time.
+* **Stacked Area Chart:** Visualizes the "Favorite Artist Trend" report, showing how artist dominance shifts over periods. Now includes a subplot showing Relative Dominance (normalized percentage) alongside absolute listen counts.
+* **Stacked Bar Chart:** Visualizes the "New Music by Year" report, highlighting your discovery rates over time. Now includes a subplot comparing the ratio of New vs. Recurring tracks.
 
 ### Metadata Enrichment & Deep Query
 * **Smart Enrichment:** Automatically fetches metadata from MusicBrainz and Last.fm.
@@ -35,6 +44,8 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 * **Transactional Updates:** The "Get New Listens" feature uses a "Backwards Crawl" strategy with intermediate staging. This ensures that even if an update is aborted or crashes, your data remains consistent. It safely bridges the gap between your local history and the server without data corruption.
 * **Resume Capability:** Interrupted downloads automatically save their progress to an "Island" cache and resume exactly where they left off.
 * **CSV Import:** Load arbitrary CSV playlists (e.g., from Spotify exports) to analyze them using BrainzMRI's matching engine.
+
+[UI EXAMPLES HERE]
 
 ---
 

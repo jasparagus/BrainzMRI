@@ -4,21 +4,12 @@ Matplotlib visualization logic for BrainzMRI.
 """
 
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import tkinter as tk
 import pandas as pd
 import numpy as np
 import squarify  # Requires: pip install squarify
 
-def _show_figure_window(fig, title="Chart"):
-    """Helper to display a matplotlib figure in a new Tkinter window."""
-    window = tk.Toplevel()
-    window.title(title)
-    window.geometry("1000x800")
-    
-    canvas = FigureCanvasTkAgg(fig, master=window)
-    canvas.draw()
-    canvas.get_tk_widget().pack(fill="both", expand=True)
+# Note: No Tkinter imports needed. We use native Matplotlib windows
+# This provides improved speed and features (zooming, etc.)
 
 def show_artist_trend_chart(df: pd.DataFrame):
     """
@@ -37,11 +28,14 @@ def show_artist_trend_chart(df: pd.DataFrame):
 
     # Calculate Normalized Data (Row-wise percentage)
     # Divide each row by its sum to get fractions (0.0 - 1.0)
-    # fillna(0) handles potential division by zero if a time block has 0 listens
     norm_df = chart_df.div(chart_df.sum(axis=1), axis=0).fillna(0)
 
     # Setup 2x1 Grid
     fig, axes = plt.subplots(2, 1, figsize=(10, 10), dpi=100, sharex=True)
+    
+    # Set Window Title
+    if fig.canvas.manager:
+        fig.canvas.manager.set_window_title("Favorite Artist Trend")
     
     ax_abs = axes[0]
     ax_norm = axes[1]
@@ -71,7 +65,7 @@ def show_artist_trend_chart(df: pd.DataFrame):
     ax_norm.axhline(y=0.5, color='gray', linestyle='--', alpha=0.3, linewidth=1)
 
     plt.tight_layout()
-    _show_figure_window(fig, title="Favorite Artist Trend")
+    plt.show()
 
 def show_new_music_stacked_bar(df: pd.DataFrame):
     """
@@ -93,8 +87,11 @@ def show_new_music_stacked_bar(df: pd.DataFrame):
         plot_df["Recurring Tracks"] = plot_df["Unique Tracks"] - plot_df["New Tracks"]
 
     # Setup 2x3 Grid (2 Rows, 3 Columns)
-    # sharex=True aligns the years between top and bottom rows
     fig, axes = plt.subplots(2, 3, figsize=(14, 10), dpi=100, sharex=True)
+
+    # Set Window Title
+    if fig.canvas.manager:
+        fig.canvas.manager.set_window_title("New Music By Year")
     
     metrics = [
         ("New Artists", "Recurring Artists", "Artists"),
@@ -160,7 +157,7 @@ def show_new_music_stacked_bar(df: pd.DataFrame):
     # Adjust layout to make room for the custom header
     plt.tight_layout(rect=[0, 0.03, 1, 0.91])
     
-    _show_figure_window(fig, title="New Music By Year")
+    plt.show()
 
 def show_genre_flavor_treemap(df: pd.DataFrame):
     """
@@ -182,6 +179,10 @@ def show_genre_flavor_treemap(df: pd.DataFrame):
     
     # 3. Plot
     fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
+
+    # Set Window Title
+    if fig.canvas.manager:
+        fig.canvas.manager.set_window_title("Genre Flavor Profile")
     
     # Generate label text with counts: "Metal\n(7619)"
     labels = [
@@ -205,4 +206,4 @@ def show_genre_flavor_treemap(df: pd.DataFrame):
     ax.set_title(f"Top {len(plot_df)} Genres (Treemap)", fontsize=14)
     
     plt.tight_layout()
-    _show_figure_window(fig, title="Genre Flavor Profile")
+    plt.show()
