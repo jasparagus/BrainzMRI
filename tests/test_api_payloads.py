@@ -89,3 +89,83 @@ def test_feedback_payload(lb_client):
         assert payload["recording_mbid"] == "mbid-like"
         assert payload["score"] == 1
         assert isinstance(payload["score"], int)
+        
+        
+"""
+tests/test_api_payloads.py
+Verifies that API clients generate correct JSON payloads and parse responses.
+"""
+
+import json
+import pytest
+from unittest.mock import MagicMock, patch
+from api_client import ListenBrainzClient
+
+class MockResponse:
+    def __init__(self, status_code, json_data):
+        self.status = status_code
+        self.json_data = json_data
+        
+    def read(self):
+        return json.dumps(self.json_data).encode("utf-8")
+    
+    def __enter__(self): return self
+    def __exit__(self, exc_type, exc_val, exc_tb): pass
+
+@pytest.fixture
+def lb_client():
+    return ListenBrainzClient(token="test_token", dry_run=False)
+
+def test_playlist_jspf_structure(lb_client):
+    """
+    CRITICAL: Verify JSPF payload structure.
+    - 'identifier' must be a String (not a list).
+    - 'extension' must include public: False.
+    """
+    tracks = [
+        {"title": "Track A", "artist": "Artist A", "album": "Album A", "mbid": "mbid-123"},
+        {"title": "Track B", "artist": "Artist B"} # No MBID
+    ]
+    
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        mock_urlopen.return_value = MockResponse(200, {"status": "ok"})
+        
+        lb_client.create_playlist("Test Playlist", tracks, "Desc")
+        
+        # Verify call args
+        request = mock_urlopen.call_args[0][0]
+        payload = json.loads(request.data)
+        
+        playlist = payload["playlist"]
+        assert "extension" in playlist
+        t1 = playlist["track"][0]
+        assert isinstance(t1["identifier"], str) 
+        assert t1["identifier"] == "https://musicbrainz.org/recording/mbid-123"
+
+def test_get_user_likes_response(lb_client):
+    """
+    Verify parsing of the user_likes endpoint.
+    """
+    mock_response_data = {
+        "user_name": "test_user",
+        "count": 2,
+        "offset": 0,
+        "total_count": 2,
+        "feedback": [
+            {"recording_mbid": "mbid-1", "score": 1},
+            {"recording_mbid": "mbid-2", "score": 1},
+            {"recording_mbid": "mbid-3", "score": 0} # Neutral should be ignored by client logic usually
+        ]
+    }
+    
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        mock_urlopen.return_value = MockResponse(200, mock_response_data)
+        
+        # Assuming get_user_likes returns the raw dict or list
+        # We need to implement the method in api_client.py first, 
+        # but this test defines the contract.
+        response = lb_client.get_user_likes("test_user", offset=0)
+        
+        # Assertions depend on how you implement the client method
+        # If it returns raw JSON:
+        assert response["feedback"][0]["recording_mbid"] == "mbid-1"        

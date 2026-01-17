@@ -88,3 +88,48 @@ def test_parse_generic_csv_failure():
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+            
+            
+            
+"""
+tests/test_parsing.py
+Tests for the parsing.py module (ETL logic).
+"""
+
+import pytest
+import pandas as pd
+import parsing
+
+def test_normalize_listens(mock_listen_data):
+    """Verify raw JSON is converted to the canonical DataFrame schema."""
+    df = parsing.normalize_listens(mock_listen_data)
+    assert len(df) == 3
+    # Check for v4.0 canonical columns
+    expected_cols = [
+        "artist", "artist_mbid", "album", "track_name", 
+        "duration_ms", "listened_at", "recording_mbid"
+    ]
+    for col in expected_cols:
+        assert col in df.columns
+
+def test_normalize_sort_key():
+    """
+    Verify the 'Æ Filter' and other normalization logic.
+    """
+    input_series = pd.Series([
+        "The Beatles",
+        "Æther Realm",
+        "Daft Punk",
+        "Übermensch"
+    ])
+    
+    normalized = parsing.normalize_sort_key(input_series)
+    
+    # 1. "The " removed
+    assert normalized[0] == "beatles"
+    # 2. Ligature expanded (Æ -> ae)
+    assert normalized[1] == "aether realm"
+    # 3. Standard lowercase
+    assert normalized[2] == "daft punk"
+    # 4. NFKD Normalization (Ü -> u)
+    assert normalized[3] == "ubermensch"            

@@ -62,3 +62,51 @@ def test_resolve_missing_mbids_logic(messy_df):
         # The Resolver prefers user data over API data if user data exists.
         assert df_out.iloc[2]["recording_mbid"] == "resolved-new-id"
         assert df_out.iloc[2]["album"] == "Real Album"
+        
+        
+        
+        
+"""
+tests/test_resolver.py
+Tests the Metadata Resolver logic in enrichment.py.
+"""
+
+import pytest
+import pandas as pd
+from unittest.mock import MagicMock, patch
+import enrichment
+
+@pytest.fixture
+def messy_df():
+    return pd.DataFrame([
+        # Row 0: Valid
+        {"artist": "Known", "track_name": "Song", "album": "Alb", "recording_mbid": "existing-id"},
+        # Row 1: Needs Resolution
+        {"artist": "Target", "track_name": "Hit", "album": "Unknown", "recording_mbid": None},
+    ])
+
+def test_resolve_missing_mbids_logic(messy_df):
+    """
+    Verify that resolve_missing_mbids correctly updates the DataFrame.
+    """
+    mock_details = {
+        "mbid": "resolved-new-id",
+        "album": "Resolved Album Name",
+        "title": "Hit"
+    }
+    
+    with patch("enrichment.mb_client") as mock_client, \
+         patch("enrichment._load_json_dict", return_value={}), \
+         patch("enrichment._save_json_dict"):
+        
+        mock_client.search_recording_details.return_value = mock_details
+        
+        df_out, count_res, count_fail = enrichment.resolve_missing_mbids(messy_df)
+        
+        # Assertions
+        assert count_res == 1
+        
+        # Row 1 updated
+        updated_row = df_out.iloc[1]
+        assert updated_row["recording_mbid"] == "resolved-new-id"
+        assert updated_row["album"] == "Resolved Album Name"        

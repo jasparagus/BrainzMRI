@@ -131,3 +131,81 @@ def test_genre_flavor_logic(basic_df):
     # Check Glam
     glam = result[result["Genre"] == "Glam"].iloc[0]
     assert glam["Listens"] == 5
+    
+    
+    
+"""
+tests/test_reporting.py
+Tests for the reporting.py module (Aggregation and Math).
+"""
+
+import pytest
+import pandas as pd
+from datetime import datetime, timedelta, timezone
+import parsing
+import reporting
+
+@pytest.fixture
+def basic_df(mock_listen_data):
+    return parsing.normalize_listens(mock_listen_data)
+
+def test_filter_by_days(basic_df):
+    """Verify time filtering logic using relative timestamps."""
+    # basic_df has listens at: Now, -2 days, -5 days
+    
+    # Filter: Last 3 days (Should catch Now and -2 days)
+    filtered = reporting.filter_by_days(basic_df, "listened_at", start_days=0, end_days=3)
+    assert len(filtered) == 2
+    assert "Daft Punk" in filtered["artist"].values
+    assert "Unknown Artist" in filtered["artist"].values
+    assert "Æther Realm" not in filtered["artist"].values
+
+def test_filter_by_thresholds_regression():
+    """
+    Regression Test: Ensure filter_by_thresholds logic works.
+    (This was the bug fixed in v3.0)
+    """
+    df = pd.DataFrame([
+        {"artist": "A", "total_listens": 10, "unique_liked_tracks": 0},
+        {"artist": "B", "total_listens": 5,  "unique_liked_tracks": 1},
+        {"artist": "C", "total_listens": 1,  "unique_liked_tracks": 0},
+    ])
+    
+    # 1. Filter by Listens (>= 5)
+    res_listens = reporting.filter_by_thresholds(df, min_listens=5)
+    assert len(res_listens) == 2  # A and B
+    
+    # 2. Filter by Likes (>= 1)
+    res_likes = reporting.filter_by_thresholds(df, min_likes=1)
+    assert len(res_likes) == 1
+    assert res_likes.iloc[0]["artist"] == "B"
+
+def test_report_genre_flavor():
+    """Verify weighted genre aggregation."""
+    # Create input mimicking an enriched DataFrame
+    input_df = pd.DataFrame([
+        {"total_listens": 10, "Genres": "Electronic|House"},
+        {"total_listens": 5, "Genres": "Rock"},
+        {"total_listens": 5, "Genres": "Rock|Glam"},
+        {"total_listens": 100, "Genres": ""} # Should be ignored
+    ])
+    
+    result, meta = reporting.report_genre_flavor(input_df)
+    
+    # Expected:
+    # Electronic: 10
+    # House: 10
+    # Rock: 5 + 5 = 10
+    # Glam: 5
+    
+    # Check "Rock"
+    rock_row = result[result["Genre"] == "Rock"]
+    assert not rock_row.empty
+    assert rock_row.iloc[0]["Listens"] == 10
+    
+    # Check "Glam"
+    glam_row = result[result["Genre"] == "Glam"]
+    assert glam_row.iloc[0]["Listens"] == 5
+
+    # Check Empty excluded
+    assert "" not in result["Genre"].values    

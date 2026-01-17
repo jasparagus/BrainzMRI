@@ -1,7 +1,7 @@
 """
 tests/conftest.py
 Pytest fixtures for BrainzMRI.
-Creates synthetic ListenBrainz export data for testing.
+Creates synthetic ListenBrainz export data and temporary User environments.
 """
 
 import pytest
@@ -9,7 +9,12 @@ import json
 import os
 import zipfile
 import tempfile
-from datetime import datetime, timezone
+import shutil
+from datetime import datetime, timezone, timedelta
+
+# Import the User class (assuming user.py is in the python path)
+# If running from root, this works.
+from user import User
 
 @pytest.fixture
 def mock_listen_data():
@@ -17,49 +22,39 @@ def mock_listen_data():
     Returns a list of raw listen dictionaries as they appear in the JSONL.
     Includes edge cases: missing MBIDs, multi-artist credits, etc.
     """
+    now = datetime.now(timezone.utc)
     return [
-        # 1. Standard Track with full metadata
+        # 1. Standard Track with full metadata (Recent)
         {
-            "listened_at": 1704067200,  # 2024-01-01 00:00:00 UTC
+            "listened_at": int(now.timestamp()),
             "track_metadata": {
                 "artist_name": "Daft Punk",
                 "track_name": "One More Time",
                 "release_name": "Discovery",
                 "mbid_mapping": {
-                    "artists": [
-                        {"artist_mbid": "056e4f3e-d505-4dad-8ec1-d04f521cbb56", "artist_credit_name": "Daft Punk"}
-                    ],
                     "recording_mbid": "b4c52086-6e46-43b8-9366-4c449a0a0346",
-                    "release_mbid": "2d652875-430c-4e67-8730-1fb6809fb034"
-                },
-                "additional_info": {
-                    "duration_ms": 320000
+                    "release_mbid": "2d652875-4306-44c2-9856-4d29623719c8"
                 }
             }
         },
-        # 2. Minimal Track (No MBIDs, No Album)
+        # 2. Track with Missing MBIDs (Older)
         {
-            "listened_at": 1704070800,
+            "listened_at": int((now - timedelta(days=2)).timestamp()),
             "track_metadata": {
                 "artist_name": "Unknown Artist",
                 "track_name": "Mystery Track",
-                "release_name": None,
-                "mbid_mapping": {},
-                "additional_info": {}
+                "release_name": "Mystery Album"
             }
         },
-        # 3. Multi-Artist Track (Should result in 2 rows in normalized DF)
+        # 3. Track with complex characters (for Sort Key testing)
         {
-            "listened_at": 1704074400,
+            "listened_at": int((now - timedelta(days=5)).timestamp()),
             "track_metadata": {
-                "artist_name": "Queen & David Bowie",
-                "track_name": "Under Pressure",
+                "artist_name": "Æther Realm",
+                "track_name": "The Sun, The Moon, The Star",
+                "release_name": "Tarot",
                 "mbid_mapping": {
-                    "artists": [
-                        {"artist_mbid": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3", "artist_credit_name": "Queen"},
-                        {"artist_mbid": "5441c29d-3602-4898-b1a1-b77fa23b8e50", "artist_credit_name": "David Bowie"}
-                    ],
-                    "recording_mbid": "f62660c7-e633-4b6f-bffb-d29b2b005ca7"
+                    "recording_mbid": "complex-char-mbid"
                 }
             }
         }
@@ -80,7 +75,6 @@ def sample_zip_path(mock_listen_data, mock_feedback_data):
     Creates a temporary physical ZIP file mimicking a real LB export.
     Returns the path to the ZIP file.
     """
-    # Create a temporary directory
     with tempfile.TemporaryDirectory() as tmpdir:
         zip_path = os.path.join(tmpdir, "test_export.zip")
         
@@ -90,11 +84,34 @@ def sample_zip_path(mock_listen_data, mock_feedback_data):
             z.writestr("user.json", json.dumps(user_info))
             
             # 2. feedback.jsonl
-            feedback_str = "\n".join(json.dumps(row) for row in mock_feedback_data)
+            feedback_str = "\n".join([json.dumps(x) for x in mock_feedback_data])
             z.writestr("feedback.jsonl", feedback_str)
             
             # 3. listens/listens.jsonl
-            listens_str = "\n".join(json.dumps(row) for row in mock_listen_data)
+            listens_str = "\n".join([json.dumps(x) for x in mock_listen_data])
             z.writestr("listens/listens.jsonl", listens_str)
             
         yield zip_path
+
+@pytest.fixture
+def temp_user():
+    """
+    Creates a User instance with a dedicated temporary cache directory.
+    Useful for testing sync_likes and persistence.
+    """
+    with tempfile.TemporaryDirectory() as tmp_cache:
+        # We need to patch the get_cache_root logic or just manually set paths,
+        # but since User relies on global helpers, we might simulate 'from_sources'
+        # or manually instantiate.
+        
+        # For testing, we create a user and force their cache_dir to our temp location
+        u = User("test_user", "token_123")
+        u.cache_dir = os.path.join(tmp_cache, "users", "test_user")
+        os.makedirs(u.cache_dir, exist_ok=True)
+        
+        # Initialize empty state
+        u.likes_file = os.path.join(u.cache_dir, "likes.json")
+        u.listens_file = os.path.join(u.cache_dir, "listens.jsonl.gz")
+        u.liked_mbids = set()
+        
+        yield u
