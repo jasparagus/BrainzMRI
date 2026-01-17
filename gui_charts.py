@@ -14,7 +14,7 @@ def _show_figure_window(fig, title="Chart"):
     """Helper to display a matplotlib figure in a new Tkinter window."""
     window = tk.Toplevel()
     window.title(title)
-    window.geometry("1000x700")
+    window.geometry("1000x800")  # Increased height for 2 rows
     
     canvas = FigureCanvasTkAgg(fig, master=window)
     canvas.draw()
@@ -51,8 +51,9 @@ def show_artist_trend_chart(df: pd.DataFrame):
 
 def show_new_music_stacked_bar(df: pd.DataFrame):
     """
-    Generate a Stacked Bar Chart for New Music By Year.
-    Legend removed; Title color-coded manually.
+    Generate a 2-Row Stacked Bar Chart for New Music By Year.
+    Top Row: Absolute Counts.
+    Bottom Row: Normalized Fractions (0.0 - 1.0).
     """
     # Work on a copy to avoid modifying the source view
     plot_df = df.copy()
@@ -67,7 +68,9 @@ def show_new_music_stacked_bar(df: pd.DataFrame):
     if "Recurring Tracks" not in plot_df.columns and "Unique Tracks" in plot_df.columns:
         plot_df["Recurring Tracks"] = plot_df["Unique Tracks"] - plot_df["New Tracks"]
 
-    fig, axes = plt.subplots(1, 3, figsize=(14, 7), dpi=100, sharey=False)
+    # Setup 2x3 Grid (2 Rows, 3 Columns)
+    # sharex=True aligns the years between top and bottom rows
+    fig, axes = plt.subplots(2, 3, figsize=(14, 10), dpi=100, sharex=True)
     
     metrics = [
         ("New Artists", "Recurring Artists", "Artists"),
@@ -81,37 +84,58 @@ def show_new_music_stacked_bar(df: pd.DataFrame):
     c_new = "#4CAF50" # Green
     c_rec = "#2196F3" # Blue
 
-    for ax, (new_col, rec_col, title) in zip(axes, metrics):
+    # Iterate through columns (Artists, Albums, Tracks)
+    for col_idx, (new_col, rec_col, title) in enumerate(metrics):
+        
+        # Get axes for this column (Top=Absolute, Bottom=Fraction)
+        ax_abs = axes[0, col_idx]
+        ax_frac = axes[1, col_idx]
+
         if new_col not in plot_df.columns or rec_col not in plot_df.columns:
-            ax.text(0.5, 0.5, "Data Missing", ha='center')
+            ax_abs.text(0.5, 0.5, "Data Missing", ha='center')
+            ax_frac.text(0.5, 0.5, "Data Missing", ha='center')
             continue
             
-        ax.bar(years, plot_df[new_col], label="New", alpha=0.8, color=c_new)
-        ax.bar(years, plot_df[rec_col], bottom=plot_df[new_col], label="Recurring", alpha=0.8, color=c_rec)
+        # --- TOP ROW: ABSOLUTE COUNTS ---
+        ax_abs.bar(years, plot_df[new_col], label="New", alpha=0.8, color=c_new)
+        ax_abs.bar(years, plot_df[rec_col], bottom=plot_df[new_col], label="Recurring", alpha=0.8, color=c_rec)
         
-        ax.set_title(title)
-        ax.set_xlabel("Year")
-        if ax == axes[0]:
-            ax.set_ylabel("Count")
-            # LEGEND REMOVED as per request
-            # ax.legend()
+        ax_abs.set_title(title)
+        if col_idx == 0:
+            ax_abs.set_ylabel("Count")
+
+        # --- BOTTOM ROW: FRACTIONS ---
+        # Calculate totals for normalization
+        total = plot_df[new_col] + plot_df[rec_col]
+        # Avoid division by zero
+        total = total.replace(0, 1)
+        
+        frac_new = plot_df[new_col] / total
+        frac_rec = plot_df[rec_col] / total
+
+        ax_frac.bar(years, frac_new, label="New", alpha=0.8, color=c_new)
+        ax_frac.bar(years, frac_rec, bottom=frac_new, label="Recurring", alpha=0.8, color=c_rec)
+        
+        ax_frac.set_xlabel("Year")
+        ax_frac.set_ylim(0, 1.0) # Lock Y-axis to 0-100%
+        
+        # Add a faint 50% line for reference
+        ax_frac.axhline(y=0.5, color='gray', linestyle='--', alpha=0.3, linewidth=1)
+
+        if col_idx == 0:
+            ax_frac.set_ylabel("Fraction")
 
     # Custom Multi-Colored Title Construction
-    # We use fig.text relative coordinates to simulate a rich-text title
-    
-    # Main Header
     fig.text(0.5, 0.96, "Music Discovery by Year", ha='center', fontsize=16, weight='bold')
     
-    # Color-coded Sub-header acting as Title + Legend
-    # Centered alignment logic: 
-    # [New Artists] [vs.] [Recurring Artists]
-    
-    fig.text(0.42, 0.92, "New Artists", color=c_new, weight='bold', ha='right', fontsize=12)
-    fig.text(0.50, 0.92, "vs.", color='black', ha='center', fontsize=12)
-    fig.text(0.58, 0.92, "Recurring Artists", color=c_rec, weight='bold', ha='left', fontsize=12)
+    # Color-coded Legend/Subtitle
+    fig.text(0.42, 0.93, "New Artists", color=c_new, weight='bold', ha='right', fontsize=12)
+    fig.text(0.50, 0.93, "vs.", color='black', ha='center', fontsize=12)
+    fig.text(0.58, 0.93, "Recurring Artists", color=c_rec, weight='bold', ha='left', fontsize=12)
 
     # Adjust layout to make room for the custom header
-    plt.tight_layout(rect=[0, 0.03, 1, 0.90])
+    # rect=[left, bottom, right, top]
+    plt.tight_layout(rect=[0, 0.03, 1, 0.91])
     
     _show_figure_window(fig, title="New Music By Year")
 
