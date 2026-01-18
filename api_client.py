@@ -223,11 +223,6 @@ class ListenBrainzClient:
 
         last_error = None
         for attempt in range(MAX_RETRIES):
-            print(req)  # debugging
-            print(url)  # debugging
-            print(data)  # debugging
-            print(headers)  # debugging
-            print(method)  # debugging
             try:
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     if 200 <= resp.status < 300:
