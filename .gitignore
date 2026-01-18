@@ -2,6 +2,7 @@
 /archive/
 /reports/
 /temp/
+/Data/
 *listenbrainz*.zip
 __pycache__/
 *.pyc
