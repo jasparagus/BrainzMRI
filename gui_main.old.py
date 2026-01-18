@@ -947,9 +947,6 @@ class BrainzMRIGUI:
         """
         Incrementally fetch recent listens from ListenBrainz using a robust
         'Backwards Crawl' strategy with an intermediate file cache.
-        
-        UPDATED PHASE 4.1: Now includes parallel background synchronization 
-        of User Likes using a separate worker thread.
         """
         if not self.state.user or not self.state.user.get_listenbrainz_username():
             messagebox.showerror("Error", "ListenBrainz Username required.")
@@ -995,76 +992,6 @@ class BrainzMRIGUI:
         client = self._get_lb_client()
         username = self.state.user.get_listenbrainz_username()
         
-        # --- BACKGROUND WORKER: SYNC LIKES ---
-        # This runs in parallel with the main listen fetch. It doesn't block UI.
-        def likes_worker():
-            try:
-                self.root.after(0, lambda: self.set_status("Background: Syncing User Likes..."))
-                
-                offset = 0
-                count = 500 # Use larger batches for likes
-                all_likes_data = []
-                
-                while True:
-                    # Check if main process cancelled to stop this too (optional, but good hygiene)
-                    if current_progress_win.cancelled:
-                        break
-                        
-                    resp = client.get_user_likes(username, offset=offset, count=count)
-                    
-                    # API returns a specific structure for likes
-                    # "likes": [ { "recording_mbid": "...", "score": 1, ... } ]
-                    # It might be wrapped in 'likes' or 'payload' depending on endpoint version.
-                    # api_client.get_user_likes uses /user/{user}/likes which returns { "likes": [...] } usually.
-                    
-                    # Handle varying response shapes (robustness)
-                    likes_page = resp.get("likes", [])
-                    if not likes_page and "payload" in resp:
-                        likes_page = resp["payload"].get("likes", [])
-                    
-                    if not likes_page:
-                        break
-                    
-                    all_likes_data.extend(likes_page)
-                    offset += len(likes_page)
-                    
-                    # Update status bar quietly
-                    self.root.after(0, lambda c=len(all_likes_data): self.set_status(f"Background: Syncing User Likes ({c} found)..."))
-                    
-                    # Check total vs count to see if we are done
-                    # Some endpoints return total_count
-                    total_count = resp.get("total_count") or resp.get("payload", {}).get("total_count")
-                    if total_count and len(all_likes_data) >= total_count:
-                        break
-                        
-                    # If we got fewer than requested, we are likely done
-                    if len(likes_page) < count:
-                        break
-                        
-                    time.sleep(1.0) # Rate limit friendliness
-                
-                # Process collected likes into a set of MBIDs
-                new_mbids = set()
-                for item in all_likes_data:
-                    # Only score=1 matters for "Liked"
-                    # Though usually this endpoint only returns likes.
-                    mbid = item.get("recording_mbid")
-                    if mbid:
-                        new_mbids.add(mbid)
-                
-                # Persist
-                if not current_progress_win.cancelled:
-                    self.state.user.sync_likes(new_mbids)
-                    self.root.after(0, lambda: self.set_status(f"Likes Sync Complete. {len(new_mbids)} tracks loved."))
-                
-            except Exception as e:
-                print(f"Background Likes Sync Failed: {e}")
-                self.root.after(0, lambda: self.set_status("Background: Likes Sync Failed (Check Console)."))
-
-        # Start Likes Worker (Daemon so it dies if app closes)
-        threading.Thread(target=likes_worker, daemon=True).start()
-
-        # --- MAIN WORKER: FETCH LISTENS ---
         def worker():
             try:
                 nonlocal fetched_total

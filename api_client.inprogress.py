@@ -347,13 +347,16 @@ class ListenBrainzClient:
             params["max_ts"] = max_ts
         
         return self._get(f"user/{username}/listens", params)
-        
+
+    # --- NEW METHOD ---
     def get_user_likes(self, username: str, offset: int = 0, count: int = 100) -> Dict[str, Any]:
         """
-        Fetch a page of user likes.
+        Fetch a page of user 'likes' (feedback).
+        Endpoint: /1/user/{user_name}/likes
         """
         params = {
             "count": count,
             "offset": offset
         }
         return self._get(f"user/{username}/likes", params)
+    # ------------------

@@ -6,7 +6,6 @@ User entity and caching for BrainzMRI.
 import gzip
 import json
 import os
-import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Set, Dict, Any, Optional, List
@@ -68,9 +67,6 @@ class User:
     cache_dir: str
     sources: dict = field(default_factory=dict)
     listenbrainz_token: Optional[str] = None
-    
-    # Thread safety for concurrent saves (Crawler + Likes Sync)
-    _io_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     @classmethod
     def from_sources(
@@ -160,39 +156,23 @@ class User:
         )
 
     def save_cache(self) -> None:
-        """Persist user data to disk. Thread-safe."""
+        """Persist user data to disk."""
         listens_path = os.path.join(self.cache_dir, "listens.jsonl.gz")
         likes_path = os.path.join(self.cache_dir, "likes.json")
         sources_path = os.path.join(self.cache_dir, "sources.json")
         auth_path = os.path.join(self.cache_dir, "auth.json")
 
-        with self._io_lock:
-            _save_listens_jsonl_gz(self.listens_df, listens_path)
+        _save_listens_jsonl_gz(self.listens_df, listens_path)
 
-            with open(likes_path, "w", encoding="utf-8") as f:
-                json.dump(sorted(self.liked_mbids), f, indent=2)
+        with open(likes_path, "w", encoding="utf-8") as f:
+            json.dump(sorted(self.liked_mbids), f, indent=2)
 
-            with open(sources_path, "w", encoding="utf-8") as f:
-                json.dump(self.sources, f, indent=2)
-                
-            auth_data = {"listenbrainz_token": self.listenbrainz_token}
-            with open(auth_path, "w", encoding="utf-8") as f:
-                json.dump(auth_data, f, indent=2)
-    
-    def sync_likes(self, new_mbids: Set[str]) -> None:
-        """
-        Replace internal liked_mbids with a fresh set from the server and save.
-        Thread-safe.
-        """
-        with self._io_lock:
-            self.liked_mbids = new_mbids
-            # We call inner save logic here to avoid re-entering lock if we called save_cache()
-            # But since RLock isn't guaranteed by default Lock, we duplicate just the likes save
-            # or use a helper. 
-            # Safest is to just save the likes file specifically to avoid overhead of saving everything.
-            likes_path = os.path.join(self.cache_dir, "likes.json")
-            with open(likes_path, "w", encoding="utf-8") as f:
-                json.dump(sorted(self.liked_mbids), f, indent=2)
+        with open(sources_path, "w", encoding="utf-8") as f:
+            json.dump(self.sources, f, indent=2)
+            
+        auth_data = {"listenbrainz_token": self.listenbrainz_token}
+        with open(auth_path, "w", encoding="utf-8") as f:
+            json.dump(auth_data, f, indent=2)
 
     def ingest_listenbrainz_zip(self, zip_path: str) -> None:
         """
@@ -202,32 +182,31 @@ class User:
         df_new = parsing.normalize_listens(listens, origin=["listenbrainz_zip"])
         likes_new = parsing.load_feedback(feedback)
 
-        with self._io_lock:
-            # Merge Listens
-            if self.listens_df is None or self.listens_df.empty:
-                combined = df_new.copy()
-            else:
-                combined = pd.concat([self.listens_df, df_new], ignore_index=True)
+        # Merge Listens
+        if self.listens_df is None or self.listens_df.empty:
+            combined = df_new.copy()
+        else:
+            combined = pd.concat([self.listens_df, df_new], ignore_index=True)
 
-            # Deduplicate
-            if not combined.empty:
-                # We assume unique on artist/album/track/timestamp
-                dedupe_cols = ["artist", "album", "track_name", "listened_at", "recording_mbid"]
-                # Filter cols that actually exist
-                existing_cols = [c for c in dedupe_cols if c in combined.columns]
-                if existing_cols:
-                    combined = combined.drop_duplicates(subset=existing_cols, keep="first")
+        # Deduplicate
+        if not combined.empty:
+            # We assume unique on artist/album/track/timestamp
+            dedupe_cols = ["artist", "album", "track_name", "listened_at", "recording_mbid"]
+            # Filter cols that actually exist
+            existing_cols = [c for c in dedupe_cols if c in combined.columns]
+            if existing_cols:
+                combined = combined.drop_duplicates(subset=existing_cols, keep="first")
 
-            self.listens_df = combined
-            self.liked_mbids.update(likes_new)
+        self.listens_df = combined
+        self.liked_mbids.update(likes_new)
 
-            # Record Source
-            zips_list = self.sources.get("listenbrainz_zips") or []
-            zips_list.append({
-                "path": os.path.abspath(zip_path),
-                "ingested_at": datetime.now(timezone.utc).isoformat()
-            })
-            self.sources["listenbrainz_zips"] = zips_list
+        # Record Source
+        zips_list = self.sources.get("listenbrainz_zips") or []
+        zips_list.append({
+            "path": os.path.abspath(zip_path),
+            "ingested_at": datetime.now(timezone.utc).isoformat()
+        })
+        self.sources["listenbrainz_zips"] = zips_list
 
         self.save_cache()
 
@@ -244,10 +223,9 @@ class User:
         return self.sources.get("listenbrainz_username")
 
     def update_sources(self, lastfm_username: Optional[str], listenbrainz_username: Optional[str], listenbrainz_token: Optional[str]) -> None:
-        with self._io_lock:
-            self.sources["lastfm_username"] = lastfm_username or None
-            self.sources["listenbrainz_username"] = listenbrainz_username or None
-            self.listenbrainz_token = listenbrainz_token or None
+        self.sources["lastfm_username"] = lastfm_username or None
+        self.sources["listenbrainz_username"] = listenbrainz_username or None
+        self.listenbrainz_token = listenbrainz_token or None
         self.save_cache()
 
     # -------------------------
@@ -309,10 +287,9 @@ class User:
         Append raw API listen objects to the intermediate JSONL file.
         """
         path = self.intermediate_cache_path
-        with self._io_lock:
-            with open(path, "a", encoding="utf-8") as f:
-                for listen in raw_listens:
-                    f.write(json.dumps(listen, ensure_ascii=False) + "\n")
+        with open(path, "a", encoding="utf-8") as f:
+            for listen in raw_listens:
+                f.write(json.dumps(listen, ensure_ascii=False) + "\n")
 
     def merge_intermediate_cache(self) -> None:
         """
@@ -322,41 +299,35 @@ class User:
         df_new = self.load_intermediate_listens()
         if df_new.empty:
             # Just clean up file if empty
-            with self._io_lock:
-                if os.path.exists(self.intermediate_cache_path):
-                    os.remove(self.intermediate_cache_path)
+            if os.path.exists(self.intermediate_cache_path):
+                os.remove(self.intermediate_cache_path)
             return
 
-        with self._io_lock:
-            if self.listens_df is None or self.listens_df.empty:
-                combined = df_new.copy()
-            else:
-                combined = pd.concat([self.listens_df, df_new], ignore_index=True)
+        if self.listens_df is None or self.listens_df.empty:
+            combined = df_new.copy()
+        else:
+            combined = pd.concat([self.listens_df, df_new], ignore_index=True)
 
-            # Dedupe based on content
-            dedupe_cols = ["artist", "album", "track_name", "listened_at", "recording_mbid"]
-            existing_cols = [c for c in dedupe_cols if c in combined.columns]
-            
-            if existing_cols:
-                # Sort to ensure we keep the most "complete" or recent version if duplicates exist
-                combined = combined.sort_values(by="listened_at", ascending=False)
-                combined = combined.drop_duplicates(subset=existing_cols, keep="first")
-
-            self.listens_df = combined
-            # Save handles file I/O
+        # Dedupe based on content
+        dedupe_cols = ["artist", "album", "track_name", "listened_at", "recording_mbid"]
+        existing_cols = [c for c in dedupe_cols if c in combined.columns]
         
+        if existing_cols:
+            # Sort to ensure we keep the most "complete" or recent version if duplicates exist
+            combined = combined.sort_values(by="listened_at", ascending=False)
+            combined = combined.drop_duplicates(subset=existing_cols, keep="first")
+
+        self.listens_df = combined
         self.save_cache()
         
         # Delete intermediate
-        with self._io_lock:
-            if os.path.exists(self.intermediate_cache_path):
-                os.remove(self.intermediate_cache_path)
+        if os.path.exists(self.intermediate_cache_path):
+            os.remove(self.intermediate_cache_path)
 
     def discard_intermediate_cache(self) -> None:
         """Force delete the intermediate cache."""
-        with self._io_lock:
-            if os.path.exists(self.intermediate_cache_path):
-                os.remove(self.intermediate_cache_path)
+        if os.path.exists(self.intermediate_cache_path):
+            os.remove(self.intermediate_cache_path)
 
 
 # -------------------------
