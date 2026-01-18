@@ -1011,16 +1011,15 @@ class BrainzMRIGUI:
                         break
                         
                     resp = client.get_user_likes(username, offset=offset, count=count)
+                                       
+                    # API returns 'feedback' list for the get-feedback endpoint
+                    likes_page = resp.get("feedback", [])
                     
-                    # API returns a specific structure for likes
-                    # "likes": [ { "recording_mbid": "...", "score": 1, ... } ]
-                    # It might be wrapped in 'likes' or 'payload' depending on endpoint version.
-                    # api_client.get_user_likes uses /user/{user}/likes which returns { "likes": [...] } usually.
-                    
-                    # Handle varying response shapes (robustness)
-                    likes_page = resp.get("likes", [])
-                    if not likes_page and "payload" in resp:
-                        likes_page = resp["payload"].get("likes", [])
+                    # Fallbacks for safety/legacy
+                    if not likes_page and "likes" in resp:
+                         likes_page = resp["likes"]
+                    elif not likes_page and "payload" in resp:
+                         likes_page = resp["payload"].get("likes", [])
                     
                     if not likes_page:
                         break
@@ -1032,11 +1031,13 @@ class BrainzMRIGUI:
                     self.root.after(0, lambda c=len(all_likes_data): self.set_status(f"Background: Syncing User Likes ({c} found)..."))
                     
                     # Check total vs count to see if we are done
-                    # Some endpoints return total_count
-                    total_count = resp.get("total_count") or resp.get("payload", {}).get("total_count")
-                    if total_count and len(all_likes_data) >= total_count:
-                        break
+                    total_count = resp.get("total_count")
+                    if total_count is None and "payload" in resp:
+                        total_count = resp["payload"].get("total_count")
                         
+                    if total_count is not None and len(all_likes_data) >= total_count:
+                        break
+
                     # If we got fewer than requested, we are likely done
                     if len(likes_page) < count:
                         break
@@ -1047,7 +1048,6 @@ class BrainzMRIGUI:
                 new_mbids = set()
                 for item in all_likes_data:
                     # Only score=1 matters for "Liked"
-                    # Though usually this endpoint only returns likes.
                     mbid = item.get("recording_mbid")
                     if mbid:
                         new_mbids.add(mbid)

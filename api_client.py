@@ -223,6 +223,11 @@ class ListenBrainzClient:
 
         last_error = None
         for attempt in range(MAX_RETRIES):
+            print(req)  # debugging
+            print(url)  # debugging
+            print(data)  # debugging
+            print(headers)  # debugging
+            print(method)  # debugging
             try:
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     if 200 <= resp.status < 300:
@@ -333,7 +338,6 @@ class ListenBrainzClient:
         return self._post("playlist/create", jspf)
 
     # --- Read Methods ---
-
     def get_user_listens(self, username: str, max_ts: int = None, count: int = 100) -> Dict[str, Any]:
         """
         Fetch listens for a user.
@@ -346,14 +350,18 @@ class ListenBrainzClient:
         if max_ts:
             params["max_ts"] = max_ts
         
-        return self._get(f"user/{username}/listens", params)
+        # Added urllib.parse.quote(username)
+        return self._get(f"user/{urllib.parse.quote(username)}/listens", params)
+        
         
     def get_user_likes(self, username: str, offset: int = 0, count: int = 100) -> Dict[str, Any]:
         """
-        Fetch a page of user likes.
+        Fetch a page of user likes (feedback with score 1).
         """
         params = {
+            "score": 1,
             "count": count,
             "offset": offset
         }
-        return self._get(f"user/{username}/likes", params)
+        # Use urllib.parse.quote() to handle special characters in username safely
+        return self._get(f"feedback/user/{urllib.parse.quote(username)}/get-feedback", params)        
