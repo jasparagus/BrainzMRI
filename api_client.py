@@ -10,60 +10,106 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import http.client
+from urllib.parse import quote
 from typing import Dict, Any, List, Optional
 
 # Constants
 NETWORK_DELAY_SECONDS = 1.0
-MAX_RETRIES = 5  # Increased for stability
+MAX_RETRIES = 5
 LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/"
 MUSICBRAINZ_API_ROOT = "https://musicbrainz.org/ws/2/"
 LISTENBRAINZ_API_ROOT = "https://api.listenbrainz.org/1/"
 
-class MusicBrainzClient:
+
+class BaseAPIClient:
+    """
+    Base client handling common network logic: retries, backoff, and error handling.
+    """
+    def __init__(self, user_agent: str = ""):
+        self.user_agent = user_agent or "BrainzMRI/1.0 (https://github.com/jasparagus/BrainzMRI)"
+
+    def _execute_request(self, url: str, method: str = "GET", headers: Dict[str, str] = None, data: bytes = None) -> Any:
+        """
+        Execute a request with robust error handling and retries.
+        Raises RuntimeError on persistent failure.
+        """
+        if headers is None:
+            headers = {}
+        
+        # Ensure User-Agent is always set
+        if "User-Agent" not in headers:
+            headers["User-Agent"] = self.user_agent
+
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        last_error = None
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    if 200 <= resp.status < 300:
+                        return json.load(resp)
+                    raise RuntimeError(f"API returned status {resp.status}")
+
+            except urllib.error.HTTPError as e:
+                # 429 Too Many Requests - Fixed sleep
+                if e.code == 429:
+                    print(f"Rate Limited (429). Sleeping 5s... (Attempt {attempt+1}/{MAX_RETRIES})")
+                    time.sleep(5.0)
+                    continue
+
+                # Server Errors - Exponential Backoff
+                if e.code in [500, 502, 503, 504]:
+                    last_error = e
+                    time.sleep(1 * (2 ** attempt))
+                    continue
+                
+                # Fatal Client Errors (400, 401, 404, etc.)
+                # Try to read error body for context
+                try:
+                    err_body = e.read().decode("utf-8")
+                    raise RuntimeError(f"API Error {e.code}: {err_body}")
+                except Exception:
+                    raise RuntimeError(f"API Error {e.code}")
+
+            except (urllib.error.URLError, http.client.IncompleteRead) as e:
+                last_error = e
+                err_str = str(e)
+                
+                # Specific handling for Windows Connection Reset
+                if "10054" in err_str or "Connection reset" in err_str:
+                    print(f"Connection Reset. Cooling down 5s... (Attempt {attempt+1}/{MAX_RETRIES})")
+                    time.sleep(5.0)
+                else:
+                    time.sleep(1 * (2 ** attempt))
+                continue
+            
+            except Exception as e:
+                # Catch-all for other IO/Network issues
+                last_error = e
+                time.sleep(1)
+
+        raise RuntimeError(f"Network Error after {MAX_RETRIES} attempts: {last_error}")
+
+
+class MusicBrainzClient(BaseAPIClient):
     """
     Client for the MusicBrainz API (v2).
-    Handles rate limiting and User-Agent headers.
     """
     
-    def __init__(self):
-        self.user_agent = "BrainzMRI/1.0 (https://github.com/jasparagus/BrainzMRI)"
-
     def _request(self, path: str, params: Dict[str, str]) -> Dict[str, Any]:
         """Execute a GET request against MusicBrainz with retries."""
         query = urllib.parse.urlencode(params)
         url = f"{MUSICBRAINZ_API_ROOT}{path}?{query}"
         
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": self.user_agent},
-        )
-        
-        last_error = None
-        for attempt in range(MAX_RETRIES):
-            try:
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    result = json.load(resp)
-                time.sleep(NETWORK_DELAY_SECONDS)
-                return result
-            except (urllib.error.URLError, http.client.IncompleteRead) as e:
-                last_error = e
-                err_str = str(e)
-                
-                # STABILITY FIX: Handle Connection Reset (WinError 10054) specifically
-                if "10054" in err_str or "Connection reset" in err_str:
-                    print(f"MB Connection Reset. Cooling down 5s... (Attempt {attempt+1}/{MAX_RETRIES})")
-                    time.sleep(5.0)
-                    continue
-                
-                # Standard exponential backoff: 1s, 2s, 4s...
-                time.sleep(1 * (2 ** attempt))
-            except Exception as e:
-                # Non-network errors (parsing, etc) fail immediately
-                print(f"Non-retriable error in MB lookup: {e}")
-                return {}
-        
-        print(f"MB Lookup failed after {MAX_RETRIES} attempts: {last_error}")
-        return {}
+        try:
+            result = self._execute_request(url)
+            # MusicBrainz Rate Limiting: Sleep AFTER success
+            time.sleep(NETWORK_DELAY_SECONDS)
+            return result
+        except Exception as e:
+            # Enrichment expects empty dict on failure to continue gracefully
+            print(f"Non-retriable error in MB lookup: {e}")
+            return {}
 
     def _extract_tags(self, data: Dict[str, Any]) -> List[str]:
         """Extract flat tag list from MB response."""
@@ -127,8 +173,6 @@ class MusicBrainzClient:
             # Try to find an album (release) name
             releases = best.get("releases", [])
             if releases:
-                # Prioritize a release that matches our query if possible, otherwise first
-                # For now, just taking the first one is standard behavior
                 info["album"] = releases[0].get("title", "Unknown")
             
             return info
@@ -136,12 +180,13 @@ class MusicBrainzClient:
         return None
 
 
-class LastFMClient:
+class LastFMClient(BaseAPIClient):
     """
     Client for the Last.fm API.
     """
 
     def __init__(self, api_key: Optional[str] = None):
+        super().__init__()
         self.api_key = api_key or os.environ.get("BRAINZMRI_LASTFM_API_KEY", "")
 
     def _request(self, params: Dict[str, str]) -> Dict[str, Any]:
@@ -152,22 +197,13 @@ class LastFMClient:
         
         query = urllib.parse.urlencode(params)
         url = f"{LASTFM_API_ROOT}?{query}"
-        req = urllib.request.Request(url)
         
-        last_error = None
-        for attempt in range(MAX_RETRIES):
-            try:
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    result = json.load(resp)
-                time.sleep(NETWORK_DELAY_SECONDS)
-                return result
-            except (urllib.error.URLError, http.client.IncompleteRead) as e:
-                last_error = e
-                time.sleep(1 * (2 ** attempt))
-            except Exception:
-                return {}
-        
-        return {}
+        try:
+            result = self._execute_request(url)
+            time.sleep(NETWORK_DELAY_SECONDS)
+            return result
+        except Exception:
+            return {}
 
     def _extract_tags(self, data: Dict[str, Any], root_key: str) -> List[str]:
         toplevel = data.get(root_key) or {}
@@ -182,16 +218,16 @@ class LastFMClient:
         return self._extract_tags(data, root_key)
 
 
-class ListenBrainzClient:
+class ListenBrainzClient(BaseAPIClient):
     """
     Client for the ListenBrainz API.
     Handles authenticated WRITE operations (Feedback, Playlists) and READ operations (User Listens).
     """
 
     def __init__(self, token: Optional[str] = None, dry_run: bool = False):
+        super().__init__()
         self.token = token
         self.dry_run = dry_run
-        self.user_agent = "BrainzMRI/1.0 (https://github.com/jasparagus/BrainzMRI)"
 
     def _request_generic(self, endpoint: str, method: str, params: Dict[str, Any] = None, data: bytes = None) -> Dict[str, Any]:
         """
@@ -203,7 +239,6 @@ class ListenBrainzClient:
             "User-Agent": self.user_agent,
         }
         
-        # Add Auth if available (required for writes, optional for reads but good practice)
         if self.token:
             headers["Authorization"] = f"Token {self.token}"
 
@@ -214,55 +249,8 @@ class ListenBrainzClient:
             query = urllib.parse.urlencode(params)
             url = f"{url}?{query}"
 
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers=headers,
-            method=method
-        )
-
-        last_error = None
-        for attempt in range(MAX_RETRIES):
-            try:
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    if 200 <= resp.status < 300:
-                        return json.load(resp)
-                    raise RuntimeError(f"API returned status {resp.status}")
-            
-            except urllib.error.HTTPError as e:
-                # 429 Too Many Requests
-                if e.code == 429:
-                    print(f"Rate Limited (429). Sleeping 5s...")
-                    time.sleep(5.0)
-                    continue
-
-                if e.code in [500, 502, 503, 504]:
-                    last_error = e
-                    time.sleep(1 * (2 ** attempt))
-                    continue
-                
-                # Fatal errors (400 Bad Request, 401 Auth) should fail immediately
-                try:
-                    err_body = e.read().decode("utf-8")
-                    print(f"[API ERROR BODY]: {err_body}")
-                    raise RuntimeError(f"ListenBrainz API Error {e.code}: {err_body}")
-                except Exception:
-                    raise RuntimeError(f"ListenBrainz API Error {e.code}")
-
-            except (urllib.error.URLError, http.client.IncompleteRead) as e:
-                # Connection reset, DNS failure, etc.
-                last_error = e
-                if "10054" in str(e) or "Connection reset" in str(e):
-                     time.sleep(5.0)
-                else:
-                     time.sleep(1 * (2 ** attempt))
-                continue
-            
-            except Exception as e:
-                raise RuntimeError(f"Network Error: {e}")
-
-        # If we exit loop, we failed
-        raise RuntimeError(f"Network Error after {MAX_RETRIES} attempts: {last_error}")
+        # ListenBrainzClient allows exceptions to bubble up to the GUI
+        return self._execute_request(url, method=method, headers=headers, data=data)
 
     def _get(self, endpoint: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
         return self._request_generic(endpoint, "GET", params=params)
@@ -333,6 +321,7 @@ class ListenBrainzClient:
         return self._post("playlist/create", jspf)
 
     # --- Read Methods ---
+
     def get_user_listens(self, username: str, max_ts: int = None, count: int = 100) -> Dict[str, Any]:
         """
         Fetch listens for a user.
@@ -346,8 +335,7 @@ class ListenBrainzClient:
             params["max_ts"] = max_ts
         
         # Added urllib.parse.quote(username)
-        return self._get(f"user/{urllib.parse.quote(username)}/listens", params)
-        
+        return self._get(f"user/{quote(username)}/listens", params)
         
     def get_user_likes(self, username: str, offset: int = 0, count: int = 100) -> Dict[str, Any]:
         """
@@ -358,5 +346,5 @@ class ListenBrainzClient:
             "count": count,
             "offset": offset
         }
-        # Use urllib.parse.quote() to handle special characters in username safely
-        return self._get(f"feedback/user/{urllib.parse.quote(username)}/get-feedback", params)        
+        # Use quote() to handle special characters in username safely
+        return self._get(f"feedback/user/{quote(username)}/get-feedback", params)

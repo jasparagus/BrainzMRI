@@ -207,14 +207,6 @@ BrainzMRI/
 
 ## Refactor Opportunities
 
-### High-Value: Network Layer Deduplication (`api_client.py`)
-
-**Status:** The `MusicBrainzClient`, `LastFMClient`, and `ListenBrainzClient` classes all contain nearly identical implementations of the retry/backoff loop logic (handling `urllib.error`, `MAX_RETRIES`, `time.sleep`).
-**Risk:** If you want to change the retry strategy (e.g., adding exponential backoff or changing the timeout), you have to do it in three places.
-**Refactoring Opportunity:**
-
-* **Extract a `BaseClient` or `RetryMixin`:** Create a parent class that handles the `_request_generic` logic with the retry loop. The child classes should only define their specific endpoints and headers.
-
 ### High-Value: Separation of Sync Logic (`gui_main.py`)
 
 **Status:** The `action_get_new_listens` method in `gui_main.py` is becoming a "God Method." It contains:
