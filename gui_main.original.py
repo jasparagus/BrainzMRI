@@ -149,175 +149,6 @@ class ProgressWindow(tk.Toplevel):
             pass
 
 
-class SyncManager:
-    """
-    Manages the concurrent execution of Listen fetching and Like synchronization.
-    Implements the Barrier Pattern to ensure data integrity and UI consistency.
-    """
-    def __init__(self, user, client, scheduler, callbacks):
-        self.user = user
-        self.client = client
-        self.scheduler = scheduler # Function to marshal to main thread (root.after)
-        self.callbacks = callbacks # Dict of UI update functions
-        
-        # Barrier State
-        self.barrier = {
-            "listens_done": False,
-            "likes_done": False,
-            "gap_closed": False,
-            "likes_count": 0,
-            "listens_count": 0
-        }
-        self.cancel_flag = False
-
-    def cancel(self):
-        self.cancel_flag = True
-
-    def start(self, start_ts: int, local_head_ts: int):
-        """Start the background workers."""
-        threading.Thread(target=self._likes_worker, daemon=True).start()
-        threading.Thread(target=self._listens_worker, args=(start_ts, local_head_ts), daemon=True).start()
-
-    def _check_barrier(self):
-        """Check if both workers are done and trigger the finish callback."""
-        if self.barrier["listens_done"] and self.barrier["likes_done"]:
-            # Schedule completion on main thread
-            self.scheduler(0, self.callbacks["on_complete"], self.barrier)
-
-    def _likes_worker(self):
-        try:
-            self.scheduler(0, self.callbacks["update_secondary"], "Syncing User Likes...")
-            
-            username = self.user.get_listenbrainz_username()
-            offset = 0
-            count = 500
-            all_likes_data = []
-            
-            while not self.cancel_flag:
-                try:
-                    resp = self.client.get_user_likes(username, offset=offset, count=count)
-                except Exception as e:
-                    print(f"Likes API Warning: {e}")
-                    break
-
-                # API returns 'feedback' list for the get-feedback endpoint
-                likes_page = resp.get("feedback", [])
-                
-                # Fallbacks for safety/legacy
-                if not likes_page and "likes" in resp:
-                        likes_page = resp["likes"]
-                elif not likes_page and "payload" in resp:
-                        likes_page = resp["payload"].get("likes", [])
-                
-                if not likes_page:
-                    break
-                
-                all_likes_data.extend(likes_page)
-                offset += len(likes_page)
-                
-                # Update UI
-                self.scheduler(0, self.callbacks["update_secondary"], f"Syncing User Likes ({len(all_likes_data)} found)...")
-                
-                # Check pagination
-                total_count = resp.get("total_count")
-                if total_count is None and "payload" in resp:
-                    total_count = resp["payload"].get("total_count")
-                    
-                if total_count is not None and len(all_likes_data) >= total_count:
-                    break
-                if len(likes_page) < count:
-                    break
-                
-                time.sleep(1.0)
-            
-            # Persist using shared parsing logic
-            if not self.cancel_flag:
-                new_mbids = parsing.load_feedback(all_likes_data)
-                
-                self.user.sync_likes(new_mbids)
-                self.barrier["likes_count"] = len(new_mbids)
-                self.scheduler(0, self.callbacks["update_secondary"], f"Likes Sync Complete ({len(new_mbids)}).")
-            
-        except Exception as e:
-            print(f"Background Likes Sync Failed: {e}")
-            self.scheduler(0, self.callbacks["update_secondary"], "Likes Sync Failed.")
-        
-        finally:
-            self.barrier["likes_done"] = True
-            self.scheduler(0, self._check_barrier)
-
-    def _listens_worker(self, start_ts, local_head_ts):
-        try:
-            username = self.user.get_listenbrainz_username()
-            fetched_total = 0
-            current_max_ts = start_ts
-            gap_closed = False
-            warning_triggered = False
-            
-            while not self.cancel_flag:
-                # Update UI
-                self.scheduler(0, self.callbacks["update_primary"], fetched_total, "Fetching batch...")
-
-                try:
-                    resp = self.client.get_user_listens(username, max_ts=current_max_ts, count=100)
-                except Exception as e:
-                    print(f"API Error during fetch: {e}")
-                    break
-                    
-                payload = resp.get("payload", {})
-                listens = payload.get("listens", [])
-                
-                if not listens:
-                    gap_closed = True
-                    break
-                    
-                batch_ts = [l["listened_at"] for l in listens]
-                batch_min = min(batch_ts)
-                
-                self.user.append_to_intermediate_cache(listens)
-                fetched_total += len(listens)
-                
-                if batch_min <= local_head_ts:
-                    gap_closed = True
-                    break
-                
-                current_max_ts = batch_min
-                
-                # Safety Pause / Confirmation
-                if fetched_total > 5000 and not warning_triggered:
-                    warning_triggered = True
-                    
-                    # Blocking call handled via callback event logic
-                    response_event = threading.Event()
-                    user_response = [False]
-                    
-                    def on_confirm_done(result):
-                        user_response[0] = result
-                        response_event.set()
-                        
-                    # Request confirmation on main thread
-                    self.scheduler(0, self.callbacks["request_confirmation"], 
-                                   f"Fetched {fetched_total} listens so far.\nGap not closed.\nContinue?", 
-                                   on_confirm_done)
-                    
-                    response_event.wait()
-                    
-                    if not user_response[0]:
-                        break
-                        
-                time.sleep(1.0)
-            
-            self.barrier["gap_closed"] = gap_closed
-            self.barrier["listens_count"] = fetched_total
-
-        except Exception as e:
-            self.scheduler(0, self.callbacks["on_error"], str(e))
-        
-        finally:
-            self.barrier["listens_done"] = True
-            self.scheduler(0, self._check_barrier)
-
-
 # ======================================================================
 # Main GUI
 # ======================================================================
@@ -344,7 +175,6 @@ class BrainzMRIGUI:
         # Guard flag for threading race conditions
         self.processing = False
         self.progress_win = None
-        self.sync_manager = None # Reference to active sync manager
 
         # Status bar
         self.status_var = tk.StringVar(value="Ready.")
@@ -1143,15 +973,19 @@ class BrainzMRIGUI:
         local_head_ts = self.state.user.get_latest_listen_timestamp()
         
         # 2. Check Intermediate Cache (Resume capability)
+        # If intermediate cache exists, we resume from where it left off (its oldest record)
         intermediate_df = self.state.user.load_intermediate_listens()
         resume_mode = False
+        fetched_total = 0
         
         if not intermediate_df.empty:
             # We have a "floating island". We must bridge it to local_head.
+            # Get the oldest timestamp in the island.
             if pd.api.types.is_datetime64_any_dtype(intermediate_df["listened_at"]):
                 try:
                     start_ts = int(intermediate_df["listened_at"].min().timestamp())
                     resume_mode = True
+                    fetched_total = len(intermediate_df)
                 except Exception:
                     # Fallback if corrupt timestamps
                     start_ts = int(time.time())
@@ -1172,75 +1006,215 @@ class BrainzMRIGUI:
         current_progress_win = ProgressWindow(self.root, title=title)
         self.progress_win = current_progress_win
         
-        # Setup Callbacks for SyncManager
-        callbacks = {
-            # Adapt 2-arg call from SyncManager to 3-arg ProgressWindow
-            "update_primary": lambda c, m: current_progress_win.update_progress(0, 0, f"{m} (Total: {c})"),
-            "update_secondary": current_progress_win.update_secondary,
-            "on_complete": self._on_sync_complete,
-            "on_error": lambda msg: self._on_report_error(msg, "Sync Error"),
-            "request_confirmation": self._request_sync_confirmation
+        client = self._get_lb_client()
+        username = self.state.user.get_listenbrainz_username()
+        
+        # --- SYNCHRONIZATION BARRIER ---
+        # Shared state to track both workers
+        barrier_state = {
+            "listens_done": False,
+            "likes_done": False,
+            "gap_closed": False,
+            "likes_count": 0,
+            "listens_count": 0
         }
         
-        self.sync_manager = SyncManager(
-            self.state.user, 
-            self._get_lb_client(), 
-            self.root.after, 
-            callbacks
-        )
-        
-        # Hook Cancel Button to SyncManager
-        current_progress_win.btn_cancel.config(command=lambda: [current_progress_win.cancel(), self.sync_manager.cancel()])
-        
-        # Launch Workers
-        self.sync_manager.start(start_ts, local_head_ts)
+        def check_barrier_and_finish():
+            """Called by both workers when they finish. Only closes UI if BOTH are done."""
+            if not (barrier_state["listens_done"] and barrier_state["likes_done"]):
+                return  # One worker is still running; keep window open.
 
-    def _request_sync_confirmation(self, message, callback):
-        """
-        Display a modal Yes/No dialog on the main thread and pass the result back.
-        """
-        def _ask():
-            result = messagebox.askyesno("Confirm", message)
-            callback(result)
-        _ask()
-
-    def _on_sync_complete(self, barrier_state):
-        """
-        Called by SyncManager when both workers have finished (successfully or not).
-        """
-        # Close Window
-        if self.progress_win:
+            # --- BOTH DONE: Final Cleanup ---
+            if current_progress_win.winfo_exists():
+                current_progress_win.grab_release()
+                current_progress_win.withdraw()
+                self.root.after(100, current_progress_win.destroy)
+            
+            self.btn_get_listens.config(state="normal")
+            self.processing = False
+            
+            # Commit logic (Driven by Listen Fetcher success)
+            if barrier_state["gap_closed"]:
+                self.state.user.merge_intermediate_cache()
+                
+                # Construct Summary Message
+                msg = f"Update Complete.\nImported {barrier_state['listens_count']} new listens."
+                if barrier_state['likes_count'] > 0:
+                    msg += f"\nSynced {barrier_state['likes_count']} User Likes."
+                msg += "\nHistory is fully continuous."
+                
+                messagebox.showinfo("Update Complete", msg)
+                
+                if self.report_type.get() == "Raw Listens":
+                    self.run_report()
+            else:
+                # Aborted or Incomplete
+                msg = (
+                    f"Fetch stopped after {barrier_state['listens_count']} listens.\n"
+                    "Gap to local history NOT closed yet.\n"
+                    "Progress has been saved to a temporary file.\n"
+                    "Run 'Get New Listens' again to resume."
+                )
+                messagebox.showwarning("Update Incomplete", msg)
+        
+        
+        # --- BACKGROUND WORKER: SYNC LIKES ---
+        # This runs in parallel with the main listen fetch. It doesn't block UI.
+        def likes_worker():
             try:
-                self.progress_win.grab_release()
-                self.progress_win.withdraw()
-                self.progress_win.destroy()
-            except Exception: pass
-            self.progress_win = None
-            
-        self.btn_get_listens.config(state="normal")
-        self.processing = False
-        self.sync_manager = None
+                self.root.after(0, lambda: current_progress_win.update_secondary("Syncing User Likes..."))
+                
+                offset = 0
+                count = 500
+                all_likes_data = []
+                
+                while True:
+                    if current_progress_win.cancelled:
+                        break
+                        
+                    try:
+                        resp = client.get_user_likes(username, offset=offset, count=count)
+                    except Exception as e:
+                        print(f"Likes API Warning: {e}")
+                        break
 
-        if barrier_state["gap_closed"]:
-            self.state.user.merge_intermediate_cache()
+                    # API returns 'feedback' list for the get-feedback endpoint
+                    likes_page = resp.get("feedback", [])
+                    
+                    # Fallbacks for safety/legacy
+                    if not likes_page and "likes" in resp:
+                         likes_page = resp["likes"]
+                    elif not likes_page and "payload" in resp:
+                         likes_page = resp["payload"].get("likes", [])
+                    
+                    if not likes_page:
+                        break
+                    
+                    all_likes_data.extend(likes_page)
+                    offset += len(likes_page)
+                    
+                    # Update secondary label
+                    self.root.after(0, lambda c=len(all_likes_data): current_progress_win.update_secondary(f"Syncing User Likes ({c} found)..."))
+                    
+                    # Check total vs count
+                    total_count = resp.get("total_count")
+                    if total_count is None and "payload" in resp:
+                        total_count = resp["payload"].get("total_count")
+                        
+                    if total_count is not None and len(all_likes_data) >= total_count:
+                        break
+                    if len(likes_page) < count:
+                        break
+                    
+                    time.sleep(1.0)
+                
+                # Persist
+                new_mbids = set()
+                for item in all_likes_data:
+                    mbid = item.get("recording_mbid")
+                    if mbid:
+                        new_mbids.add(mbid)
+                
+                if not current_progress_win.cancelled:
+                    self.state.user.sync_likes(new_mbids)
+                    barrier_state["likes_count"] = len(new_mbids)
+                    self.root.after(0, lambda: current_progress_win.update_secondary(f"Likes Sync Complete ({len(new_mbids)})."))
+                
+            except Exception as e:
+                print(f"Background Likes Sync Failed: {e}")
+                self.root.after(0, lambda: current_progress_win.update_secondary("Likes Sync Failed."))
             
-            msg = f"Update Complete.\nImported {barrier_state['listens_count']} new listens."
-            if barrier_state['likes_count'] > 0:
-                msg += f"\nSynced {barrier_state['likes_count']} User Likes."
-            msg += "\nHistory is fully continuous."
+            finally:
+                # Mark done and check barrier
+                barrier_state["likes_done"] = True
+                self.root.after(0, check_barrier_and_finish)
+
+        threading.Thread(target=likes_worker, daemon=True).start()
+
+        # --- MAIN WORKER: FETCH LISTENS ---
+        def worker():
+            try:
+                nonlocal fetched_total
+                current_max_ts = start_ts
+                gap_closed = False
+                api_calls = 0
+                warning_triggered = False
+                
+                # Fetch Loop
+                while not current_progress_win.cancelled:
+                    # GUI Update
+                    def _upd(c, m):
+                        if current_progress_win.winfo_exists():
+                            current_progress_win.update_progress(0, 0, f"{m} (Total: {c})")
+                    self.root.after(0, _upd, fetched_total, "Fetching batch...")
+
+                    try:
+                        resp = client.get_user_listens(username, max_ts=current_max_ts, count=100)
+                    except Exception as e:
+                        print(f"API Error during fetch: {e}")
+                        break
+                        
+                    payload = resp.get("payload", {})
+                    listens = payload.get("listens", [])
+                    
+                    if not listens:
+                        # No more data from API
+                        gap_closed = True # Effectively closed if we hit end of history
+                        break
+                        
+                    batch_ts = [l["listened_at"] for l in listens]
+                    batch_min = min(batch_ts)
+                    batch_max = max(batch_ts)
+                    
+                    self.state.user.append_to_intermediate_cache(listens)
+                    fetched_total += len(listens)
+                    api_calls += 1
+                    
+                    if batch_min <= local_head_ts:
+                        gap_closed = True
+                        break
+                        
+                    current_max_ts = batch_min
+                    
+                    # 4. Check Safety Threshold
+                    if fetched_total > 5000 and not warning_triggered:
+                        warning_triggered = True # Ask only once
+                        response_event = threading.Event()
+                        user_response = [False]
+                        
+                        def _ask():
+                            if messagebox.askyesno(
+                                "Large Download Warning", 
+                                f"Fetched {fetched_total} listens so far.\nGap to local history not yet closed.\n\nContinue fetching?"
+                            ):
+                                user_response[0] = True
+                            response_event.set()
+                        
+                        self.root.after(0, _ask)
+                        response_event.wait()
+                        
+                        if not user_response[0]:
+                            # User said NO; break loop. Merge what we have (preserving the "Island")
+                            # but we will start closer next attempt.
+                            break
+                            
+                    # Respect rate limits
+                    time.sleep(1.0) 
+                
+                # Update shared state
+                barrier_state["gap_closed"] = gap_closed
+                barrier_state["listens_count"] = fetched_total
+
+            except Exception as e:
+                err_msg = f"Error in update worker: {e}"
+                self.root.after(0, lambda: self._on_report_error(err_msg, "Error"))
             
-            messagebox.showinfo("Update Complete", msg)
-            
-            if self.report_type.get() == "Raw Listens":
-                self.run_report()
-        else:
-            msg = (
-                f"Fetch stopped after {barrier_state['listens_count']} listens.\n"
-                "Gap to local history NOT closed yet.\n"
-                "Progress has been saved to a temporary file.\n"
-                "Run 'Get New Listens' again to resume."
-            )
-            messagebox.showwarning("Update Incomplete", msg)
+            finally:
+                # Mark done and check barrier
+                barrier_state["listens_done"] = True
+                self.root.after(0, check_barrier_and_finish)
+
+        threading.Thread(target=worker, daemon=True).start()
 
 
     def action_resolve_metadata(self):

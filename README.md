@@ -207,18 +207,6 @@ BrainzMRI/
 
 ## Refactor Opportunities
 
-### High-Value: Separation of Sync Logic (`gui_main.py`)
-
-**Status:** The `action_get_new_listens` method in `gui_main.py` is becoming a "God Method." It contains:
-
-1. UI state management (buttons, progress windows).
-2. Threading logic (Daemon threads).
-3. Synchronization logic (Barrier pattern, shared state dicts).
-4. Business logic (API calls, data parsing).
-**Refactoring Opportunity:**
-
-* **Extract `SyncManager`:** Move the `barrier_state`, `likes_worker`, and `listens_worker` logic into a dedicated class (e.g., `sync_manager.py`). The GUI should simply instantiate this manager, pass it a set of callbacks for UI updates (`on_progress`, `on_finish`), and let it run. This makes the synchronization logic testable without spinning up a Tkinter window.
-
 ### Maintenance: Enrichment Loop Repetition (`enrichment.py`)
 
 **Status:** `enrich_report` contains three large blocks of code (Tracks, Albums, Artists) that are 90% identical. They all:

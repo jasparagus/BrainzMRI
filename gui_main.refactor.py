@@ -1174,8 +1174,7 @@ class BrainzMRIGUI:
         
         # Setup Callbacks for SyncManager
         callbacks = {
-            # Adapt 2-arg call from SyncManager to 3-arg ProgressWindow
-            "update_primary": lambda c, m: current_progress_win.update_progress(0, 0, f"{m} (Total: {c})"),
+            "update_primary": current_progress_win.update_progress,
             "update_secondary": current_progress_win.update_secondary,
             "on_complete": self._on_sync_complete,
             "on_error": lambda msg: self._on_report_error(msg, "Sync Error"),
