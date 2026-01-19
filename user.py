@@ -197,10 +197,10 @@ class User:
     def ingest_listenbrainz_zip(self, zip_path: str) -> None:
         """
         Parse a ZIP file and merge it into the current history.
+        REFACTORED: Uses centralized parsing logic from parsing.py
         """
-        user_info, feedback, listens = parsing.parse_listenbrainz_zip(zip_path)
-        df_new = parsing.normalize_listens(listens, origin=["listenbrainz_zip"])
-        likes_new = parsing.load_feedback(feedback)
+        # Call the unified loader instead of manual steps
+        df_new, likes_new = parsing.load_listens_from_zip(zip_path)
 
         with self._io_lock:
             # Merge Listens

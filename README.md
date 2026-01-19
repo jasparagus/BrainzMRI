@@ -207,7 +207,7 @@ BrainzMRI/
 
 ## Refactor Opportunities
 
-### 1. High-Value: Network Layer Deduplication (`api_client.py`)
+### High-Value: Network Layer Deduplication (`api_client.py`)
 
 **Status:** The `MusicBrainzClient`, `LastFMClient`, and `ListenBrainzClient` classes all contain nearly identical implementations of the retry/backoff loop logic (handling `urllib.error`, `MAX_RETRIES`, `time.sleep`).
 **Risk:** If you want to change the retry strategy (e.g., adding exponential backoff or changing the timeout), you have to do it in three places.
@@ -215,7 +215,7 @@ BrainzMRI/
 
 * **Extract a `BaseClient` or `RetryMixin`:** Create a parent class that handles the `_request_generic` logic with the retry loop. The child classes should only define their specific endpoints and headers.
 
-### 2. High-Value: Separation of Sync Logic (`gui_main.py`)
+### High-Value: Separation of Sync Logic (`gui_main.py`)
 
 **Status:** The `action_get_new_listens` method in `gui_main.py` is becoming a "God Method." It contains:
 
@@ -227,16 +227,7 @@ BrainzMRI/
 
 * **Extract `SyncManager`:** Move the `barrier_state`, `likes_worker`, and `listens_worker` logic into a dedicated class (e.g., `sync_manager.py`). The GUI should simply instantiate this manager, pass it a set of callbacks for UI updates (`on_progress`, `on_finish`), and let it run. This makes the synchronization logic testable without spinning up a Tkinter window.
 
-### 3. Consistency: Logic Duplication in ZIP Ingestion (`user.py` vs `parsing.py`)
-
-**Status:**
-
-* `parsing.py` defines a convenience function `load_listens_from_zip` which parses the ZIP, normalizes listens, and extracts feedback.
-* `user.py`'s `ingest_listenbrainz_zip` method ignores this convenience function and manually re-implements the exact same three steps.
-**Refactoring Opportunity:**
-* Update `user.py` to call `parsing.load_listens_from_zip`. This centralizes the definition of "How to read a Brainz ZIP" into `parsing.py`. If the ZIP format changes, you only fix it in one place.
-
-### 4. Maintenance: Enrichment Loop Repetition (`enrichment.py`)
+### Maintenance: Enrichment Loop Repetition (`enrichment.py`)
 
 **Status:** `enrich_report` contains three large blocks of code (Tracks, Albums, Artists) that are 90% identical. They all:
 
@@ -249,7 +240,7 @@ BrainzMRI/
 
 * Abstract the loop into a generic `_process_entities` helper function that accepts the entity type and the list of unique rows. This would reduce `enrichment.py` by approx. 100 lines and ensure bug fixes (like the recent "Deep Query" logic change) are applied consistently to all entity types.
 
-### 5. Inconsistency: "Like" Extraction Logic
+### Inconsistency: "Like" Extraction Logic
 
 **Status:**
 
@@ -258,7 +249,7 @@ BrainzMRI/
 **Refactoring Opportunity:**
 * Update `gui_main.py` to import and use `parsing.load_feedback` (or a slightly generalized version of it) inside the worker. This ensures that the definition of a "valid like" (e.g., checking `score == 1`) is consistent between ZIP imports and API fetches.
 
-### 6. Cleanliness: Modern Type Hinting
+### Cleanliness: Modern Type Hinting
 
 **Status:** The codebase mixes `from typing import List, Dict, Set` (old style) with standard types (implied by Python 3.10+ usage elsewhere).
 **Refactoring Opportunity:** Standardize on built-in types (`list`, `dict`, `set`, `tuple`) in type hints to clean up imports and modernize the code style.
