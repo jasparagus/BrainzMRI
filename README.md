@@ -153,7 +153,7 @@ BrainzMRI/
 # Master Roadmap
 
 
-### **[ ] Playlist Prep: Album Expansion Engine**
+## Playlist Prep: Album Expansion Engine
 
 * **Goal:** Enable the creation of "Full Album" playlists from album-level reports (e.g., turning a "Top Albums of 2024" report into a playable track list).
 * **Workflow:**
@@ -168,7 +168,7 @@ BrainzMRI/
 * **Benefit:** This transforms abstract album statistics into actionable track lists, allowing users to immediately utilize the existing "Export to Playlist" or "Batch Like" features on full albums.
 
 
-### **[ ] Cross-Platform Like Synchronization**
+## Cross-Platform Like Synchronization
 
 * **Goal:** Enable bidirectional synchronization of "Loved Tracks" between Last.fm and ListenBrainz, ensuring your favorites are consistent across both platforms and the local BrainzMRI cache.
 * **Workflow:**
@@ -186,20 +186,79 @@ BrainzMRI/
 * **Benefit:** Eliminates platform fragmentation, ensuring that a song you hearted on Last.fm years ago is properly recognized and recommended on your modern ListenBrainz profile.
 
 
-### **[ ] Heatmaps:**
+## Heatmaps
 * *Goal:* Visualizations for listening density (Hour of Day vs Day of Week).
 
 
-### **[ ] Streak Detection:**
+## Streak Detection
 * *Goal:* Identify "Binge Listening" sessions (consecutive days/hours of specific artists).
 
 
-### **[ ] Report Presets:**
+## Report Presets
 * *Goal:* Dropdown menu to pre-fill complex filter configurations.
  * Example: "Forgotten Favorites" (`High Play Count` + `Last Listened > 1 Year Ago`).
  * Example: "All Time Greatest Albums" (`High Play Count` + `High Play Count` + `4+ Likes Per Album`).
 
 
-### **[ ] Advanced Filtering:**
+## Advanced Filtering
 * *Goal:* "Negative" filtering (e.g., "Artist DOES NOT match regex").
 
+
+
+## Refactor Opportunities
+
+### 1. High-Value: Network Layer Deduplication (`api_client.py`)
+
+**Status:** The `MusicBrainzClient`, `LastFMClient`, and `ListenBrainzClient` classes all contain nearly identical implementations of the retry/backoff loop logic (handling `urllib.error`, `MAX_RETRIES`, `time.sleep`).
+**Risk:** If you want to change the retry strategy (e.g., adding exponential backoff or changing the timeout), you have to do it in three places.
+**Refactoring Opportunity:**
+
+* **Extract a `BaseClient` or `RetryMixin`:** Create a parent class that handles the `_request_generic` logic with the retry loop. The child classes should only define their specific endpoints and headers.
+
+### 2. High-Value: Separation of Sync Logic (`gui_main.py`)
+
+**Status:** The `action_get_new_listens` method in `gui_main.py` is becoming a "God Method." It contains:
+
+1. UI state management (buttons, progress windows).
+2. Threading logic (Daemon threads).
+3. Synchronization logic (Barrier pattern, shared state dicts).
+4. Business logic (API calls, data parsing).
+**Refactoring Opportunity:**
+
+* **Extract `SyncManager`:** Move the `barrier_state`, `likes_worker`, and `listens_worker` logic into a dedicated class (e.g., `sync_manager.py`). The GUI should simply instantiate this manager, pass it a set of callbacks for UI updates (`on_progress`, `on_finish`), and let it run. This makes the synchronization logic testable without spinning up a Tkinter window.
+
+### 3. Consistency: Logic Duplication in ZIP Ingestion (`user.py` vs `parsing.py`)
+
+**Status:**
+
+* `parsing.py` defines a convenience function `load_listens_from_zip` which parses the ZIP, normalizes listens, and extracts feedback.
+* `user.py`'s `ingest_listenbrainz_zip` method ignores this convenience function and manually re-implements the exact same three steps.
+**Refactoring Opportunity:**
+* Update `user.py` to call `parsing.load_listens_from_zip`. This centralizes the definition of "How to read a Brainz ZIP" into `parsing.py`. If the ZIP format changes, you only fix it in one place.
+
+### 4. Maintenance: Enrichment Loop Repetition (`enrichment.py`)
+
+**Status:** `enrich_report` contains three large blocks of code (Tracks, Albums, Artists) that are 90% identical. They all:
+
+1. Check for cancellation.
+2. Construct a name info dict.
+3. Call `_enrich_single_entity`.
+4. Update the map.
+5. Handle batch saving.
+**Refactoring Opportunity:**
+
+* Abstract the loop into a generic `_process_entities` helper function that accepts the entity type and the list of unique rows. This would reduce `enrichment.py` by approx. 100 lines and ensure bug fixes (like the recent "Deep Query" logic change) are applied consistently to all entity types.
+
+### 5. Inconsistency: "Like" Extraction Logic
+
+**Status:**
+
+* `parsing.py` has a `load_feedback` function that iterates a list and extracts `recording_mbid`.
+* `gui_main.py`'s `likes_worker` manually iterates the API response and extracts `recording_mbid` inline.
+**Refactoring Opportunity:**
+* Update `gui_main.py` to import and use `parsing.load_feedback` (or a slightly generalized version of it) inside the worker. This ensures that the definition of a "valid like" (e.g., checking `score == 1`) is consistent between ZIP imports and API fetches.
+
+### 6. Cleanliness: Modern Type Hinting
+
+**Status:** The codebase mixes `from typing import List, Dict, Set` (old style) with standard types (implied by Python 3.10+ usage elsewhere).
+**Refactoring Opportunity:** Standardize on built-in types (`list`, `dict`, `set`, `tuple`) in type hints to clean up imports and modernize the code style.
