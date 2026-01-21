@@ -1,314 +1,310 @@
+"""
+parsing.py
+Data ingestion, normalization, and key generation logic for BrainzMRI.
+"""
+
 import zipfile
 import json
 import os
-from datetime import datetime, UTC, timezone
-from typing import Iterable, List, Tuple, Dict, Any, Set, Optional
+from datetime import datetime, timezone
+from typing import Any, Optional
 import unicodedata
-import re
-
 import pandas as pd
 
 
-def parse_listenbrainz_zip(zip_path: str) -> Tuple[Dict[str, Any], list, list]:
+# ------------------------------------------------------------
+# Key Generation (Centralized)
+# ------------------------------------------------------------
+
+def _clean_str(val: Any) -> str:
+    """Normalize string for key generation: lower, strip, safe str."""
+    if val is None or pd.isna(val):
+        return ""
+    return str(val).strip().lower()
+
+
+def make_track_key(artist: str, track: str, album: str = "") -> str:
+    """
+    Generate a consistent unique key for a track.
+    Format: "artist|track|album" (album optional)
+    """
+    a = _clean_str(artist)
+    t = _clean_str(track)
+    alb = _clean_str(album)
+    # Use pipe separator as it's rare in names
+    return f"{a}|{t}|{alb}"
+
+
+def make_album_key(artist: str, album: str) -> str:
+    """
+    Generate a consistent unique key for an album.
+    Format: "artist|album"
+    """
+    a = _clean_str(artist)
+    alb = _clean_str(album)
+    return f"{a}|{alb}"
+
+
+def make_track_key_series(df: pd.DataFrame) -> pd.Series:
+    """
+    Vectorized key generation for a DataFrame.
+    Expects columns: 'artist', 'track_name', and optional 'album'.
+    """
+    # Vectorized string processing for speed
+
+    # 1. Artist
+    if "artist" in df.columns:
+        s_art = df["artist"].fillna("").astype(str).str.strip().str.lower()
+    else:
+        s_art = pd.Series([""] * len(df), index=df.index)
+
+    # 2. Track
+    if "track_name" in df.columns:
+        s_track = df["track_name"].fillna("").astype(str).str.strip().str.lower()
+    else:
+        s_track = pd.Series([""] * len(df), index=df.index)
+
+    # 3. Album (Optional)
+    if "album" in df.columns:
+        s_alb = df["album"].fillna("").astype(str).str.strip().str.lower()
+    else:
+        s_alb = pd.Series([""] * len(df), index=df.index)
+
+    return s_art + "|" + s_track + "|" + s_alb
+
+
+# ------------------------------------------------------------
+# ListenBrainz Ingestion
+# ------------------------------------------------------------
+
+def parse_listenbrainz_zip(zip_path: str) -> tuple[dict[str, Any], list, list]:
     """
     Parse a ListenBrainz export ZIP and extract user info, feedback, and listens.
     """
     with zipfile.ZipFile(zip_path, "r") as z:
         # User info
-        user_info_bytes = z.read("user.json")
-        user_info = json.loads(user_info_bytes.decode("utf-8"))
+        try:
+            user_info_bytes = z.read("user.json")
+            user_info = json.loads(user_info_bytes.decode("utf-8"))
+        except KeyError:
+            user_info = {}
 
         # Feedback (optional file)
-        feedback: List[Dict[str, Any]] = []
+        feedback: list[dict[str, Any]] = []
         if "feedback.jsonl" in z.namelist():
             with z.open("feedback.jsonl") as f:
                 for line in f:
-                    feedback.append(json.loads(line.decode("utf-8")))
+                    try:
+                        feedback.append(json.loads(line.decode("utf-8")))
+                    except json.JSONDecodeError:
+                        continue
 
         # Listens
-        listens: List[Dict[str, Any]] = []
+        listens: list[dict[str, Any]] = []
         for name in z.namelist():
             if name.startswith("listens/") and name.endswith(".jsonl"):
                 with z.open(name) as f:
                     for line in f:
-                        listens.append(json.loads(line.decode("utf-8")))
+                        try:
+                            listens.append(json.loads(line.decode("utf-8")))
+                        except json.JSONDecodeError:
+                            continue
 
     return user_info, feedback, listens
 
 
-def normalize_listens(
-    listens: Iterable[Dict[str, Any]],
-    origin: Iterable[str] | None = None,
-) -> pd.DataFrame:
+def normalize_listens(raw_listens: list[dict[str, Any]], origin: str = "zip_import") -> pd.DataFrame:
     """
-    Normalize raw ListenBrainz listen objects into a flat canonical DataFrame.
+    Convert raw ListenBrainz JSON objects into the canonical DataFrame schema.
     """
-    origin_list: List[str] = list(origin) if origin is not None else ["listenbrainz_zip"]
-    records: List[Dict[str, Any]] = []
-
-    for l in listens:
-        meta = l.get("track_metadata", {}) or {}
-        mbid_mapping = meta.get("mbid_mapping") or {}
-        additional_info = meta.get("additional_info", {}) or {}
-
-        # Artist extraction
-        artists: List[str] = []
-        if mbid_mapping.get("artists"):
-            artists = [
-                a.get("artist_credit_name")
-                for a in mbid_mapping["artists"]
-                if a.get("artist_credit_name")
-            ]
-        else:
-            if meta.get("artist_name"):
-                artists = [meta["artist_name"]]
-            else:
-                artists = ["Unknown"]
-
-        # Album
-        album_name = meta.get("release_name") or "Unknown"
-
-        # Duration in ms
-        duration_ms = additional_info.get("duration_ms")
-        if duration_ms is None and "duration" in additional_info:
-            try:
-                duration_ms = int(additional_info["duration"]) * 1000
-            except (TypeError, ValueError):
-                duration_ms = None
-        if duration_ms is None:
-            duration_ms = 0
-
-        # Listened at (UTC)
-        listened_at = l.get("listened_at")
-        listened_dt = datetime.fromtimestamp(listened_at, UTC) if listened_at else None
-
-        # Recording MBID
-        recording_mbid = None
-        if mbid_mapping.get("recording_mbid"):
-            recording_mbid = mbid_mapping["recording_mbid"]
-        elif additional_info.get("lastfm_recording_mbid"):
-            recording_mbid = additional_info["lastfm_recording_mbid"]
-
-        # Artist MBID map
-        artist_mbid_map: Dict[str, str | None] = {}
-        if mbid_mapping.get("artists"):
-            for a in mbid_mapping["artists"]:
-                name = a.get("artist_credit_name")
-                mbid = a.get("artist_mbid")
-                if name:
-                    artist_mbid_map[name] = mbid
-
-        # Release MBID (not always present, keep for future use)
-        release_mbid = mbid_mapping.get("release_mbid")
-
-        track_name = meta.get("track_name") or "Unknown"
-
-        # One row per artist for multi artist credits
-        for artist in artists:
-            records.append(
-                {
-                    "artist": artist,
-                    "artist_mbid": artist_mbid_map.get(artist),
-                    "album": album_name,
-                    "track_name": track_name,
-                    "duration_ms": duration_ms,
-                    "listened_at": listened_dt,
-                    "recording_mbid": recording_mbid,
-                    "release_mbid": release_mbid,
-                    "origin": origin_list.copy(),
-                }
-            )
-
-    if not records:
-        # Return an empty DataFrame with the canonical columns
+    if not raw_listens:
         return pd.DataFrame(
             columns=[
-                "artist",
-                "artist_mbid",
-                "album",
-                "track_name",
-                "duration_ms",
-                "listened_at",
-                "recording_mbid",
-                "release_mbid",
-                "origin",
+                "artist", "artist_mbid", "album", "track_name",
+                "duration_ms", "listened_at", "recording_mbid",
+                "release_mbid", "origin"
             ]
         )
 
-    return pd.DataFrame.from_records(records)
+    rows = []
+    for record in raw_listens:
+        if record is None: continue
+
+        # Handle API format (record) vs ZIP format (record)
+        # Usually LB exports have 'track_metadata' inside.
+        meta = record.get("track_metadata", {})
+
+        # Fallback if structure is flat (rare but possible in some API endpoints)
+        if not meta:
+            meta = record
+
+        artist_name = meta.get("artist_name", "Unknown")
+        track_name = meta.get("track_name", "Unknown")
+        album_name = meta.get("release_name", "Unknown")
+
+        # Additional info
+        add_info = meta.get("additional_info", {})
+
+        # Extract MBIDs
+        # They can be in mapping/mbid_mapping OR directly in additional_info
+        mb_maps = meta.get("mbid_mapping", {})
+
+        artist_mbid = mb_maps.get("artist_mbids", [None])[0] or mb_maps.get("artist_mbid")
+        recording_mbid = mb_maps.get("recording_mbid") or add_info.get("recording_mbid")
+        release_mbid = mb_maps.get("release_mbid") or add_info.get("release_mbid")
+
+        # Fallback for artist_mbid if it's a list in additional_info
+        if not artist_mbid:
+            am = add_info.get("artist_mbids")
+            if am and isinstance(am, list) and len(am) > 0:
+                artist_mbid = am[0]
+
+        duration = add_info.get("duration_ms") or add_info.get("duration") or 0
+
+        # Timestamp
+        listened_at_ts = record.get("listened_at")
+        if listened_at_ts:
+            dt = datetime.fromtimestamp(listened_at_ts, timezone.utc)
+        else:
+            dt = datetime.now(timezone.utc)
+
+        rows.append({
+            "artist": artist_name,
+            "artist_mbid": str(artist_mbid) if artist_mbid else None,
+            "album": album_name,
+            "track_name": track_name,
+            "duration_ms": int(duration) if duration else 0,
+            "listened_at": dt,
+            "recording_mbid": str(recording_mbid) if recording_mbid else None,
+            "release_mbid": str(release_mbid) if release_mbid else None,
+            "origin": origin
+        })
+
+    return pd.DataFrame(rows)
 
 
-def load_feedback(feedback: Iterable[Dict[str, Any]]) -> Set[str]:
+def load_feedback(feedback_list: list[dict[str, Any]]) -> set[str]:
     """
-    Extract liked recording MBIDs from feedback entries.
+    Extract a set of recording_mbids from a list of feedback objects.
+    Only includes items with score=1 (Likes).
     """
-    likes: Set[str] = set()
-    for row in feedback:
-        if row.get("score") == 1 and row.get("recording_mbid"):
-            likes.add(row["recording_mbid"])
+    likes = set()
+    for item in feedback_list:
+        # DEFENSIVE FIX: Handle None items in list
+        if item is None:
+            continue
+
+        score = item.get("score")
+        mbid = item.get("recording_mbid")
+
+        # DEFENSIVE FIX: Handle None track_metadata
+        if not mbid:
+            tm = item.get("track_metadata")
+            if tm and isinstance(tm, dict):
+                mbid = tm.get("recording_mbid")
+
+        if score == 1 and mbid:
+            likes.add(mbid)
     return likes
-    
-    
-def load_listens_from_zip(zip_path: str) -> tuple[pd.DataFrame, Set[str]]:
+
+
+def load_listens_from_zip(zip_path: str) -> tuple[pd.DataFrame, set[str]]:
     """
-    Convenience loader for the GUI.
+    Convenience wrapper to load all data from a ZIP into a DataFrame and Likes Set.
     """
-    user_info, feedback, listens = parse_listenbrainz_zip(zip_path)
-    df = normalize_listens(listens, origin=["listenbrainz_zip"])
-    likes = load_feedback(feedback)
+    _, feedback_raw, listens_raw = parse_listenbrainz_zip(zip_path)
+
+    df = normalize_listens(listens_raw, origin="zip_import")
+    likes = load_feedback(feedback_raw)
+
     return df, likes
 
 
 # ------------------------------------------------------------
-# CSV Import Logic (Phase 2.1)
+# Generic CSV Import
 # ------------------------------------------------------------
 
-def parse_generic_csv(filepath: str) -> pd.DataFrame:
+def parse_generic_csv(csv_path: str) -> pd.DataFrame:
     """
-    Parse an arbitrary CSV file and attempt to map it to the canonical schema.
-    
-    Heuristics:
-    - Finds a column containing "artist" (excluding "album") -> 'artist'
-    - Finds a column containing "album" -> 'album'
-    - Finds a column containing "track" or "title" -> 'track_name'
-    
-    Raises ValueError if required columns cannot be uniquely identified.
+    Parse a generic CSV.
+    Expects columns: Artist, Track Name (case insensitive).
+    Optional: Album, MBID, Timestamp.
     """
-    try:
-        # Read without index, infer headers
-        raw_df = pd.read_csv(filepath)
-    except Exception as e:
-        raise ValueError(f"Failed to read CSV: {e}")
+    df = pd.read_csv(csv_path)
 
-    # clean headers: lowercase, strip whitespace
-    raw_cols = {c: c.lower().strip() for c in raw_df.columns}
-    
-    # --- 1. Identify Artist Column ---
-    # Must contain 'artist', must NOT contain 'album' (avoids 'Album Artist')
-    artist_candidates = [
-        orig for orig, clean in raw_cols.items() 
-        if "artist" in clean and "album" not in clean
-    ]
-    
-    if not artist_candidates:
-        raise ValueError("Unable to parse: Could not determine 'Artist' column.")
-    
-    # If multiple, prefer exact match 'artist' or 'artist name' if possible, else take first
-    artist_col = artist_candidates[0]
-    
-    # --- 2. Identify Album Column ---
-    album_candidates = [
-        orig for orig, clean in raw_cols.items() 
-        if "album" in clean
-    ]
-    if not album_candidates:
-        raise ValueError("Unable to parse: Could not determine 'Album' column.")
-    album_col = album_candidates[0]
-    
-    # --- 3. Identify Track Column ---
-    track_candidates = [
-        orig for orig, clean in raw_cols.items() 
-        if "track" in clean or "title" in clean
-    ]
-    if not track_candidates:
-        raise ValueError("Unable to parse: Could not determine 'Track'/'Title' column.")
-    track_col = track_candidates[0]
-    
-    # --- Construct Canonical DataFrame ---
-    df = pd.DataFrame()
-    
-    # Map and fill missing values with "Unknown"
-    df["artist"] = raw_df[artist_col].fillna("Unknown").astype(str)
-    df["album"] = raw_df[album_col].fillna("Unknown").astype(str)
-    df["track_name"] = raw_df[track_col].fillna("Unknown").astype(str)
-    
-    # Fill canonical technical columns
-    df["duration_ms"] = 0
-    df["listened_at"] = datetime.now(timezone.utc) # Mark import time as listen time? Or None?
-    # Better to leave listened_at as NaT or current time. 
-    # For a "Playlist", current time makes sense as "Imported At", 
-    # but for history analysis, it might skew "Last Listened". 
-    # Let's assume Import Time for now so they appear at the top of "Recent".
-    
-    df["recording_mbid"] = None
-    df["artist_mbid"] = None
-    df["release_mbid"] = None
+    # Normalize headers
+    df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
+
+    # Map to schema
+    # Required
+    if "artist" not in df.columns or "track_name" not in df.columns:
+        # Try heuristics
+        if "track" in df.columns:
+            df.rename(columns={"track": "track_name"}, inplace=True)
+        if "name" in df.columns:
+            df.rename(columns={"name": "track_name"}, inplace=True)
+
+    if "artist" not in df.columns or "track_name" not in df.columns:
+        raise ValueError("CSV must contain 'Artist' and 'Track Name' columns.")
+
+    # Optional / Defaults
+    if "album" not in df.columns:
+        df["album"] = "Unknown"
+
+    if "listened_at" not in df.columns:
+        # Default to now if missing
+        df["listened_at"] = datetime.now(timezone.utc)
+    else:
+        df["listened_at"] = pd.to_datetime(df["listened_at"], utc=True)
+
+    if "duration_ms" not in df.columns:
+        df["duration_ms"] = 0
+
+    # Ensure ID columns exist
+    for col in ["recording_mbid", "release_mbid", "artist_mbid"]:
+        if col not in df.columns:
+            df[col] = None
+
     df["origin"] = "csv_import"
-    
-    # Convert origin to list to match schema
-    df["origin"] = df["origin"].apply(lambda x: [x])
 
     return df
 
-# ------------------------------------------------------------
-# Identity & Key Generation (Phase 1 Refactor)
-# ------------------------------------------------------------
-
-def make_track_key(artist: Any, track: Any, album: Any = "") -> str:
-    """
-    Generate a normalized unique key for a track: 'artist|track|album'.
-    Used for caching and matching resolved metadata.
-    """
-    a = str(artist).strip().lower()
-    t = str(track).strip().lower()
-    b = str(album).strip().lower() if album else ""
-    return f"{a}|{t}|{b}"
-
-def make_track_key_series(df: pd.DataFrame) -> pd.Series:
-    """
-    Generate a normalized unique key Series for a DataFrame: 'artist|track|album'.
-    Used for vectorized matching in write-back operations.
-    """
-    return (
-        df["artist"].astype(str).str.strip().str.lower() + "|" +
-        df["track_name"].astype(str).str.strip().str.lower() + "|" +
-        df["album"].astype(str).str.strip().str.lower()
-    )
 
 # ------------------------------------------------------------
-# Sort Normalization (New for Regularized Sorting)
+# Sort Normalization
 # ------------------------------------------------------------
 
 def normalize_sort_key(series: pd.Series) -> pd.Series:
     """
     Normalize a series of strings for sorting logic only.
     - Lowercase
-    - Expand ligatures (Æ -> ae) manually (NFKD misses some Latin ones)
+    - Expand ligatures (Æ -> ae) manually
     - Strip accents/diacritics (é -> e)
-    - Remove leading "The " (English specific)
+    - Remove leading "The "
     """
     # 1. Ensure string and lowercase
     s = series.astype(str).str.lower()
-    
+
     # 2. Remove "the " prefix
     s = s.str.replace(r"^the\s+", "", regex=True)
-    
+
     # 3. Manual Ligature Expansion
-    # NFKD does not decompose these common Latin ligatures, so we do it manually.
     ligatures = {
         "æ": "ae",
         "œ": "oe",
-        "ß": "ss",  # German Sharp S
-        # 'ﬁ' and 'ﬂ' ARE handled by NFKD, so we don't need them here
+        "ß": "ss",
     }
     for char, replacement in ligatures.items():
         s = s.str.replace(char, replacement, regex=False)
-    
+
     # 4. Unicode Normalization
     def _clean_text(val):
         if not isinstance(val, str):
             return str(val)
-            
-        # NFKD compatibility decomposition:
-        # Handles accents ('é' -> 'e') and compatibility chars ('ﬁ' -> 'fi')
-        val = unicodedata.normalize('NFKD', val)
-        
-        # Filter out non-spacing mark characters (the accents)
-        val = "".join([c for c in val if not unicodedata.combining(c)])
-        
-        return val
 
-    # Apply the heavy lifting
-    s = s.map(_clean_text)
-    
-    return s
+        # Decompose
+        norm = unicodedata.normalize("NFKD", val)
+        # Strip combining chars
+        return "".join([c for c in norm if not unicodedata.combining(c)])
+
+    return s.apply(_clean_text)

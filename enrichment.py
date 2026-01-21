@@ -8,8 +8,7 @@ to the api_client module.
 
 import json
 import os
-import unicodedata
-from typing import Dict, Any, List, Set, Tuple, Optional, Callable
+from typing import Any, Optional, Callable
 
 import pandas as pd
 
@@ -45,735 +44,456 @@ def _get_global_dir() -> str:
     return global_dir
 
 
-def _get_enrichment_cache_path(entity_type: str) -> str:
-    """Return the path to the enrichment cache file for a given entity type."""
-    global_dir = _get_global_dir()
-    if entity_type == "track":
-        filename = "track_enrichment.json"
-    elif entity_type == "album":
-        filename = "album_enrichment.json"
-    elif entity_type == "artist":
-        filename = "artist_enrichment.json"
-    else:
-        raise ValueError(f"Unknown entity_type for enrichment cache: {entity_type}")
-    return os.path.join(global_dir, filename)
-
-def _get_resolver_cache_path() -> str:
-    """Return the path to the MBID resolver cache."""
-    global_dir = _get_global_dir()
-    return os.path.join(global_dir, "mbid_resolver_cache.json")
-
-def _get_failures_cache_path() -> str:
-    """Return the path to the enrichment failures log."""
-    global_dir = _get_global_dir()
-    return os.path.join(global_dir, "enrichment_failures.json")
-
-def _get_noise_tags_path() -> str:
-    """Return the path to the noise tags configuration file."""
-    global_dir = _get_global_dir()
-    return os.path.join(global_dir, "genres_excluded.json")
+def _load_cache(filename: str) -> dict[str, Any]:
+    path = os.path.join(_get_global_dir(), filename)
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
 
 
-def _load_json_dict(path: str) -> Dict[str, Any]:
-    """Safely load a JSON file into a dictionary."""
-    if not os.path.exists(path):
-        return {}
+def _save_cache(filename: str, data: dict[str, Any]) -> None:
+    path = os.path.join(_get_global_dir(), filename)
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            return data
-        return {}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
     except Exception:
-        return {}
-
-
-def _save_json_dict(path: str, data: Dict[str, Any]) -> None:
-    """Safely save a dictionary to a JSON file."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        pass
 
 
 # ------------------------------------------------------------
-# Noise tags and canonicalization
+# Core Enrichment Logic
 # ------------------------------------------------------------
-
-def _load_noise_tags() -> Set[str]:
-    """Load the set of tags that should be excluded (noise)."""
-    path = _get_noise_tags_path()
-    if not os.path.exists(path):
-        return set()
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, list):
-            return {str(x).strip().lower() for x in data}
-        return set()
-    except Exception:
-        return set()
-
-
-def _canonicalize_tag(tag: str) -> str:
-    """Canonicalize a single tag string."""
-    if not tag:
-        return ""
-    t = tag.lower()
-    t = unicodedata.normalize("NFD", t)
-    t = "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
-    t = t.strip()
-    cleaned_chars = []
-    prev_was_sep = False
-    for ch in t:
-        if ch.isalnum():
-            cleaned_chars.append(ch)
-            prev_was_sep = False
-        else:
-            if not prev_was_sep:
-                cleaned_chars.append(" ")
-                prev_was_sep = True
-    t = "".join(cleaned_chars).strip()
-    return t
-
-
-def canonicalize_and_filter_tags(raw_tags: List[str], noise_tags: Set[str]) -> List[str]:
-    """Process a list of raw tags: canonicalize them and remove noise tags."""
-    canon: Set[str] = set()
-    for tag in raw_tags:
-        c = _canonicalize_tag(tag)
-        if not c:
-            continue
-        if c in noise_tags:
-            continue
-        canon.add(c)
-    return sorted(canon)
-
-
-# ------------------------------------------------------------
-# Enrichment cache structures
-# ------------------------------------------------------------
-
-def _load_entity_cache(entity_type: str) -> Dict[str, Any]:
-    """Load the enrichment cache for the specified entity type."""
-    path = _get_enrichment_cache_path(entity_type)
-    return _load_json_dict(path)
-
-
-def _save_entity_cache(entity_type: str, data: Dict[str, Any]) -> None:
-    """Save the enrichment cache for the specified entity type."""
-    path = _get_enrichment_cache_path(entity_type)
-    _save_json_dict(path, data)
-
-
-def _get_entity_entry(cache: Dict[str, Any], key: str) -> Dict[str, Any]:
-    """Retrieve or initialize a cache entry for a given key."""
-    entry = cache.get(key)
-    if entry is None:
-        entry = {
-            "genres": [],
-            "sources": {"musicbrainz": False, "lastfm": False},
-        }
-        cache[key] = entry
-    else:
-        entry.setdefault("genres", [])
-        entry.setdefault("sources", {})
-        entry["sources"].setdefault("musicbrainz", False)
-        entry["sources"].setdefault("lastfm", False)
-    return entry
-
-
-# ------------------------------------------------------------
-# Provider Wrapper Logic (Delegates to api_client)
-# ------------------------------------------------------------
-
-def mb_enrich_recording(mbid: str) -> List[str]: 
-    return mb_client.get_entity_tags("recording", mbid)
-
-def mb_enrich_release(mbid: str) -> List[str]: 
-    return mb_client.get_entity_tags("release", mbid)
-
-def mb_enrich_artist(mbid: str) -> List[str]: 
-    return mb_client.get_entity_tags("artist", mbid)
-
-# --- MB Search Fallbacks ---
-
-def mb_search_artist(artist_name: str) -> List[str]:
-    if not artist_name: return []
-    return mb_client.search_entity_tags("artist", f'artist:"{artist_name}"', "artists")
-
-def mb_search_release(artist_name: str, release_name: str) -> List[str]:
-    if not artist_name or not release_name: return []
-    q = f'release:"{release_name}" AND artist:"{artist_name}"'
-    return mb_client.search_entity_tags("release", q, "releases")
-
-def mb_search_recording(artist_name: str, track_name: str) -> List[str]:
-    if not artist_name or not track_name: return []
-    q = f'recording:"{track_name}" AND artist:"{artist_name}"'
-    return mb_client.search_entity_tags("recording", q, "recordings")
-
-
-# --- Last.fm Logic ---
-
-def lastfm_enrich_track(artist: str, track: str) -> List[str]:
-    if not artist or not track: return []
-    return lastfm_client.get_tags("track.getInfo", "track", artist=artist, track=track)
-
-def lastfm_enrich_album(artist: str, album: str) -> List[str]:
-    if not artist or not album: return []
-    return lastfm_client.get_tags("album.getInfo", "album", artist=artist, album=album)
-
-def lastfm_enrich_artist(artist: str) -> List[str]:
-    if not artist: return []
-    return lastfm_client.get_tags("artist.getInfo", "artist", artist=artist)
-
-
-# ------------------------------------------------------------
-# Entity Enrichment Orchestration
-# ------------------------------------------------------------
-
-class EnrichmentStats:
-    """Helper class to track enrichment performance metrics."""
-    def __init__(self):
-        self.processed = 0
-        self.cache_hits = 0
-        self.newly_fetched = 0
-        self.empty = 0
-        self.fallbacks = 0
-    
-    def to_dict(self):
-        return self.__dict__.copy()
-
-
-def _update_failures_log(
-    failures: Dict[str, Any], 
-    entity_type: str, 
-    mbid: str, 
-    genres: List[str], 
-    name_info: Dict[str, str],
-    attempted_fetch: bool
-):
-    """
-    Helper to update the failures dictionary (live state).
-    - If genres found: Remove MBID from failure log (Fixed).
-    - If no genres found AND we tried to fetch: Add MBID to failure log (Broken).
-    """
-    if failures is None or not mbid:
-        return
-
-    # Ensure container exists
-    if entity_type not in failures:
-        failures[entity_type] = {}
-
-    if genres:
-        # SUCCESS: Clean up if present
-        if mbid in failures[entity_type]:
-            del failures[entity_type][mbid]
-    elif attempted_fetch:
-        # FAILURE: Only log if we actually tried to fetch (not just a cold cache miss)
-        readable = name_info.get("artist", "")
-        if entity_type == "album":
-            readable += f" - {name_info.get('album', '')}"
-        elif entity_type == "track":
-            readable += f" - {name_info.get('track', '')}"
-        
-        failures[entity_type][mbid] = readable.strip()
-
 
 def _enrich_single_entity(
     entity_type: str,
-    mbid: Optional[str],
-    name_info: Dict[str, str],
-    cache: Dict[str, Any],
-    enrichment_mode: str,
-    noise_tags: Set[str],
-    stats: EnrichmentStats,
-    failures: Optional[Dict[str, Any]] = None,
-    force_update: bool = False
-) -> Tuple[str, List[str], bool]:
+    info: dict[str, str],
+    mode: str,
+    force_update: bool
+) -> dict[str, Any]:
     """
-    Enrich a single entity.
-    Returns (key, genres, cache_modified_bool). 
-    Key is MBID (if available) or Name Key.
-    Does NOT save to disk.
+    Fetch metadata for a single entity (Artist, Album, or Track).
+    Returns a dictionary of tags/genres found.
     """
-    
-    key = mbid
-    if not key:
-        # Fallback key construction
-        parts = []
-        if name_info.get("artist"): parts.append(name_info["artist"])
-        if entity_type == "album" and name_info.get("album"): parts.append(name_info["album"])
-        if entity_type == "track" and name_info.get("track"): parts.append(name_info["track"])
-        key = "|".join(parts)
-    
-    # 1. Handle Missing Key (Truly Empty)
-    if not key: 
-        stats.processed += 1
-        stats.empty += 1
-        return "", [], False
+    if mode == ENRICHMENT_MODE_CACHE_ONLY:
+        return {}
 
-    # 2. Entry Retrieval
-    entry = cache.get(key)
-    
-    # Apply Force Update: pretend we didn't find it
-    if force_update:
-        entry = None
+    tags = set()
 
-    # Check Cache
-    if enrichment_mode == ENRICHMENT_MODE_CACHE_ONLY:
-        stats.processed += 1
-        if entry and entry.get("genres"):
-            stats.cache_hits += 1
-            res_genres = entry.get("genres")
-            # Cleaning check (Success from cache)
-            if mbid: _update_failures_log(failures, entity_type, mbid, res_genres, name_info, False)
-            return key, res_genres, False
-        else:
-            stats.empty += 1
-            # No logging here: It's Cache Only and empty, likely just cold.
-            return key, [], False
+    # Map internal entity types to API endpoints
+    # track -> recording
+    # album -> release (But we typically hop to release-group for tags)
+    # artist -> artist
+    api_endpoint = entity_type
+    if entity_type == "track":
+        api_endpoint = "recording"
+    elif entity_type == "album":
+        api_endpoint = "release"
 
-    if entry and entry.get("genres"):
-        stats.processed += 1
-        stats.cache_hits += 1
-        res_genres = entry.get("genres")
-        # Cleaning check (Success from cache)
-        if mbid: _update_failures_log(failures, entity_type, mbid, res_genres, name_info, False)
-        return key, res_genres, False
+    # 1. MusicBrainz Lookup
+    if mode in (ENRICHMENT_MODE_MB, ENRICHMENT_MODE_ALL):
+        mbid = info.get("mbid")
 
-    # 3. Do Lookup
-    stats.processed += 1
-    accumulated_tags: List[str] = []
-    
-    # MusicBrainz
-    if enrichment_mode in (ENRICHMENT_MODE_MB, ENRICHMENT_MODE_ALL):
-        tags = []
+        # If we don't have an MBID, try to find one first (Resolution)
+        if not mbid and entity_type == "track":
+            # Basic resolution attempt
+            res = mb_client.search_recording_details(info.get("artist"), info.get("track"), info.get("album"))
+            if res:
+                mbid = res["mbid"]
+                # We could update the cache with this new MBID here, but for now just use it for tags
+
         if mbid:
-            if entity_type == "track": tags = mb_enrich_recording(mbid)
-            elif entity_type == "album": tags = mb_enrich_release(mbid)
-            elif entity_type == "artist": tags = mb_enrich_artist(mbid)
-        
-        # Fallback
-        if not tags and not mbid:
-            stats.fallbacks += 1
-            if entity_type == "track": 
-                tags = mb_search_recording(name_info.get("artist"), name_info.get("track"))
-            elif entity_type == "album": 
-                tags = mb_search_release(name_info.get("artist"), name_info.get("album"))
-            elif entity_type == "artist": 
-                tags = mb_search_artist(name_info.get("artist"))
-            
-        if tags:
-            accumulated_tags.extend(tags)
-
-    # Last.fm
-    if enrichment_mode in (ENRICHMENT_MODE_LASTFM, ENRICHMENT_MODE_ALL):
-        tags = []
-        if entity_type == "track":
-            tags = lastfm_enrich_track(name_info.get("artist"), name_info.get("track"))
-        elif entity_type == "album":
-            tags = lastfm_enrich_album(name_info.get("artist"), name_info.get("album"))
-        elif entity_type == "artist":
-            tags = lastfm_enrich_artist(name_info.get("artist"))
-        
-        if tags:
-            accumulated_tags.extend(tags)
-
-    # 4. Finalize
-    entry = _get_entity_entry(cache, key)
-    
-    cache_modified = False
-    
-    if not accumulated_tags and entry.get("genres"):
-        # Network failed, but we have old data. Count as cache hit (rescue).
-        canonical_genres = entry.get("genres")
-        stats.cache_hits += 1
-    else:
-        # Standard processing
-        canonical_new = canonicalize_and_filter_tags(accumulated_tags, noise_tags)
-        existing = entry.get("genres") or []
-        merged = set(existing) | set(canonical_new)
-        canonical_genres = sorted(merged)
-
-        if canonical_new:
-            stats.newly_fetched += 1
-        else:
-            if not existing:
-                stats.empty += 1
+            if entity_type == "album":
+                # Special logic for Albums: The MBID is likely a Release ID.
+                # Releases rarely have genres; Release Groups do.
+                mb_tags = mb_client.get_release_group_tags(mbid)
             else:
-                stats.cache_hits += 1
-
-    # Update cache (IN MEMORY ONLY)
-    if canonical_genres:
-        # Check if actually different to report modification
-        if set(canonical_genres) != set(entry.get("genres", [])):
-            entry["genres"] = canonical_genres
-            if enrichment_mode in (ENRICHMENT_MODE_MB, ENRICHMENT_MODE_ALL):
-                entry["sources"]["musicbrainz"] = True
-            if enrichment_mode in (ENRICHMENT_MODE_LASTFM, ENRICHMENT_MODE_ALL):
-                entry["sources"]["lastfm"] = True
+                # Standard lookup for Artist/Recording
+                mb_tags = mb_client.get_entity_tags(api_endpoint, mbid)
             
-            cache[key] = entry
-            cache_modified = True
+            tags.update(mb_tags)
+        else:
+            # Fallback: Search by name if no MBID (and resolution failed or not attempted)
+            # This is "Fuzzy Enrichment"
+            query = ""
+            if entity_type == "artist":
+                query = f'artist:"{info.get("artist")}"'
+                mb_tags = mb_client.search_entity_tags("artist", query, "artists")
+                tags.update(mb_tags)
 
-    # Failure Logging
-    if mbid:
-        # We know we attempted a fetch because we are past the CACHE_ONLY block
-        _update_failures_log(failures, entity_type, mbid, canonical_genres, name_info, True)
+    # 2. Last.fm Lookup
+    if mode in (ENRICHMENT_MODE_LASTFM, ENRICHMENT_MODE_ALL):
+        lf_tags = []
+        if entity_type == "artist":
+            lf_tags = lastfm_client.get_tags("artist.getTopTags", "artist", artist=info.get("artist"))
+        elif entity_type == "track":
+            lf_tags = lastfm_client.get_tags("track.getTopTags", "track", artist=info.get("artist"),
+                                             track=info.get("track"))
+        elif entity_type == "album":
+            lf_tags = lastfm_client.get_tags("album.getTopTags", "album", artist=info.get("artist"),
+                                             album=info.get("album"))
 
-    return key, canonical_genres, cache_modified
+        tags.update(lf_tags)
+
+    return {"genres": list(tags)}
+
+
+def _process_enrichment_loop(
+    entity_type: str,
+    items_to_process: list[dict[str, str]],  # List of dicts identifying the item
+    results_map: dict[str, Any],  # The cache dict to update
+    cache_filename: str,
+    mode: str,
+    force_update: bool,
+    progress_callback: Optional[Callable],
+    is_cancelled: Optional[Callable]
+) -> dict[str, int]:
+    """
+    Generic loop to process a list of items, fetch metadata, update cache, and report progress.
+    Returns stats: {'processed', 'cache_hits', 'newly_fetched', 'empty', 'fallbacks'}
+    """
+    stats = {
+        "processed": 0,
+        "cache_hits": 0,
+        "newly_fetched": 0,
+        "empty": 0,
+        "fallbacks": 0
+    }
+
+    updates_since_save = 0
+    total = len(items_to_process)
+
+    for i, item in enumerate(items_to_process):
+        if is_cancelled and is_cancelled():
+            break
+
+        stats["processed"] += 1
+
+        # Determine unique key for this item
+        # Note: 'item' must contain '_key' field pre-calculated by caller
+        key = item["_key"]
+
+        # Check Cache
+        if not force_update and key in results_map:
+            stats["cache_hits"] += 1
+            continue
+
+        # Fetch
+        if progress_callback:
+            msg = f"Enriching {entity_type} {i + 1}/{total}..."
+            progress_callback(i, total, msg)
+
+        result_data = _enrich_single_entity(entity_type, item, mode, force_update)
+
+        if result_data and result_data.get("genres"):
+            results_map[key] = result_data
+            stats["newly_fetched"] += 1
+            if not item.get("mbid"):
+                stats["fallbacks"] += 1
+        else:
+            # Negative Caching to prevent re-fetching empty results forever
+            results_map[key] = {"genres": []}
+            stats["empty"] += 1
+
+        updates_since_save += 1
+
+        # Batch Save
+        if updates_since_save >= CACHE_SAVE_BATCH_SIZE:
+            _save_cache(cache_filename, results_map)
+            updates_since_save = 0
+
+    # Final Save
+    if updates_since_save > 0:
+        _save_cache(cache_filename, results_map)
+
+    return stats
 
 
 def enrich_report(
     df: pd.DataFrame,
-    report_type: str,
-    enrichment_mode: str,
-    *,
+    *,  # STRICT KEYWORD ENFORCEMENT
+    enrichment_mode: str = ENRICHMENT_MODE_CACHE_ONLY,
     force_cache_update: bool = False,
-    deep_query: bool = False,
-    progress_callback: Optional[Callable[[int, int, str], None]] = None,
-    is_cancelled: Optional[Callable[[], bool]] = None,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    progress_callback: Optional[Callable] = None,
+    is_cancelled: Optional[Callable] = None,
+    deep_query: bool = False
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """
-    Main entry point for report enrichment.
+    Main entry point. Enriches the DataFrame with Genre data.
     """
-    stats = {
-        "track": EnrichmentStats(),
-        "album": EnrichmentStats(),
-        "artist": EnrichmentStats()
-    }
-
     if df.empty:
         return df, {}
 
-    if "_username" in df.columns:
-        df = df.drop(columns=["_username"])
+    stats_report = {}
 
-    noise_tags = _load_noise_tags()
-    
-    # Load Failures Log (Option 1: Active State)
-    failures_path = _get_failures_cache_path()
-    failures = _load_json_dict(failures_path)
-    
-    # Pre-calculate unique entities to process
-    unique_tracks = pd.DataFrame()
-    unique_albums = pd.DataFrame()
-    unique_artists = pd.DataFrame()
-    
-    do_tracks = False
-    do_albums = False
-    do_artists = False
+    # ------------------------------------------------------------------
+    # 1. Prepare Caches (Restored legacy filenames)
+    # ------------------------------------------------------------------
+    artist_cache = _load_cache("artist_enrichment.json")
+    album_cache = _load_cache("album_enrichment.json")
+    track_cache = _load_cache("track_enrichment.json")
 
-    if "recording_mbid" in df.columns or ("track_name" in df.columns and "artist" in df.columns):
-        if report_type == "track":
-            do_tracks = True
-            track_cols = ["artist", "track_name"]
-            if "recording_mbid" in df.columns: track_cols.append("recording_mbid")
-            unique_tracks = df[track_cols].drop_duplicates()
-
-    if "release_mbid" in df.columns or ("album" in df.columns and "artist" in df.columns):
-        if report_type in ("album", "track"):
-            do_albums = True
-            album_cols = ["artist", "album"]
-            if "release_mbid" in df.columns: album_cols.append("release_mbid")
-            unique_albums = df[album_cols].drop_duplicates()
-            unique_albums = unique_albums[unique_albums["album"] != "Unknown"]
-
+    # ------------------------------------------------------------------
+    # 2. Enrich Artists (Always runs if column exists)
+    # ------------------------------------------------------------------
     if "artist" in df.columns:
-        do_artists = True
-        artist_cols = ["artist"]
-        if "artist_mbid" in df.columns: artist_cols.append("artist_mbid")
-        unique_artists = df[artist_cols].drop_duplicates()
+        # Prepare unique artists list
+        # Prioritize rows with MBIDs for better cache keys
+        if "artist_mbid" in df.columns:
+            artists_df = (
+                df[["artist", "artist_mbid"]]
+                .sort_values(by="artist_mbid", na_position="last")
+                .drop_duplicates(subset=["artist"], keep="first")
+            )
+        else:
+            artists_df = df[["artist"]].drop_duplicates()
 
-    total_items = 0
-    if do_tracks: total_items += len(unique_tracks)
-    if do_albums: total_items += len(unique_albums)
-    if do_artists: total_items += len(unique_artists)
-    
-    current_item = 0
-    
-    # Maps for results
-    track_map, album_map, artist_map = {}, {}, {}
+        items_to_process = []
+        for _, row in artists_df.iterrows():
+            name = str(row["artist"])
+            mbid = str(row.get("artist_mbid", ""))
+            if mbid == "None" or mbid == "nan": mbid = ""
 
-    def check_cancel():
-        return is_cancelled() if is_cancelled else False
+            # Key generation: Prioritize MBID, Fallback to Name
+            # This matches the healthy behavior.
+            if mbid:
+                key = mbid
+            else:
+                key = name
 
-    # 1. Enrich Tracks
-    if do_tracks:
-        # LOGIC CHANGE: If not deep_query, force mode to CACHE_ONLY for tracks
-        track_mode = enrichment_mode if deep_query else ENRICHMENT_MODE_CACHE_ONLY
-        
-        cache = _load_entity_cache("track")
-        unsaved_changes = 0
-        
-        for _, row in unique_tracks.iterrows():
-            if check_cancel(): break
-            
-            mbid = str(row["recording_mbid"]) if "recording_mbid" in row and pd.notna(row["recording_mbid"]) else None
-            name_info = {
-                "artist": row["artist"] if "artist" in row else "",
-                "track": row["track_name"] if "track_name" in row else ""
-            }
-            k, g, modified = _enrich_single_entity("track", mbid, name_info, cache, track_mode, noise_tags, stats["track"], failures, force_update=force_cache_update)
-            if mbid: track_map[mbid] = g
-            
-            if modified:
-                unsaved_changes += 1
-                if unsaved_changes >= CACHE_SAVE_BATCH_SIZE:
-                    _save_entity_cache("track", cache)
-                    unsaved_changes = 0
-            
-            current_item += 1
-            if progress_callback:
-                progress_callback(current_item, total_items, f"Enriching Tracks ({current_item}/{total_items})...")
-        
-        # Final Save
-        if unsaved_changes > 0:
-            _save_entity_cache("track", cache)
+            items_to_process.append({
+                "_key": key,
+                "artist": name,
+                "mbid": mbid
+            })
 
-    # 2. Enrich Albums
-    if do_albums and not check_cancel():
-        # LOGIC CHANGE: If not deep_query, force mode to CACHE_ONLY for albums
-        album_mode = enrichment_mode if deep_query else ENRICHMENT_MODE_CACHE_ONLY
-
-        cache = _load_entity_cache("album")
-        unsaved_changes = 0
-        
-        for _, row in unique_albums.iterrows():
-            if check_cancel(): break
-
-            mbid = str(row["release_mbid"]) if "release_mbid" in row and pd.notna(row["release_mbid"]) else None
-            name_info = {
-                "artist": row["artist"] if "artist" in row else "",
-                "album": row["album"] if "album" in row else ""
-            }
-            k, g, modified = _enrich_single_entity("album", mbid, name_info, cache, album_mode, noise_tags, stats["album"], failures, force_update=force_cache_update)
-            if mbid: album_map[mbid] = g
-            
-            if modified:
-                unsaved_changes += 1
-                if unsaved_changes >= CACHE_SAVE_BATCH_SIZE:
-                    _save_entity_cache("album", cache)
-                    unsaved_changes = 0
-            
-            current_item += 1
-            if progress_callback:
-                progress_callback(current_item, total_items, f"Enriching Albums ({current_item}/{total_items})...")
-        
-        # Final Save
-        if unsaved_changes > 0:
-            _save_entity_cache("album", cache)
-
-    # 3. Enrich Artists
-    if do_artists and not check_cancel():
-        # Artists are always fetched (unless global mode is Cache Only)
-        
-        cache = _load_entity_cache("artist")
-        unsaved_changes = 0
-        
-        for _, row in unique_artists.iterrows():
-            if check_cancel(): break
-
-            mbid = str(row["artist_mbid"]) if "artist_mbid" in row and pd.notna(row["artist_mbid"]) else None
-            name_info = {"artist": row["artist"]}
-            k, g, modified = _enrich_single_entity("artist", mbid, name_info, cache, enrichment_mode, noise_tags, stats["artist"], failures, force_update=force_cache_update)
-            if mbid: artist_map[mbid] = g
-            
-            if modified:
-                unsaved_changes += 1
-                if unsaved_changes >= CACHE_SAVE_BATCH_SIZE:
-                    _save_entity_cache("artist", cache)
-                    unsaved_changes = 0
-            
-            current_item += 1
-            if progress_callback:
-                progress_callback(current_item, total_items, f"Enriching Artists ({current_item}/{total_items})...")
-        
-        # Final Save
-        if unsaved_changes > 0:
-            _save_entity_cache("artist", cache)
-
-    # Save Failures Log
-    _save_json_dict(failures_path, failures)
-
-    # Apply maps
-    enriched_df = df.copy()
-
-    if track_map and "recording_mbid" in enriched_df.columns:
-        enriched_df["track_genres"] = enriched_df["recording_mbid"].map(
-            lambda m: "|".join(track_map.get(str(m), [])) if pd.notna(m) else ""
+        st = _process_enrichment_loop(
+            "artist", items_to_process, artist_cache, "artist_enrichment.json",
+            enrichment_mode, force_cache_update, progress_callback, is_cancelled
         )
+        stats_report["artists"] = st
 
-    if album_map and "release_mbid" in enriched_df.columns:
-        enriched_df["album_genres"] = enriched_df["release_mbid"].map(
-            lambda m: "|".join(album_map.get(str(m), [])) if pd.notna(m) else ""
-        )
-        
-    if artist_map and "artist_mbid" in enriched_df.columns:
-        enriched_df["artist_genres"] = enriched_df["artist_mbid"].map(
-            lambda m: "|".join(artist_map.get(str(m), [])) if pd.notna(m) else ""
-        )
-        
-    # Consolidate 'Genres' column
-    genre_cols = [c for c in ["artist_genres", "album_genres", "track_genres"] if c in enriched_df.columns]
-    
-    if genre_cols:
-        def unify_genres(row):
-            tags = set()
-            for c in genre_cols:
-                val = row[c]
-                if isinstance(val, str) and val:
-                    for t in val.split("|"):
-                        t = t.strip()
-                        if t: tags.add(t)
-            return "|".join(sorted(tags))
+    # ------------------------------------------------------------------
+    # 3. Enrich Albums (Conditional: Deep Query)
+    # ------------------------------------------------------------------
+    if deep_query and "album" in df.columns and "artist" in df.columns:
+        # Dedupe
+        cols = ["artist", "album"]
+        if "release_mbid" in df.columns: cols.append("release_mbid")
 
-        if progress_callback:
-            progress_callback(total_items, total_items, "Finalizing genre consolidation...")
+        albums_df = df[cols].drop_duplicates(subset=["artist", "album"])
+
+        items_to_process = []
+        for _, row in albums_df.iterrows():
+            artist = str(row["artist"])
+            album = str(row["album"])
+            if album.lower() == "unknown": continue
+
+            mbid = str(row.get("release_mbid", ""))
+            if mbid == "None" or mbid == "nan": mbid = ""
+
+            # Key: Prioritize MBID, Fallback to Name
+            if mbid:
+                key = mbid
+            else:
+                key = parsing.make_album_key(artist, album)
+
+            items_to_process.append({
+                "_key": key,
+                "artist": artist,
+                "album": album,
+                "mbid": mbid
+            })
+
+        st = _process_enrichment_loop(
+            "album", items_to_process, album_cache, "album_enrichment.json",
+            enrichment_mode, force_cache_update, progress_callback, is_cancelled
+        )
+        stats_report["albums"] = st
+
+    # ------------------------------------------------------------------
+    # 4. Enrich Tracks (Conditional: Deep Query)
+    # ------------------------------------------------------------------
+    if deep_query and "track_name" in df.columns and "artist" in df.columns:
+        # Dedupe
+        cols = ["artist", "track_name"]
+        if "album" in df.columns: cols.append("album")
+        if "recording_mbid" in df.columns: cols.append("recording_mbid")
+
+        tracks_df = df[cols].drop_duplicates(subset=["artist", "track_name"])
+
+        items_to_process = []
+        for _, row in tracks_df.iterrows():
+            artist = str(row["artist"])
+            track = str(row["track_name"])
+            album = str(row.get("album", ""))
+
+            mbid = str(row.get("recording_mbid", ""))
+            if mbid == "None" or mbid == "nan": mbid = ""
+
+            # Key: Prioritize MBID, Fallback to Name
+            if mbid:
+                key = mbid
+            else:
+                key = parsing.make_track_key(artist, track, album)
+
+            items_to_process.append({
+                "_key": key,
+                "artist": artist,
+                "track": track,
+                "album": album,
+                "mbid": mbid
+            })
+
+        st = _process_enrichment_loop(
+            "track", items_to_process, track_cache, "track_enrichment.json",
+            enrichment_mode, force_cache_update, progress_callback, is_cancelled
+        )
+        stats_report["tracks"] = st
+
+    # ------------------------------------------------------------------
+    # 5. Apply Results to DataFrame
+    # ------------------------------------------------------------------
+
+    # Helper to get genres safely
+    def get_genres(key_series, cache):
+        return key_series.map(lambda k: "|".join(cache.get(k, {}).get("genres", [])))
+
+    # Apply Artists
+    if "artist" in df.columns:
+        # We must replicate the key generation logic here to perform the lookup
+        def get_artist_key(row):
+            mbid = str(row.get("artist_mbid", ""))
+            if mbid and mbid != "None" and mbid != "nan":
+                return mbid
+            return str(row["artist"])
+
+        # Create a temporary series of keys
+        keys = df.apply(get_artist_key, axis=1)
+        df["artist_genres"] = get_genres(keys, artist_cache)
+
+    # Apply Albums
+    if "album" in df.columns and "artist" in df.columns:
+        def get_album_key(row):
+            mbid = str(row.get("release_mbid", ""))
+            if mbid and mbid != "None" and mbid != "nan":
+                return mbid
+            return parsing.make_album_key(row["artist"], row["album"])
             
-        enriched_df["Genres"] = enriched_df.apply(unify_genres, axis=1)
+        keys = df.apply(get_album_key, axis=1)
+        df["album_genres"] = get_genres(keys, album_cache)
+    else:
+        df["album_genres"] = ""
 
-    final_stats = {
-        "artists": stats["artist"].to_dict(),
-        "albums": stats["album"].to_dict(),
-        "tracks": stats["track"].to_dict()
-    }
-    
-    return enriched_df, final_stats
+    # Apply Tracks
+    if "track_name" in df.columns and "artist" in df.columns:
+        def get_track_key(row):
+            mbid = str(row.get("recording_mbid", ""))
+            if mbid and mbid != "None" and mbid != "nan":
+                return mbid
+            album = row.get("album", "")
+            return parsing.make_track_key(row["artist"], row["track_name"], album)
+
+        keys = df.apply(get_track_key, axis=1)
+        df["track_genres"] = get_genres(keys, track_cache)
+    else:
+        df["track_genres"] = ""
+
+    # Unified Genre Column
+    def unify_genres(row):
+        g = set()
+        for col in ["artist_genres", "album_genres", "track_genres"]:
+            val = row.get(col, "")
+            if val:
+                g.update(val.split("|"))
+        g.discard("")
+        return "|".join(sorted(list(g)))
+
+    df["Genres"] = df.apply(unify_genres, axis=1)
+
+    return df, stats_report
 
 
 # ------------------------------------------------------------
-# MBID RESOLVER (New in Phase 4.1)
+# Metadata Resolution
 # ------------------------------------------------------------
 
 def resolve_missing_mbids(
     df: pd.DataFrame,
-    progress_callback: Optional[Callable[[int, int, str], None]] = None,
-    is_cancelled: Optional[Callable[[], bool]] = None
-) -> Tuple[pd.DataFrame, int, int]:
+    progress_callback: Optional[Callable] = None,
+    is_cancelled: Optional[Callable] = None
+) -> tuple[pd.DataFrame, int, int]:
     """
-    Scan DataFrame for rows missing recording_mbid and attempt to resolve them.
-    Fills in: recording_mbid AND album name (if Unknown/Missing).
+    Attempt to find missing recording_mbids for tracks in the dataframe.
     """
     if "recording_mbid" not in df.columns:
-        return df, 0, 0
-    
-    # Work on a copy
-    df_out = df.copy()
-    
-    # Identify unique rows that need help (Missing or None/NaN)
+        df["recording_mbid"] = ""
+
     mask_missing = (
-        df_out["recording_mbid"].isna() | 
-        (df_out["recording_mbid"] == "") | 
-        (df_out["recording_mbid"] == "None")
+        (df["recording_mbid"].isna() | (df["recording_mbid"] == "") | (df["recording_mbid"] == "None")) &
+        (df["artist"].notna() & (df["artist"] != "")) &
+        (df["track_name"].notna() & (df["track_name"] != ""))
     )
-    
-    # Create unique keys for lookup
-    candidates = df_out[mask_missing][["artist", "track_name", "album"]].drop_duplicates()
-    
-    total = len(candidates)
-    if total == 0:
-        return df_out, 0, 0
-        
-    # Load Resolver Cache
-    cache_path = _get_resolver_cache_path()
-    cache = _load_json_dict(cache_path)
-    
-    count_resolved = 0
-    count_failed = 0
-    
-    # Results map: key -> {"mbid": "...", "album": "..."}
+
+    unique_rows = df.loc[mask_missing, ["artist", "track_name", "album"]].drop_duplicates()
+
+    total = len(unique_rows)
+    resolved_count = 0
+    failed_count = 0
     results_map = {}
-    
-    for i, (_, row) in enumerate(candidates.iterrows()):
+
+    for i, (_, row) in enumerate(unique_rows.iterrows()):
         if is_cancelled and is_cancelled():
             break
-            
-        # Use centralized key generation
-        key = parsing.make_track_key(row["artist"], row["track_name"], row["album"])
-        
-        # 1. Check Cache
-        cached_entry = cache.get(key)
-        
-        if cached_entry:
-            # Handle legacy string cache (convert to dict on the fly)
-            if isinstance(cached_entry, str):
-                if cached_entry == "NOT_FOUND":
-                    count_failed += 1
-                else:
-                    results_map[key] = {"mbid": cached_entry, "album": row["album"]} # Keep old album if legacy cache
-                    count_resolved += 1
-            # Handle new dict cache
-            elif isinstance(cached_entry, dict):
-                if cached_entry.get("status") == "NOT_FOUND":
-                    count_failed += 1
-                else:
-                    results_map[key] = cached_entry
-                    count_resolved += 1
-            
-            if progress_callback:
-                progress_callback(i+1, total, f"Resolving (Cached) {i+1}/{total}...")
-            continue
-            
-        # 2. Hit API
+
+        artist = str(row["artist"])
+        track = str(row["track_name"])
+        album = str(row["album"])
+
+        key = parsing.make_track_key(artist, track, album)
+
+        if key in results_map: continue
+
         if progress_callback:
-            progress_callback(i+1, total, f"Resolving (API) {i+1}/{total}...")
-            
-        # Returns dict: {'mbid': '...', 'album': '...', 'title': '...'}
-        details = mb_client.search_recording_details(row["artist"], row["track_name"], row["album"], threshold=85)
-        
-        if details:
-            # Cache success
-            cache[key] = details
-            results_map[key] = details
-            count_resolved += 1
+            progress_callback(i, total, f"Resolving: {artist} - {track}...")
+
+        # API Call
+        res = mb_client.search_recording_details(artist, track, album)
+        if res:
+            results_map[key] = res
+            resolved_count += 1
         else:
-            # Cache failure (negative caching)
-            cache[key] = {"status": "NOT_FOUND"}
-            count_failed += 1
-            
-        # Save cache periodically
-        if (i % 5) == 0:
-            _save_json_dict(cache_path, cache)
-            
-    # Final save
-    _save_json_dict(cache_path, cache)
-    
-    # 3. Apply to DataFrame using vectorized apply
-    # We update both MBID and Album (if album is Unknown)
-    
-    def filler(row):
-        existing_mbid = row["recording_mbid"]
-        existing_album = row["album"]
-        
-        # If we already have an ID, we don't touch it
+            results_map[key] = None
+            failed_count += 1
+
+    def applicator(row):
+        existing_mbid = row.get("recording_mbid")
+        existing_album = row.get("album")
+
         if existing_mbid and str(existing_mbid) != "None" and str(existing_mbid) != "":
             return pd.Series([existing_mbid, existing_album], index=["recording_mbid", "album"])
-            
-        # Try to find resolved data using the centralized key
+
         k = parsing.make_track_key(row["artist"], row["track_name"], row["album"])
         res = results_map.get(k)
-        
+
         if res and isinstance(res, dict) and "mbid" in res:
             new_mbid = res["mbid"]
             new_album = res.get("album", existing_album)
-            
-            # Logic: Only overwrite album if current is "Unknown" or empty
-            # But wait, user might prefer the MB canonical album name over their own
-            # Let's stick to: Overwrite if current is "Unknown"
+
             final_album = existing_album
             if str(existing_album).lower() == "unknown":
                 final_album = new_album
-                
+
             return pd.Series([new_mbid, final_album], index=["recording_mbid", "album"])
-            
-        # Fallback (legacy string cache handling implicit if result_map not cleaned)
-        # But we normalized results_map above, so we are good.
-        
+
         return pd.Series([existing_mbid, existing_album], index=["recording_mbid", "album"])
-        
-    # Update columns
-    if not df_out.empty:
-        df_out[["recording_mbid", "album"]] = df_out.apply(filler, axis=1)
-    
-    return df_out, count_resolved, count_failed
+
+    if not df.empty:
+        cols_out = df.apply(applicator, axis=1)
+        df["recording_mbid"] = cols_out["recording_mbid"]
+        df["album"] = cols_out["album"]
+
+    return df, resolved_count, failed_count

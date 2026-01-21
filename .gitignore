@@ -2,13 +2,12 @@
 /archive/
 /reports/
 /temp/
+/tests/
 /Data/
 *listenbrainz*.zip
 __pycache__/
 *.pyc
 config.json
-notes.txt
-*.py.txt
-*.md.txt
+brainzmri.log
 *.note.*
 *.csv

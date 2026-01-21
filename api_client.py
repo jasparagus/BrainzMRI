@@ -10,11 +10,12 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import http.client
+import logging  # Added logging
 from urllib.parse import quote
 from typing import Dict, Any, List, Optional
 
 # Constants
-NETWORK_DELAY_SECONDS = 1.0
+NETWORK_DELAY_SECONDS = 1.1
 MAX_RETRIES = 5
 LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/"
 MUSICBRAINZ_API_ROOT = "https://musicbrainz.org/ws/2/"
@@ -43,6 +44,9 @@ class BaseAPIClient:
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
         last_error = None
 
+        # LOGGING: Log the attempt
+        logging.info(f"API Request: {method} {url}")
+
         for attempt in range(MAX_RETRIES):
             try:
                 with urllib.request.urlopen(req, timeout=15) as resp:
@@ -53,7 +57,7 @@ class BaseAPIClient:
             except urllib.error.HTTPError as e:
                 # 429 Too Many Requests - Fixed sleep
                 if e.code == 429:
-                    print(f"Rate Limited (429). Sleeping 5s... (Attempt {attempt+1}/{MAX_RETRIES})")
+                    logging.warning(f"Rate Limited (429). Sleeping 5s... (Attempt {attempt+1}/{MAX_RETRIES})")
                     time.sleep(5.0)
                     continue
 
@@ -77,7 +81,7 @@ class BaseAPIClient:
                 
                 # Specific handling for Windows Connection Reset
                 if "10054" in err_str or "Connection reset" in err_str:
-                    print(f"Connection Reset. Cooling down 5s... (Attempt {attempt+1}/{MAX_RETRIES})")
+                    logging.warning(f"Connection Reset. Cooling down 5s... (Attempt {attempt+1}/{MAX_RETRIES})")
                     time.sleep(5.0)
                 else:
                     time.sleep(1 * (2 ** attempt))
@@ -108,7 +112,7 @@ class MusicBrainzClient(BaseAPIClient):
             return result
         except Exception as e:
             # Enrichment expects empty dict on failure to continue gracefully
-            print(f"Non-retriable error in MB lookup: {e}")
+            logging.error(f"Non-retriable error in MB lookup: {e}")
             return {}
 
     def _extract_tags(self, data: Dict[str, Any]) -> List[str]:
@@ -123,9 +127,37 @@ class MusicBrainzClient(BaseAPIClient):
         return tags
 
     def get_entity_tags(self, entity_type: str, mbid: str) -> List[str]:
+        """
+        Generic tag fetcher.
+        entity_type must use hyphens (e.g. 'release-group', 'recording').
+        """
         if not mbid: return []
         data = self._request(f"{entity_type}/{mbid}", {"fmt": "json", "inc": "tags+genres"})
         return self._extract_tags(data)
+
+    def get_release_group_tags(self, release_mbid: str) -> List[str]:
+        """
+        Two-step lookup: 
+        1. Query Release (by ID) to get parent Release Group ID.
+        2. Query Release Group to get Tags.
+        """
+        if not release_mbid: return []
+        
+        # Step 1: Get Release Group ID
+        # We need 'release-groups' in 'inc' to get the relation
+        data = self._request(f"release/{release_mbid}", {"fmt": "json", "inc": "release-groups"})
+        
+        rg_data = data.get("release-group")
+        if not rg_data:
+            return []
+            
+        rg_id = rg_data.get("id")
+        if not rg_id:
+            return []
+            
+        # Step 2: Get Tags for RG
+        # Note: Endpoint is 'release-group', not 'release_group'
+        return self.get_entity_tags("release-group", rg_id)
 
     def search_entity_tags(self, entity_type: str, query: str, result_list_key: str) -> List[str]:
         data = self._request(entity_type, {"query": query, "fmt": "json", "limit": "1"})
@@ -257,9 +289,7 @@ class ListenBrainzClient(BaseAPIClient):
 
     def _post(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if self.dry_run:
-            print(f"--- [DRY RUN] POST REQUEST ---")
-            print(f"URL: {endpoint}")
-            print(f"PAYLOAD:\n{json.dumps(payload, indent=2)}")
+            logging.info(f"--- [DRY RUN] POST REQUEST ---\nURL: {endpoint}")
             return {"status": "ok", "dry_run": True}
             
         data = json.dumps(payload).encode("utf-8")

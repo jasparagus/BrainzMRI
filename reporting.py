@@ -224,9 +224,11 @@ def report_top(
     min_minutes: float = 0.0,
     min_likes: int = 0,
     liked_mbids: set = None,
+    recency_range: tuple = None,  
 ):
     """Generate a Top-N report for artists, albums, or tracks."""
 
+    # 1. Filter by Listen Date (Time Range)
     if days is not None:
         if isinstance(days, tuple):
             start_days, end_days = days
@@ -236,6 +238,22 @@ def report_top(
             if days != 0:
                 df = filter_by_days(df, "listened_at", 0, days)
 
+    # 2. Filter by Last Listened Date (Recency)
+    #    We must do this BEFORE aggregation to match user intent (filter entities, not just rows)
+    if recency_range:
+        start_r, end_r = recency_range
+        # 0,0 implies disabled
+        if start_r > 0 or end_r > 0:
+            if group_col == "artist":
+                cols = ["artist"]
+            elif group_col == "album":
+                cols = ["artist", "album"]
+            else: # track
+                cols = ["artist", "track_name"]
+            
+            df = filter_by_recency(df, cols, start_r, end_r)
+
+    # 3. Group and Aggregate
     grouped = _group_listens(df, group_col)
 
     grouped["total_hours_listened"] = (
@@ -297,10 +315,10 @@ def report_top(
 # ------------------------------------------------------------
 # New Music by Year Report
 # ------------------------------------------------------------
-def report_new_music_by_year(df: pd.DataFrame):
+def report_new_music_by_year(df: pd.DataFrame, **kwargs):
     """
     Generate the 'New Music by Year' report.
-    Returns DataFrame with columns for Total Unique, New Count, and Percent New.
+    Accepts arbitrary kwargs to safely ignore unused filter arguments.
     """
     if df.empty:
         return pd.DataFrame(
