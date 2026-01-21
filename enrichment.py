@@ -12,7 +12,7 @@ from typing import Any, Optional, Callable
 
 import pandas as pd
 
-from user import get_cache_root
+from config import config # REFACTORED
 from api_client import MusicBrainzClient, LastFMClient
 import parsing  # Imported for key generation
 
@@ -38,8 +38,8 @@ lastfm_client = LastFMClient()
 
 def _get_global_dir() -> str:
     """Return the path to the global cache directory."""
-    cache_root = get_cache_root()
-    global_dir = os.path.join(cache_root, "global")
+    # REFACTORED: Use config
+    global_dir = os.path.join(config.cache_dir, "global")
     os.makedirs(global_dir, exist_ok=True)
     return global_dir
 

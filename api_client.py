@@ -4,22 +4,16 @@ Network layer for BrainzMRI. Handles API requests to MusicBrainz, Last.fm, and L
 """
 
 import json
-import os
 import time
 import urllib.parse
 import urllib.request
 import urllib.error
 import http.client
-import logging  # Added logging
+import logging
 from urllib.parse import quote
 from typing import Dict, Any, List, Optional
 
-# Constants
-NETWORK_DELAY_SECONDS = 1.1
-MAX_RETRIES = 5
-LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/"
-MUSICBRAINZ_API_ROOT = "https://musicbrainz.org/ws/2/"
-LISTENBRAINZ_API_ROOT = "https://api.listenbrainz.org/1/"
+from config import config  # REFACTORED: Import global config
 
 
 class BaseAPIClient:
@@ -27,7 +21,7 @@ class BaseAPIClient:
     Base client handling common network logic: retries, backoff, and error handling.
     """
     def __init__(self, user_agent: str = ""):
-        self.user_agent = user_agent or "BrainzMRI/1.0 (https://github.com/jasparagus/BrainzMRI)"
+        self.user_agent = user_agent or config.user_agent
 
     def _execute_request(self, url: str, method: str = "GET", headers: Dict[str, str] = None, data: bytes = None) -> Any:
         """
@@ -44,10 +38,9 @@ class BaseAPIClient:
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
         last_error = None
 
-        # LOGGING: Log the attempt
         logging.info(f"API Request: {method} {url}")
 
-        for attempt in range(MAX_RETRIES):
+        for attempt in range(config.max_retries):
             try:
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     if 200 <= resp.status < 300:
@@ -57,7 +50,7 @@ class BaseAPIClient:
             except urllib.error.HTTPError as e:
                 # 429 Too Many Requests - Fixed sleep
                 if e.code == 429:
-                    logging.warning(f"Rate Limited (429). Sleeping 5s... (Attempt {attempt+1}/{MAX_RETRIES})")
+                    logging.warning(f"Rate Limited (429). Sleeping 5s... (Attempt {attempt+1}/{config.max_retries})")
                     time.sleep(5.0)
                     continue
 
@@ -68,7 +61,6 @@ class BaseAPIClient:
                     continue
                 
                 # Fatal Client Errors (400, 401, 404, etc.)
-                # Try to read error body for context
                 try:
                     err_body = e.read().decode("utf-8")
                     raise RuntimeError(f"API Error {e.code}: {err_body}")
@@ -81,7 +73,7 @@ class BaseAPIClient:
                 
                 # Specific handling for Windows Connection Reset
                 if "10054" in err_str or "Connection reset" in err_str:
-                    logging.warning(f"Connection Reset. Cooling down 5s... (Attempt {attempt+1}/{MAX_RETRIES})")
+                    logging.warning(f"Connection Reset. Cooling down 5s... (Attempt {attempt+1}/{config.max_retries})")
                     time.sleep(5.0)
                 else:
                     time.sleep(1 * (2 ** attempt))
@@ -92,7 +84,7 @@ class BaseAPIClient:
                 last_error = e
                 time.sleep(1)
 
-        raise RuntimeError(f"Network Error after {MAX_RETRIES} attempts: {last_error}")
+        raise RuntimeError(f"Network Error after {config.max_retries} attempts: {last_error}")
 
 
 class MusicBrainzClient(BaseAPIClient):
@@ -103,15 +95,14 @@ class MusicBrainzClient(BaseAPIClient):
     def _request(self, path: str, params: Dict[str, str]) -> Dict[str, Any]:
         """Execute a GET request against MusicBrainz with retries."""
         query = urllib.parse.urlencode(params)
-        url = f"{MUSICBRAINZ_API_ROOT}{path}?{query}"
+        url = f"{config.musicbrainz_api_root}{path}?{query}"
         
         try:
             result = self._execute_request(url)
-            # MusicBrainz Rate Limiting: Sleep AFTER success
-            time.sleep(NETWORK_DELAY_SECONDS)
+            # Rate Limiting: Sleep AFTER success
+            time.sleep(config.network_delay)
             return result
         except Exception as e:
-            # Enrichment expects empty dict on failure to continue gracefully
             logging.error(f"Non-retriable error in MB lookup: {e}")
             return {}
 
@@ -127,24 +118,12 @@ class MusicBrainzClient(BaseAPIClient):
         return tags
 
     def get_entity_tags(self, entity_type: str, mbid: str) -> List[str]:
-        """
-        Generic tag fetcher.
-        entity_type must use hyphens (e.g. 'release-group', 'recording').
-        """
         if not mbid: return []
         data = self._request(f"{entity_type}/{mbid}", {"fmt": "json", "inc": "tags+genres"})
         return self._extract_tags(data)
 
     def get_release_group_tags(self, release_mbid: str) -> List[str]:
-        """
-        Two-step lookup: 
-        1. Query Release (by ID) to get parent Release Group ID.
-        2. Query Release Group to get Tags.
-        """
         if not release_mbid: return []
-        
-        # Step 1: Get Release Group ID
-        # We need 'release-groups' in 'inc' to get the relation
         data = self._request(f"release/{release_mbid}", {"fmt": "json", "inc": "release-groups"})
         
         rg_data = data.get("release-group")
@@ -155,8 +134,6 @@ class MusicBrainzClient(BaseAPIClient):
         if not rg_id:
             return []
             
-        # Step 2: Get Tags for RG
-        # Note: Endpoint is 'release-group', not 'release_group'
         return self.get_entity_tags("release-group", rg_id)
 
     def search_entity_tags(self, entity_type: str, query: str, result_list_key: str) -> List[str]:
@@ -167,16 +144,10 @@ class MusicBrainzClient(BaseAPIClient):
         return []
 
     def search_recording_details(self, artist: str, track: str, release: str = None, threshold: int = 85) -> Optional[Dict[str, str]]:
-        """
-        Search for a recording and return its MBID and Metadata (Album, etc).
-        Returns {'mbid': '...', 'album': '...', 'title': '...'} or None.
-        """
         if not artist or not track:
             return None
 
-        # Lucene Query
         query_parts = [f'artist:"{artist}"', f'recording:"{track}"']
-        
         if release and release.lower() != "unknown":
             query_parts.append(f'release:"{release}"')
             
@@ -195,18 +166,14 @@ class MusicBrainzClient(BaseAPIClient):
             score = 0
             
         if score >= threshold:
-            # Extract basic details
             info = {
                 "mbid": best.get("id"),
-                "title": best.get("title", track), # Use MB title if available
+                "title": best.get("title", track),
                 "album": "Unknown"
             }
-            
-            # Try to find an album (release) name
             releases = best.get("releases", [])
             if releases:
                 info["album"] = releases[0].get("title", "Unknown")
-            
             return info
             
         return None
@@ -219,7 +186,8 @@ class LastFMClient(BaseAPIClient):
 
     def __init__(self, api_key: Optional[str] = None):
         super().__init__()
-        self.api_key = api_key or os.environ.get("BRAINZMRI_LASTFM_API_KEY", "")
+        # Use provided key or fall back to config
+        self.api_key = api_key or config.lastfm_api_key
 
     def _request(self, params: Dict[str, str]) -> Dict[str, Any]:
         if not self.api_key: return {}
@@ -228,11 +196,11 @@ class LastFMClient(BaseAPIClient):
         params["format"] = "json"
         
         query = urllib.parse.urlencode(params)
-        url = f"{LASTFM_API_ROOT}?{query}"
+        url = f"{config.lastfm_api_root}?{query}"
         
         try:
             result = self._execute_request(url)
-            time.sleep(NETWORK_DELAY_SECONDS)
+            time.sleep(config.network_delay)
             return result
         except Exception:
             return {}
@@ -253,7 +221,6 @@ class LastFMClient(BaseAPIClient):
 class ListenBrainzClient(BaseAPIClient):
     """
     Client for the ListenBrainz API.
-    Handles authenticated WRITE operations (Feedback, Playlists) and READ operations (User Listens).
     """
 
     def __init__(self, token: Optional[str] = None, dry_run: bool = False):
@@ -262,18 +229,13 @@ class ListenBrainzClient(BaseAPIClient):
         self.dry_run = dry_run
 
     def _request_generic(self, endpoint: str, method: str, params: Dict[str, Any] = None, data: bytes = None) -> Dict[str, Any]:
-        """
-        Core request handler for ListenBrainz.
-        """
-        url = f"{LISTENBRAINZ_API_ROOT}{endpoint}"
+        url = f"{config.listenbrainz_api_root}{endpoint}"
         
         headers = {
             "User-Agent": self.user_agent,
         }
-        
         if self.token:
             headers["Authorization"] = f"Token {self.token}"
-
         if method == "POST":
             headers["Content-Type"] = "application/json"
             
@@ -281,7 +243,6 @@ class ListenBrainzClient(BaseAPIClient):
             query = urllib.parse.urlencode(params)
             url = f"{url}?{query}"
 
-        # ListenBrainzClient allows exceptions to bubble up to the GUI
         return self._execute_request(url, method=method, headers=headers, data=data)
 
     def _get(self, endpoint: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -298,12 +259,8 @@ class ListenBrainzClient(BaseAPIClient):
     # --- Write Methods ---
 
     def submit_feedback(self, recording_mbid: str, score: int) -> Dict[str, Any]:
-        """
-        Submit feedback for a track.
-        """
         if score not in (-1, 0, 1):
             raise ValueError("Score must be -1, 0, or 1.")
-        
         if not recording_mbid:
             raise ValueError("Cannot submit feedback: Missing Recording MBID.")
 
@@ -314,27 +271,18 @@ class ListenBrainzClient(BaseAPIClient):
         return self._post("feedback/recording-feedback", payload)
 
     def create_playlist(self, name: str, tracks: List[Dict[str, str]], description: str = "") -> Dict[str, Any]:
-        """
-        Create a new playlist on ListenBrainz using JSPF format.
-        """
         playlist_tracks = []
-        
         for t in tracks:
-            # Basic info
             track_obj = {
                 "title": t.get("title", "Unknown Title"),
                 "creator": t.get("artist", "Unknown Artist"),
             }
             if t.get("album"):
                 track_obj["album"] = t.get("album")
-                
-            # Identifier must be a single string URI
             if t.get("mbid"):
                 track_obj["identifier"] = f"https://musicbrainz.org/recording/{t['mbid']}"
-            
             playlist_tracks.append(track_obj)
 
-        # The extension block with 'public' is mandatory
         jspf = {
             "playlist": {
                 "title": name,
@@ -347,34 +295,20 @@ class ListenBrainzClient(BaseAPIClient):
                 "track": playlist_tracks
             }
         }
-        
         return self._post("playlist/create", jspf)
 
     # --- Read Methods ---
 
     def get_user_listens(self, username: str, max_ts: int = None, count: int = 100) -> Dict[str, Any]:
-        """
-        Fetch listens for a user.
-        :param max_ts: UNIX timestamp. If provided, returns listens BEFORE this time.
-        :param count: Number of listens to retrieve (max 100).
-        """
-        params = {
-            "count": count
-        }
+        params = {"count": count}
         if max_ts:
             params["max_ts"] = max_ts
-        
-        # Added urllib.parse.quote(username)
         return self._get(f"user/{quote(username)}/listens", params)
         
     def get_user_likes(self, username: str, offset: int = 0, count: int = 100) -> Dict[str, Any]:
-        """
-        Fetch a page of user likes (feedback with score 1).
-        """
         params = {
             "score": 1,
             "count": count,
             "offset": offset
         }
-        # Use quote() to handle special characters in username safely
         return self._get(f"feedback/user/{quote(username)}/get-feedback", params)

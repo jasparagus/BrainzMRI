@@ -86,7 +86,7 @@ Double-click: `BrainzMRI.bat`
 Run:
 
 ```bash
-python3 gui_main.py
+python gui_main.py
 
 ```
 
@@ -155,11 +155,11 @@ BrainzMRI/
 
 ## Playlist Prep: Album Expansion Engine
 
-* **Goal:** Enable the creation of "Full Album" playlists from album-level reports (e.g., turning a "Top Albums of 2024" report into a playable track list).
-* **Workflow:**
+* Goal: Enable the creation of "Full Album" playlists from album-level reports (e.g., turning a "Top Albums of 2024" report into a playable track list).
+* Workflow:
 1. User generates a **"By Album"** report (applying standard filters like time range, play count, etc.).
 2. A new button, **"Show All Tracks for Listed Albums"**, appears in the UI.
-3. **Expansion Logic:**
+3. Expansion Logic:
 * **Fetch:** The system iterates through the `release_mbid`s in the current report and queries the MusicBrainz API to retrieve the full official tracklist for each release.
 * **Merge Stats:** It creates a new "Expanded Report" DataFrame containing every track from these albums. It then left-joins the user's local statistics (e.g., `total_listens`, `last_listened`, `Liked` status) onto these tracks.
 * **Enrich:** Genre metadata is applied to each track (sourced from Cache or API based on the current "Genre Lookup" setting).
@@ -170,7 +170,7 @@ BrainzMRI/
 
 ## Cross-Platform Like Synchronization
 
-* **Goal:** Enable bidirectional synchronization of "Loved Tracks" between Last.fm and ListenBrainz, ensuring your favorites are consistent across both platforms and the local BrainzMRI cache.
+* Goal: Enable bidirectional synchronization of "Loved Tracks" between Last.fm and ListenBrainz, ensuring your favorites are consistent across both platforms and the local BrainzMRI cache.
 * **Workflow:**
 
 1. User opens the "Sync Manager" dialog and selects a **Sync Mode**:
@@ -187,49 +187,22 @@ BrainzMRI/
 
 
 ## Heatmaps
-* *Goal:* Visualizations for listening density (Hour of Day vs Day of Week).
+* Goal: Visualizations for listening density (Hour of Day vs Day of Week).
 
 
 ## Streak Detection
-* *Goal:* Identify "Binge Listening" sessions (consecutive days/hours of specific artists).
+* Goal: Identify "Binge Listening" sessions (consecutive days/hours of specific artists).
 
 
 ## Report Presets
-* *Goal:* Dropdown menu to pre-fill complex filter configurations.
+* Goal: Dropdown menu to pre-fill complex filter configurations.
  * Example: "Forgotten Favorites" (`High Play Count` + `Last Listened > 1 Year Ago`).
  * Example: "All Time Greatest Albums" (`High Play Count` + `High Play Count` + `4+ Likes Per Album`).
 
 
 ## Advanced Filtering
-* *Goal:* "Negative" filtering (e.g., "Artist DOES NOT match regex").
+* Goal: "Negative" filtering (e.g., "Artist DOES NOT match regex").
 
 
-
-## Refactor Opportunities
-
-### Maintenance: Enrichment Loop Repetition (`enrichment.py`)
-
-**Status:** `enrich_report` contains three large blocks of code (Tracks, Albums, Artists) that are 90% identical. They all:
-
-1. Check for cancellation.
-2. Construct a name info dict.
-3. Call `_enrich_single_entity`.
-4. Update the map.
-5. Handle batch saving.
-**Refactoring Opportunity:**
-
-* Abstract the loop into a generic `_process_entities` helper function that accepts the entity type and the list of unique rows. This would reduce `enrichment.py` by approx. 100 lines and ensure bug fixes (like the recent "Deep Query" logic change) are applied consistently to all entity types.
-
-### Inconsistency: "Like" Extraction Logic
-
-**Status:**
-
-* `parsing.py` has a `load_feedback` function that iterates a list and extracts `recording_mbid`.
-* `gui_main.py`'s `likes_worker` manually iterates the API response and extracts `recording_mbid` inline.
-**Refactoring Opportunity:**
-* Update `gui_main.py` to import and use `parsing.load_feedback` (or a slightly generalized version of it) inside the worker. This ensures that the definition of a "valid like" (e.g., checking `score == 1`) is consistent between ZIP imports and API fetches.
-
-### Cleanliness: Modern Type Hinting
-
-**Status:** The codebase mixes `from typing import List, Dict, Set` (old style) with standard types (implied by Python 3.10+ usage elsewhere).
-**Refactoring Opportunity:** Standardize on built-in types (`list`, `dict`, `set`, `tuple`) in type hints to clean up imports and modernize the code style.
+## Condense Likes Columns
+* Goal: Replace `Liked` and `unique_liked_tracks` with a single column called `Likes`

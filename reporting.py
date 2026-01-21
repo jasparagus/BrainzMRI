@@ -26,10 +26,10 @@ PREFERRED_COLUMN_ORDER = [
     "total_listens",
     "Liked",                # Visual indicator column
     "unique_liked_tracks",  # Aggregated count
-    "total_hours_listened",
+    "Genres",
     "last_listened",
     "first_listened",
-    "Genres",
+    "total_hours_listened",
 ]
 
 

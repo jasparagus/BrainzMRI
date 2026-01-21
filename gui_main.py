@@ -11,11 +11,10 @@ from idlelib.tooltip import Hovertip
 import os
 import subprocess
 import sys
-import re
 import threading
 import time
 import logging
-import pandas as pd  # Explicit import for write-back logic
+import pandas as pd
 
 import reporting
 import enrichment
@@ -23,14 +22,15 @@ import gui_charts
 import parsing
 from user import (
     User,
-    get_cache_root,
     get_cached_usernames,
-    get_user_cache_dir,
 )
 from report_engine import ReportEngine
 from gui_user_editor import UserEditorWindow
 from gui_tableview import ReportTableView
-from api_client import ListenBrainzClient, NETWORK_DELAY_SECONDS
+from api_client import ListenBrainzClient
+
+from sync_engine import SyncManager, ProgressWindow
+from config import config  # REFACTORED: Import global config
 
 
 # ======================================================================
@@ -42,19 +42,18 @@ def setup_logging():
     Configure file-based logging and redirect stdout/stderr to capture
     all console output (including api_client prints) to a file.
     """
-    log_file = "brainzmri.log"
+    # REFACTORED: Use path from config
+    log_file = config.log_file
     
-    # Configure the root logger
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
             logging.FileHandler(log_file, mode='w', encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)  # Keep printing to console
+            logging.StreamHandler(sys.stdout)
         ]
     )
     
-    # Hook to log uncaught exceptions
     def handle_exception(exc_type, exc_value, exc_traceback):
         if issubclass(exc_type, KeyboardInterrupt):
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
@@ -66,7 +65,6 @@ def setup_logging():
 
 
 def open_file_default(path: str) -> None:
-    """Open a file using the OS default application."""
     if sys.platform.startswith("win"):
         os.startfile(path)
     elif sys.platform == "darwin":
@@ -80,322 +78,21 @@ def open_file_default(path: str) -> None:
 # ======================================================================
 
 class GUIState:
-    """Centralized state for the BrainzMRI GUI."""
-
     def __init__(self) -> None:
-        # Current user
         self.user: User | None = None
-
-        # Ephemeral Playlist State
         self.playlist_df = None
         self.playlist_name: str | None = None
-
-        # Last generated report
         self.last_report_df = None
         self.last_meta = None
         self.last_mode: str | None = None
         self.last_report_type_key: str | None = None
         self.last_enriched: bool = False
-
-        # Store params to reproduce charts logic
         self.last_params: dict = {}
-
-        # Table/filtering state
         self.original_df = None
         self.filtered_df = None
 
 
-class ProgressWindow(tk.Toplevel):
-    """
-    A modal dialog showing a progress bar and a Cancel button.
-    Thread-safe updates must be handled via callbacks scheduling on main loop.
-    """
-
-    def __init__(self, parent, title="Processing..."):
-        super().__init__(parent)
-        self.title(title)
-        self.geometry("400x175")
-        self.resizable(False, False)
-        self.parent = parent
-        self.cancelled = False
-
-        # Center window
-        self.update_idletasks()
-        x = parent.winfo_x() + (parent.winfo_width() // 2) - (400 // 2)
-        y = parent.winfo_y() + (parent.winfo_height() // 2) - (150 // 2)
-        self.geometry(f"+{x}+{y}")
-
-        # UI
-        self.lbl_status = tk.Label(self, text="Initializing...", anchor="w")
-        self.lbl_status.pack(fill="x", padx=20, pady=(20, 5))
-
-        self.lbl_secondary = tk.Label(self, text="", anchor="w", fg="#666666", font=("Segoe UI", 9))
-        self.lbl_secondary.pack(fill="x", padx=20, pady=(0, 5))
-
-        self.progress = ttk.Progressbar(self, orient="horizontal",
-                                        mode="indeterminate")  # Default to indeterminate for crawls
-        self.progress.pack(fill="x", padx=20, pady=5)
-
-        self.btn_cancel = tk.Button(self, text="Cancel", command=self.cancel, width=10)
-        self.btn_cancel.pack(pady=20)
-
-        # Make modal
-        self.transient(parent)
-        self.grab_set()
-
-        # Handle "X" button
-        self.protocol("WM_DELETE_WINDOW", self.cancel)
-
-    def update_progress(self, current, total, message):
-        """Update the progress bar and label."""
-        try:
-            # Defensive check
-            if not self.winfo_exists():
-                return
-
-            self.lbl_status.config(text=message)
-
-            if total > 0:
-                self.progress.config(mode="determinate")
-                pct = (current / total) * 100
-                self.progress["value"] = pct
-            else:
-                self.progress.config(mode="indeterminate")
-                self.progress.start(10)
-
-        except Exception:
-            # Ignore errors if window is in a transitional state
-            pass
-
-    def update_secondary(self, message):
-        """Update the secondary status line safely."""
-        try:
-            if not self.winfo_exists():
-                return
-            self.lbl_secondary.config(text=message)
-        except Exception:
-            pass
-
-    def cancel(self):
-        """Set cancellation flag and disable button."""
-        self.cancelled = True
-        try:
-            if self.winfo_exists():
-                self.lbl_status.config(text="Cancelling... please wait for current step to finish.")
-                self.btn_cancel.config(state="disabled")
-        except Exception:
-            pass
-
-
-class SyncManager:
-    """
-    Manages the concurrent execution of Listen fetching and Like synchronization.
-    Implements the Barrier Pattern to ensure data integrity and UI consistency.
-    """
-
-    def __init__(self, user, client, scheduler, callbacks):
-        self.user = user
-        self.client = client
-        self.scheduler = scheduler  # Function to marshal to main thread (root.after)
-        self.callbacks = callbacks  # Dict of UI update functions
-
-        # Barrier State
-        self.barrier = {
-            "listens_done": False,
-            "likes_done": False,
-            "gap_closed": False,
-            "likes_count": 0,
-            "listens_count": 0,
-            "likes_failed": False # Added to track failures
-        }
-        self.cancel_flag = False
-
-    def cancel(self):
-        self.cancel_flag = True
-
-    def start(self, start_ts: int, local_head_ts: int):
-        """Start the background workers."""
-        threading.Thread(target=self._likes_worker, daemon=True).start()
-        threading.Thread(target=self._listens_worker, args=(start_ts, local_head_ts), daemon=True).start()
-
-    def _check_barrier(self):
-        """Check if both workers are done and trigger the finish callback."""
-        if self.barrier["listens_done"] and self.barrier["likes_done"]:
-            # Schedule completion on main thread
-            self.scheduler(0, self.callbacks["on_complete"], self.barrier)
-
-    def _likes_worker(self):
-        try:
-            self.scheduler(0, self.callbacks["update_secondary"], "Syncing User Likes...")
-            logging.info("Starting background Likes sync...")
-
-            username = self.user.get_listenbrainz_username()
-            offset = 0
-            count = 500
-            all_likes_data = []
-
-            while not self.cancel_flag:
-                try:
-                    resp = self.client.get_user_likes(username, offset=offset, count=count)
-                except Exception as e:
-                    logging.warning(f"Likes API Warning (Page {offset}): {e}")
-                    self.barrier["likes_failed"] = True
-                    break
-
-                # CRITICAL FIX: Defensive check for API returning None/null
-                if resp is None or not isinstance(resp, dict):
-                    logging.error(f"Likes API Error: Invalid response (None or not dict): {resp}")
-                    self.barrier["likes_failed"] = True
-                    break
-
-                # API returns 'feedback' list for the get-feedback endpoint
-                likes_page = resp.get("feedback", [])
-
-                # Fallbacks for safety/legacy
-                if not likes_page and "likes" in resp:
-                    likes_page = resp["likes"]
-                elif not likes_page and "payload" in resp:
-                    likes_page = resp["payload"].get("likes", [])
-
-                if not likes_page:
-                    logging.info("Likes Sync: No more pages found.")
-                    break
-
-                all_likes_data.extend(likes_page)
-                offset += len(likes_page)
-
-                # Update UI
-                self.scheduler(0, self.callbacks["update_secondary"],
-                               f"Syncing User Likes ({len(all_likes_data)} found)...")
-
-                # Check pagination
-                total_count = resp.get("total_count")
-                if total_count is None and "payload" in resp:
-                    total_count = resp["payload"].get("total_count")
-
-                if total_count is not None and len(all_likes_data) >= total_count:
-                    break
-                if len(likes_page) < count:
-                    break
-
-                time.sleep(NETWORK_DELAY_SECONDS)
-
-            # Persist using shared parsing logic
-            if not self.cancel_flag:
-                try:
-                    # REFACTOR: Delegate extraction to parsing.py
-                    new_mbids = parsing.load_feedback(all_likes_data)
-                    self.user.sync_likes(new_mbids)
-                    self.barrier["likes_count"] = len(new_mbids)
-                    logging.info(f"Likes Sync Complete. Saved {len(new_mbids)} items.")
-                    self.scheduler(0, self.callbacks["update_secondary"], f"Likes Sync Complete ({len(new_mbids)}).")
-                except Exception as e:
-                    logging.error(f"Error persisting likes: {e}")
-                    self.barrier["likes_failed"] = True
-
-        except Exception as e:
-            logging.error(f"Background Likes Sync Failed: {e}", exc_info=True)
-            self.barrier["likes_failed"] = True
-            self.scheduler(0, self.callbacks["update_secondary"], "Likes Sync Failed.")
-
-        finally:
-            self.barrier["likes_done"] = True
-            self.scheduler(0, self._check_barrier)
-
-    def _listens_worker(self, start_ts, local_head_ts):
-        try:
-            logging.info(f"Starting Listens fetch. Start TS: {start_ts}, Local Head: {local_head_ts}")
-            username = self.user.get_listenbrainz_username()
-            fetched_total = 0
-            current_max_ts = start_ts
-            gap_closed = False
-            warning_triggered = False
-
-            while not self.cancel_flag:
-                # Update UI
-                self.scheduler(0, self.callbacks["update_primary"], fetched_total, "Fetching batch...")
-
-                try:
-                    resp = self.client.get_user_listens(username, max_ts=current_max_ts, count=100)
-                except Exception as e:
-                    logging.error(f"API Error during listens fetch: {e}")
-                    break
-
-                # CRITICAL FIX: Defensive check for Listens API as well
-                if resp is None or not isinstance(resp, dict):
-                    logging.error(f"Listens API Error: Invalid response: {resp}")
-                    break
-
-                payload = resp.get("payload", {})
-                if payload is None: payload = {} # Extra defensive
-                listens = payload.get("listens", [])
-
-                if not listens:
-                    logging.info("Listens Sync: No more listens found in payload.")
-                    gap_closed = True
-                    break
-
-                batch_ts = [l["listened_at"] for l in listens]
-                batch_min = min(batch_ts)
-
-                self.user.append_to_intermediate_cache(listens)
-                fetched_total += len(listens)
-
-                if batch_min <= local_head_ts:
-                    logging.info("Listens Sync: Gap closed.")
-                    gap_closed = True
-                    break
-
-                current_max_ts = batch_min
-
-                # Safety Pause / Confirmation
-                if fetched_total > 5000 and not warning_triggered:
-                    warning_triggered = True
-                    logging.info("Listens Sync: Safety pause triggered at 5000 items.")
-
-                    # Blocking call handled via callback event logic
-                    response_event = threading.Event()
-                    user_response = [False]
-
-                    def on_confirm_done(result):
-                        user_response[0] = result
-                        response_event.set()
-
-                    # Request confirmation on main thread
-                    self.scheduler(0, self.callbacks["request_confirmation"],
-                                   f"Fetched {fetched_total} listens so far.\nGap not closed.\nContinue?",
-                                   on_confirm_done)
-
-                    response_event.wait()
-
-                    if not user_response[0]:
-                        logging.info("Listens Sync: User cancelled at safety pause.")
-                        break
-
-                time.sleep(NETWORK_DELAY_SECONDS)
-
-            self.barrier["gap_closed"] = gap_closed
-            self.barrier["listens_count"] = fetched_total
-
-        except Exception as e:
-            logging.error(f"Background Listens Sync Failed: {e}", exc_info=True)
-            self.scheduler(0, self.callbacks["on_error"], str(e))
-
-        finally:
-            self.barrier["listens_done"] = True
-            self.scheduler(0, self._check_barrier)
-
-
-# ======================================================================
-# Main GUI
-# ======================================================================
-
 class BrainzMRIGUI:
-    """
-    Tkinter GUI wrapper for BrainzMRI.
-    Handles user selection, report generation, filtering, and table display.
-    """
-
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("BrainzMRI - ListenBrainz Metadata Review Instrument")
@@ -405,16 +102,13 @@ class BrainzMRIGUI:
         self.root.resizable(True, True)
         self.root.update_idletasks()
 
-        # Centralized state and engine
         self.state = GUIState()
         self.report_engine = ReportEngine()
 
-        # Guard flag for threading race conditions
         self.processing = False
         self.progress_win = None
-        self.sync_manager = None  # Reference to active sync manager
+        self.sync_manager = None
 
-        # Status bar
         self.status_var = tk.StringVar(value="Ready.")
         self.status_bar = tk.Label(
             root,
@@ -450,24 +144,22 @@ class BrainzMRIGUI:
         tk.Button(frm_user, text="New User", command=self.new_user).pack(side="left", padx=2)
         tk.Button(frm_user, text="Edit User", command=self.edit_user).pack(side="left", padx=2)
 
-        # Row 2: Source Control (CSV Import / Get Listens / Status)
+        # Row 2: Source Control
         frm_source_controls = tk.Frame(frm_top)
         frm_source_controls.pack(pady=(5, 0))
 
         tk.Button(frm_source_controls, text="Import CSV...", command=self.import_csv).pack(side="left", padx=(5, 5))
 
-        # Get New Listens Button (Incremental Update)
         self.btn_get_listens = tk.Button(
             frm_source_controls,
             text="Get New Listens",
             command=self.action_get_new_listens,
-            state="disabled"  # Enabled only if user has API config
+            state="disabled"
         )
         self.btn_get_listens.pack(side="left", padx=(0, 10))
         Hovertip(self.btn_get_listens, "Fetch recent listens from ListenBrainz API.\nRequires username in profile.",
                  hover_delay=500)
 
-        # Active Source Indicator
         self.lbl_source_status = tk.Label(
             frm_source_controls,
             text="Active Source: User History",
@@ -476,7 +168,6 @@ class BrainzMRIGUI:
         )
         self.lbl_source_status.pack(side="left", padx=5)
 
-        # Close CSV Button (Hidden by default)
         self.btn_close_csv = tk.Button(
             frm_source_controls,
             text="Close CSV",
@@ -492,7 +183,6 @@ class BrainzMRIGUI:
         frm_inputs = tk.Frame(root)
         frm_inputs.pack(pady=5)
 
-        # Time Range Filters
         (self.ent_time_start, self.ent_time_end, self.time_frame) = self._create_labeled_double_entry(
             frm_inputs, "Time Range To Analyze (Days Ago)", 0, 0
         )
@@ -502,26 +192,11 @@ class BrainzMRIGUI:
         )
 
         for widg in [self.ent_time_start, self.ent_time_end]:
-            Hovertip(
-                widg,
-                "Time range filtering. Excludes listens by date.\n"
-                "Example: [365, 730] will display listens from 1–2 years ago.\n"
-                "Set to [0, 0] to disable filtering.\n"
-                "Default: [0, 0] (days ago).",
-                hover_delay=500,
-            )
+            Hovertip(widg, "Time range filtering. Excludes listens by date.\nDefault: [0, 0] (days ago).", hover_delay=500)
 
         for widg in [self.ent_last_start, self.ent_last_end]:
-            Hovertip(
-                widg,
-                "Recency filtering. Exclude entities by last listened.\n"
-                "Example: [365, 99999] will display entities last listened >1 year ago.\n"
-                "Set to [0, 0] to disable filtering.\n"
-                "Default: [0, 0] (days ago).",
-                hover_delay=500,
-            )
+            Hovertip(widg, "Recency filtering. Exclude entities by last listened.\nDefault: [0, 0] (days ago).", hover_delay=500)
 
-        # Thresholds and Top N (Refactored to 2 columns)
         self.ent_topn, self.ent_min_listens = self._create_dual_entry_row(
             frm_inputs,
             "Top N (Number Of Results):", 200,
@@ -535,22 +210,17 @@ class BrainzMRIGUI:
         )
 
         Hovertip(self.ent_topn, "Number of results to return.\nDefault: 200 results", hover_delay=500)
-        Hovertip(self.ent_min_listens, "Minimum number of listens.\nWorks as an OR with minimum minutes.",
-                 hover_delay=500)
-        Hovertip(self.ent_min_minutes, "Minimum number of minutes listened.\nWorks as an OR with minimum listens.",
-                 hover_delay=500)
-        Hovertip(self.ent_min_likes, "Minimum number of unique liked tracks.\nDefault: 0 (disabled).", hover_delay=500)
+        Hovertip(self.ent_min_listens, "Minimum number of listens.", hover_delay=500)
+        Hovertip(self.ent_min_minutes, "Minimum number of minutes listened.", hover_delay=500)
+        Hovertip(self.ent_min_likes, "Minimum number of unique liked tracks.", hover_delay=500)
 
-        # Bind Enter key
         for entry in [self.ent_time_start, self.ent_time_end, self.ent_last_start, self.ent_last_end,
                       self.ent_topn, self.ent_min_listens, self.ent_min_minutes, self.ent_min_likes]:
             entry.bind("<Return>", lambda event: self.run_report())
 
-        # Enrichment controls
         frm_enrich_source = tk.Frame(frm_inputs)
         frm_enrich_source.pack(fill="x", pady=8, anchor="center")
 
-        # Center the enrichment line contents
         enrich_inner = tk.Frame(frm_enrich_source)
         enrich_inner.pack(anchor="center")
 
@@ -572,15 +242,8 @@ class BrainzMRIGUI:
         )
         self.cmb_enrich_source.pack(side="left", padx=(0, 10))
 
-        Hovertip(
-            self.cmb_enrich_source,
-            "Note: API-based lookups are slow.\n"
-            "Unless 'Force Cache Update' is checked, API lookups will\n"
-            "use previously cached Genres when possible.",
-            hover_delay=500
-        )
+        Hovertip(self.cmb_enrich_source, "Select enrichment source.\nAPI lookups are slow.", hover_delay=500)
 
-        # Force Cache Checkbox
         self.force_cache_update_var = tk.BooleanVar(value=False)
         chk_force_cache = tk.Checkbutton(
             enrich_inner,
@@ -588,15 +251,8 @@ class BrainzMRIGUI:
             variable=self.force_cache_update_var,
         )
         chk_force_cache.pack(side="left", padx=5)
-        Hovertip(
-            chk_force_cache,
-            "Forces querying the API for new genre data.\n"
-            "Normal behavior will only query for missing genres.\n"
-            "Any new metadata will update cached genre data.",
-            hover_delay=500
-        )
+        Hovertip(chk_force_cache, "Forces querying the API for new genre data.", hover_delay=500)
 
-        # Deep Query Checkbox (NEW)
         self.deep_query_var = tk.BooleanVar(value=False)
         chk_deep_query = tk.Checkbutton(
             enrich_inner,
@@ -604,13 +260,10 @@ class BrainzMRIGUI:
             variable=self.deep_query_var,
         )
         chk_deep_query.pack(side="left", padx=5)
-        Hovertip(chk_deep_query,
-                 "If checked, fetches metadata for Albums and Tracks.\nIf unchecked (Default), fetches Artists only (Fast).",
-                 hover_delay=500)
+        Hovertip(chk_deep_query, "Fetches metadata for Albums and Tracks individually.", hover_delay=500)
 
         def _update_enrichment_controls(*_):
             mode = self.enrichment_mode_var.get()
-
             if mode.startswith("None") or mode == "Cache Only":
                 self.force_cache_update_var.set(False)
                 chk_force_cache.configure(state="disabled")
@@ -629,7 +282,6 @@ class BrainzMRIGUI:
         btn_frame = tk.Frame(root)
         btn_frame.pack(pady=10)
 
-        # Report Type
         tk.Label(btn_frame, text="Report Type:").pack(side="left", padx=(0, 5))
 
         self.report_type = ttk.Combobox(
@@ -650,7 +302,6 @@ class BrainzMRIGUI:
         self.report_type.pack(side="left", padx=(0, 15))
         self.report_type.bind("<<ComboboxSelected>>", self.on_report_type_selected)
 
-        # Buttons
         self.btn_generate = tk.Button(
             btn_frame,
             text="Generate Report",
@@ -689,10 +340,9 @@ class BrainzMRIGUI:
         self.table_view = ReportTableView(self.root, self.table_frame, self.state)
 
         # ------------------------------------------------------------
-        # Upstream Actions Frame (Hidden by default)
+        # Upstream Actions Frame
         # ------------------------------------------------------------
         self.frm_upstream = tk.Frame(root, bg="#ECEFF1", bd=1, relief="groove")
-        # Packed dynamically in _on_report_success
 
         lbl_upstream = tk.Label(self.frm_upstream, text="Send To ListenBrainz Account:", bg="#ECEFF1",
                                 font=("Segoe UI", 9, "bold"))
@@ -707,10 +357,8 @@ class BrainzMRIGUI:
             activebackground="#ECEFF1"
         )
         chk_dry.pack(side="left", padx=(0, 15))
-        Hovertip(chk_dry, "If checked, actions will NOT send data to ListenBrainz.\nRequests will be printed to console only.",
-                 hover_delay=100)
+        Hovertip(chk_dry, "If checked, actions will NOT send data to ListenBrainz.", hover_delay=100)
 
-        # Like All Button
         self.btn_like_all = tk.Button(
             self.frm_upstream,
             text="Like All Tracks",
@@ -718,33 +366,25 @@ class BrainzMRIGUI:
             bg="#FFB74D",
         )
         self.btn_like_all.pack(side="left", padx=5)
-        Hovertip(self.btn_like_all, "Mark all tracks in the list as Liked via API.\nRequires an API key.",
-                 hover_delay=500)
+        Hovertip(self.btn_like_all, "Mark all tracks in the list as Liked via API.", hover_delay=500)
 
-        # Like Selected Button
         self.btn_like_selected = tk.Button(
             self.frm_upstream,
             text="Like Selected Tracks",
             command=self.action_like_selected,
-            bg="#FFCC80",  # Slightly lighter orange
+            bg="#FFCC80",
         )
         self.btn_like_selected.pack(side="left", padx=5)
-        Hovertip(self.btn_like_selected,
-                 "Submit a like for all highlighted tracks via API.\nRequires an API key.", hover_delay=500)
+        Hovertip(self.btn_like_selected, "Submit a like for all highlighted tracks.", hover_delay=500)
 
-        # Resolve Metadata Button (Hidden by default, shown if needed)
         self.btn_resolve = tk.Button(
             self.frm_upstream,
             text="Resolve Metadata",
             command=self.action_resolve_metadata,
-            bg="#4DD0E1",  # Cyan/Light Blue
+            bg="#4DD0E1",
         )
-        # Packed in _on_report_success if needed
-        Hovertip(self.btn_resolve,
-                 "Search MusicBrainz for missing MBIDs (slow).\nRequired to Like tracks from generic CSVs.",
-                 hover_delay=500)
+        Hovertip(self.btn_resolve, "Search MusicBrainz for missing MBIDs (slow).", hover_delay=500)
 
-        # Export Playlist Button
         self.btn_export_playlist = tk.Button(
             self.frm_upstream,
             text="Export as Playlist",
@@ -753,8 +393,7 @@ class BrainzMRIGUI:
             fg="white"
         )
         self.btn_export_playlist.pack(side="left", padx=5)
-        Hovertip(self.btn_export_playlist,
-                 "Export all tracks in the list as a playlist via API.\nRequires an API key.", hover_delay=500)
+        Hovertip(self.btn_export_playlist, "Export all tracks in the list as a playlist via API.", hover_delay=500)
 
         # ------------------------------------------------------------
         # Status Bar
@@ -763,8 +402,9 @@ class BrainzMRIGUI:
 
         # Initialize
         self.refresh_user_list()
-        cfg = self.load_config()
-        last_user = cfg.get("last_user")
+        
+        # REFACTORED: Use config.last_user
+        last_user = config.last_user
         if last_user and last_user in self.user_dropdown["values"]:
             self.user_var.set(last_user)
             self.load_user_from_cache(last_user)
@@ -777,47 +417,33 @@ class BrainzMRIGUI:
     # ==================================================================
 
     def _create_dual_entry_row(self, parent, label1, default1, label2, default2):
-        """Creates a centered row with two [Label | Entry] pairs."""
         row = tk.Frame(parent)
         row.pack(pady=2, anchor="center")
-
-        # Left Pair
         tk.Label(row, text=label1, width=28, anchor="e").pack(side="left", padx=(0, 5))
         ent1 = tk.Entry(row, width=8)
         ent1.insert(0, str(default1))
         ent1.pack(side="left")
-
-        # Spacer
         tk.Frame(row, width=20).pack(side="left")
-
-        # Right Pair
         tk.Label(row, text=label2, width=28, anchor="e").pack(side="left", padx=(0, 5))
         ent2 = tk.Entry(row, width=8)
         ent2.insert(0, str(default2))
         ent2.pack(side="left")
-
         return ent1, ent2
 
     def _create_labeled_double_entry(self, parent, label: str, default1, default2):
-        """Creates a centered row for a range (Start/End)."""
         frm = tk.Frame(parent)
         frm.pack(fill="x", pady=5)
-
         tk.Label(frm, text=label).pack(anchor="center")
-
         row = tk.Frame(frm)
         row.pack(anchor="center")
-
         tk.Label(row, text="Start:", width=8, anchor="e").pack(side="left")
         ent1 = tk.Entry(row, width=6)
         ent1.insert(0, str(default1))
         ent1.pack(side="left", padx=5)
-
         tk.Label(row, text="End:", width=8, anchor="e").pack(side="left")
         ent2 = tk.Entry(row, width=6)
         ent2.insert(0, str(default2))
         ent2.pack(side="left", padx=5)
-
         return ent1, ent2, frm
 
     # ==================================================================
@@ -838,13 +464,11 @@ class BrainzMRIGUI:
         if not username:
             messagebox.showerror("Error", "Select a user to edit.")
             return
-
         try:
             user = User.from_cache(username)
         except Exception as e:
             messagebox.showerror("Error Loading User", f"Failed to load user: {e}")
             return
-
         UserEditorWindow(self.root, user, self._on_user_saved)
 
     def _on_user_saved(self, username: str):
@@ -877,85 +501,56 @@ class BrainzMRIGUI:
 
         self.state.user = user
 
-        cfg = self.load_config()
-        cfg["last_user"] = username
-        self.save_config(cfg)
+        # REFACTORED: Use config
+        config.last_user = username
+        config.save()
 
-        # Clear previous session state
-        self.close_csv()  # Reset playlist state if a new user is loaded
-
-        # But we still need to set status if close_csv didn't (because playlist was already None)
+        self.close_csv()
         self.lbl_source_status.config(text="Active Source: User History", fg="gray")
         self.set_status(f"User '{username}' loaded.")
-
-        # Check API status to enable "Get New Listens"
         self._check_api_status()
 
     def _check_api_status(self):
-        """Enable/Disable API buttons based on user config."""
         if self.state.user and self.state.user.get_listenbrainz_username():
             self.btn_get_listens.config(state="normal")
         else:
             self.btn_get_listens.config(state="disabled")
 
     def import_csv(self):
-        """Phase 2.2: Import arbitrary CSV playlist."""
         if not self.state.user:
             messagebox.showerror("Error", "Please load a user first (to provide context).")
             return
-
         path = filedialog.askopenfilename(
             title="Select CSV Playlist",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
         )
         if not path:
             return
-
         try:
-            # Parse using Phase 2.1 logic
             df = parsing.parse_generic_csv(path)
-
-            # Inject username so enrichment/reporting works correctly
             df["_username"] = self.state.user.username
-
-            # Update State
             self.state.playlist_df = df
             self.state.playlist_name = os.path.basename(path)
-
-            # Update UI
             self.lbl_source_status.config(text=f"Active Source: Playlist ({self.state.playlist_name})", fg="#E65100")
-            self.btn_close_csv.pack(side="left", padx=5)  # Show close button
-
-            # Switch to "Raw Listens" to show the data immediately
+            self.btn_close_csv.pack(side="left", padx=5)
             self.report_type.set("Raw Listens")
-
-            # Auto-run report
             self.run_report()
-
             messagebox.showinfo("Import Successful", f"Loaded {len(df)} tracks from '{self.state.playlist_name}'.")
-
         except Exception as e:
             messagebox.showerror("Import Failed", f"Could not parse CSV: {e}")
 
     def close_csv(self):
-        """Revert to User History mode."""
         self.state.playlist_df = None
         self.state.playlist_name = None
-
         self.lbl_source_status.config(text="Active Source: User History", fg="gray")
-        self.btn_close_csv.pack_forget()  # Hide close button
-        self.frm_upstream.pack_forget()  # Hide action bar
-
-        # Clear view
+        self.btn_close_csv.pack_forget()
+        self.frm_upstream.pack_forget()
         for widget in self.table_frame.winfo_children():
             widget.destroy()
-
         self.set_status("Playlist closed. Ready.")
 
     def on_report_type_selected(self, event=None):
-        """Handle changes to the report type dropdown."""
         mode = self.report_type.get()
-        # Auto-enable enrichment for Genre Flavor if currently set to None
         if mode == "Genre Flavor":
             if self.enrichment_mode_var.get().startswith("None"):
                 self.enrichment_mode_var.set("Cache Only")
@@ -979,17 +574,14 @@ class BrainzMRIGUI:
             raise ValueError(f"{field_name} must be numeric.")
 
     def run_report(self) -> None:
-        # THREAD SAFETY GUARD
         if self.processing:
             return
-
         if self.state.user is None:
             messagebox.showerror("Error", "Please load or create a user first.")
             self.set_status("Error: No user loaded.")
             return
 
         self.processing = True
-
         mode = self.report_type.get()
 
         try:
@@ -1008,12 +600,11 @@ class BrainzMRIGUI:
             min_likes = self._parse_int_field(self.ent_min_likes, "Minimum likes")
             topn = self._parse_int_field(self.ent_topn, "Top N")
         except ValueError as e:
-            self.processing = False  # Reset guard
+            self.processing = False
             messagebox.showerror("Error With Filter Input", str(e))
             self.set_status(f"Error With Filter Input: {str(e)}")
             return
 
-        # Determine enrichment boolean from dropdown string
         enrich_mode_str = self.enrichment_mode_var.get()
         do_enrich = not enrich_mode_str.startswith("None")
 
@@ -1031,41 +622,33 @@ class BrainzMRIGUI:
             "do_enrich": do_enrich,
             "enrichment_mode": enrich_mode_str,
             "force_cache_update": self.force_cache_update_var.get(),
-            "deep_query": self.deep_query_var.get(),  # NEW: Pass Deep Query flag
+            "deep_query": self.deep_query_var.get(),
         }
 
-        # Store params for potential graph regeneration
         self.state.last_params = params.copy()
 
-        # PHASE 2.2: Determine Source Data
         if self.state.playlist_df is not None:
             base_df = self.state.playlist_df.copy()
         else:
             base_df = self.state.user.get_listens().copy()
 
-        # Inject username again just to be safe
         if "_username" not in base_df.columns:
             base_df["_username"] = self.state.user.username
 
-        # Disable button visually
         self.btn_generate.config(state="disabled")
 
-        # Create a specific window for THIS run
         current_progress_win = ProgressWindow(self.root, title=f"Generating {mode}...")
-        self.progress_win = current_progress_win  # Assign to global for cancel checks
+        self.progress_win = current_progress_win
 
         def worker():
             try:
                 def progress_callback(current, total, msg):
-                    # SAFETY: Check if THIS specific window still exists AND catch exceptions
-                    # Use a lambda to capture current_progress_win
                     def _do_update():
                         try:
                             if current_progress_win.winfo_exists():
                                 current_progress_win.update_progress(current, total, msg)
                         except Exception:
                             pass
-
                     self.root.after(0, _do_update)
 
                 def is_cancelled():
@@ -1088,11 +671,9 @@ class BrainzMRIGUI:
                 ))
 
             except ValueError as e:
-                # Capture exception string immediately
                 err_msg = str(e)
                 self.root.after(0, lambda: self._on_report_error(err_msg, "Error Executing Report"))
             except Exception as e:
-                # Capture exception string immediately
                 err_msg = f"{type(e).__name__}: {e}"
                 self.root.after(0, lambda: self._on_report_error(err_msg, "Unexpected Error"))
 
@@ -1100,20 +681,17 @@ class BrainzMRIGUI:
         t.start()
 
     def _on_report_success(self, result, meta, report_type_key, last_enriched, status_text, mode):
-        """Called on main thread when worker finishes successfully."""
-        # SAFE DESTRUCTION PATTERN
         if self.progress_win:
             win = self.progress_win
             try:
                 win.grab_release()
                 win.withdraw()
-                # Schedule actual destruction later to allow pending events to flush
                 self.root.after(100, win.destroy)
             except Exception:
                 pass
             self.progress_win = None
 
-        self.processing = False  # Release guard
+        self.processing = False
         self.btn_generate.config(state="normal")
 
         self.state.last_report_df = result
@@ -1128,35 +706,28 @@ class BrainzMRIGUI:
         self.table_view.show_table(result)
         self.set_status(status_text)
 
-        # Enable Graph button if supported
         if mode in ["Favorite Artist Trend", "New Music By Year", "Genre Flavor"]:
             self.btn_show_graph.config(state="normal")
         else:
             self.btn_show_graph.config(state="disabled")
 
-        # Determine if Upstream Actions should be visible
         has_tracks = "track_name" in result.columns and "artist" in result.columns
         has_mbids = False
         if "recording_mbid" in result.columns:
-            # Check if we have ANY valid mbids
             valid = result["recording_mbid"].notna() & (result["recording_mbid"] != "") & (
                         result["recording_mbid"] != "None")
             has_mbids = valid.any()
 
-        # Check for missing MBIDs to show Resolve button
         has_missing_mbids = False
         if "recording_mbid" in result.columns:
             missing = result["recording_mbid"].isna() | (result["recording_mbid"] == "") | (
                         result["recording_mbid"] == "None")
             has_missing_mbids = missing.any()
         elif has_tracks:
-            # If column is missing entirely but we have tracks, they are all missing
             has_missing_mbids = True
 
         if has_tracks or has_mbids:
             self.frm_upstream.pack(fill="x", side="bottom", before=self.status_bar, padx=5, pady=5)
-
-            # Button Logic
             if has_mbids:
                 self.btn_like_all.config(state="normal")
                 self.btn_like_selected.config(state="normal")
@@ -1164,7 +735,6 @@ class BrainzMRIGUI:
                 self.btn_like_all.config(state="disabled")
                 self.btn_like_selected.config(state="disabled")
 
-            # Show Resolve Button if needed
             if has_missing_mbids:
                 self.btn_resolve.pack(side="left", padx=5)
             else:
@@ -1173,20 +743,17 @@ class BrainzMRIGUI:
             self.frm_upstream.pack_forget()
 
     def _on_report_error(self, error_msg, title):
-        """Called on main thread when worker fails."""
-        # SAFE DESTRUCTION PATTERN
         if self.progress_win:
             win = self.progress_win
             try:
                 win.grab_release()
                 win.withdraw()
-                # Schedule actual destruction later
                 self.root.after(100, win.destroy)
             except Exception:
                 pass
             self.progress_win = None
 
-        self.processing = False  # Release guard
+        self.processing = False
         self.btn_generate.config(state="normal")
 
         messagebox.showerror(title, error_msg)
@@ -1207,41 +774,26 @@ class BrainzMRIGUI:
     # ------------------------------------------------------------------
 
     def action_get_new_listens(self):
-        """
-        Incrementally fetch recent listens from ListenBrainz using a robust
-        'Backwards Crawl' strategy with an intermediate file cache.
-
-        Includes parallel background synchronization of User Likes using a
-        separate worker thread. Implements a 'Barrier' pattern to ensure the
-        UI stays locked until BOTH Listens and Likes are fully synced.
-        """
         if not self.state.user or not self.state.user.get_listenbrainz_username():
             messagebox.showerror("Error", "ListenBrainz Username required.")
             return
 
-        # 1. Determine Local Anchor
         local_head_ts = self.state.user.get_latest_listen_timestamp()
-
-        # 2. Check Intermediate Cache (Resume capability)
         intermediate_df = self.state.user.load_intermediate_listens()
         resume_mode = False
 
         if not intermediate_df.empty:
-            # We have a "floating island". We must bridge it to local_head.
             if pd.api.types.is_datetime64_any_dtype(intermediate_df["listened_at"]):
                 try:
                     start_ts = int(intermediate_df["listened_at"].min().timestamp())
                     resume_mode = True
                 except Exception:
-                    # Fallback if corrupt timestamps
                     start_ts = int(time.time())
             else:
                 start_ts = int(time.time())
         else:
-            # Start fresh from NOW
             start_ts = int(time.time())
 
-        # Setup Worker
         self.btn_get_listens.config(state="disabled")
         self.processing = True
 
@@ -1252,9 +804,7 @@ class BrainzMRIGUI:
         current_progress_win = ProgressWindow(self.root, title=title)
         self.progress_win = current_progress_win
 
-        # Setup Callbacks for SyncManager
         callbacks = {
-            # Adapt 2-arg call from SyncManager to 3-arg ProgressWindow
             "update_primary": lambda c, m: current_progress_win.update_progress(0, 0, f"{m} (Total: {c})"),
             "update_secondary": current_progress_win.update_secondary,
             "on_complete": self._on_sync_complete,
@@ -1269,29 +819,18 @@ class BrainzMRIGUI:
             callbacks
         )
 
-        # Hook Cancel Button to SyncManager
         current_progress_win.btn_cancel.config(
             command=lambda: [current_progress_win.cancel(), self.sync_manager.cancel()])
 
-        # Launch Workers
         self.sync_manager.start(start_ts, local_head_ts)
 
     def _request_sync_confirmation(self, message, callback):
-        """
-        Display a modal Yes/No dialog on the main thread and pass the result back.
-        """
-
         def _ask():
             result = messagebox.askyesno("Confirm", message)
             callback(result)
-
         _ask()
 
     def _on_sync_complete(self, barrier_state):
-        """
-        Called by SyncManager when both workers have finished (successfully or not).
-        """
-        # Close Window
         if self.progress_win:
             try:
                 self.progress_win.grab_release()
@@ -1310,7 +849,6 @@ class BrainzMRIGUI:
 
             msg = f"Update Complete.\nImported {barrier_state['listens_count']} new listens."
             
-            # IMPROVED REPORTING: Check for failures or success
             if barrier_state.get("likes_failed"):
                 msg += "\n\nWARNING: User Likes Sync Failed (Check logs)."
             elif barrier_state['likes_count'] > 0:
@@ -1332,7 +870,6 @@ class BrainzMRIGUI:
             messagebox.showwarning("Update Incomplete", msg)
 
     def action_resolve_metadata(self):
-        """Phase 4.1: Resolve missing MBIDs."""
         if self.state.last_report_df is None:
             return
 
@@ -1341,7 +878,6 @@ class BrainzMRIGUI:
         current_progress_win = ProgressWindow(self.root, title="Resolving Metadata...")
         self.progress_win = current_progress_win
 
-        # Data
         df_in = self.state.last_report_df.copy()
 
         def worker():
@@ -1353,7 +889,6 @@ class BrainzMRIGUI:
                                 current_progress_win.update_progress(current, total, msg)
                         except Exception:
                             pass
-
                     self.root.after(0, _do_update)
 
                 def is_cancelled():
@@ -1362,7 +897,6 @@ class BrainzMRIGUI:
                     except Exception:
                         return True
 
-                # Run Resolver
                 df_resolved, count_res, count_fail = enrichment.resolve_missing_mbids(
                     df_in,
                     progress_callback=progress_callback,
@@ -1377,18 +911,12 @@ class BrainzMRIGUI:
 
                     self.btn_resolve.config(state="normal")
 
-                    # Update State
                     self.state.last_report_df = df_resolved
                     self.state.original_df = df_resolved.copy()
-                    self.state.filtered_df = df_resolved.copy()  # Reset filters to show all
+                    self.state.filtered_df = df_resolved.copy()
 
-                    # Update Playlist State if active (so it persists across re-runs)
-                    # FIX 1.1: ROBUST WRITE-BACK (Content-Based Matching)
                     if self.state.playlist_df is not None:
                         try:
-                            # 1. Create unique keys for matching (Artist|Track|Album)
-                            # Using centralized key generation from parsing.py
-                            # We only care about rows that actually got resolved
                             resolved_subset = df_resolved[
                                 df_resolved["recording_mbid"].notna() &
                                 (df_resolved["recording_mbid"] != "") &
@@ -1397,38 +925,27 @@ class BrainzMRIGUI:
 
                             if not resolved_subset.empty:
                                 resolved_subset["_merge_key"] = parsing.make_track_key_series(resolved_subset)
-
-                                # Create a lookup map: key -> {mbid, album}
-                                # Drop duplicates to avoid explosion
                                 update_map = resolved_subset.drop_duplicates(subset=["_merge_key"]).set_index(
                                     "_merge_key")[["recording_mbid", "album"]]
 
-                                # Prepare source
                                 self.state.playlist_df["_merge_key"] = parsing.make_track_key_series(
                                     self.state.playlist_df)
 
-                                # Iterate and update
-                                # Vectorized update using map is safest
-                                # Map MBID
                                 self.state.playlist_df["recording_mbid"] = self.state.playlist_df["_merge_key"].map(
                                     update_map["recording_mbid"]
-                                ).fillna(self.state.playlist_df["recording_mbid"])  # Keep old if no match
+                                ).fillna(self.state.playlist_df["recording_mbid"])
 
-                                # Map Album
                                 self.state.playlist_df["album"] = self.state.playlist_df["_merge_key"].map(
                                     update_map["album"]
                                 ).fillna(self.state.playlist_df["album"])
 
-                                # Cleanup
                                 self.state.playlist_df.drop(columns=["_merge_key"], inplace=True)
 
                         except Exception as e:
-                            print(f"Warning: Could not persist resolved metadata to playlist session: {e}")
+                            logging.error(f"Warning: Could not persist resolved metadata to playlist session: {e}")
 
-                    # Refresh Table
                     self.table_view.show_table(df_resolved)
 
-                    # Re-run success logic to update buttons
                     self._on_report_success(
                         df_resolved,
                         self.state.last_meta,
@@ -1444,14 +961,12 @@ class BrainzMRIGUI:
                 self.root.after(0, _finish)
 
             except Exception as e:
-                # CRITICAL FIX: Convert exception to string BEFORE lambda closure captures it
                 err_msg = f"Error in resolver: {e}"
                 self.root.after(0, lambda: self._on_report_error(err_msg, "Error"))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _execute_like_task(self, mbids_to_process: list[str]):
-        """Generic threaded worker to submit likes for a list of MBIDs."""
         count = len(mbids_to_process)
         if count == 0:
             messagebox.showinfo("No Tracks", "No valid MusicBrainz IDs found in selection.")
@@ -1466,7 +981,6 @@ class BrainzMRIGUI:
 
         client = self._get_lb_client()
 
-        # UI State
         self.btn_like_all.config(state="disabled")
         self.btn_like_selected.config(state="disabled")
 
@@ -1482,38 +996,33 @@ class BrainzMRIGUI:
                     if current_progress_win.cancelled:
                         break
 
-                    # Update GUI
                     def _update():
                         if current_progress_win.winfo_exists():
                             current_progress_win.update_progress(
                                 i, count, f"Liking track {i + 1}/{count}..."
                             )
-
                     self.root.after(0, _update)
 
                     try:
                         client.submit_feedback(mbid, 1)
                         success_count += 1
                     except Exception as e:
-                        print(f"Error liking {mbid}: {e}")
+                        logging.error(f"Error liking {mbid}: {e}")
                         fail_count += 1
 
-                        # SAFETY: Abort immediately on critical API errors
                         err_str = str(e)
                         if "401" in err_str or "403" in err_str or "429" in err_str:
                             self.root.after(0, lambda: messagebox.showerror(
                                 "API Error - Aborting",
                                 f"Critical API error encountered (Auth or Rate Limit).\nStopping to protect your account.\n\nError: {e}"
                             ))
-                            current_progress_win.cancelled = True  # Signals the loop to stop
+                            current_progress_win.cancelled = True
                             break
 
-                    # Small delay to be nice to API
                     if not dry_run:
                         time.sleep(0.3)
 
                 def _finish():
-                    # Safe Destroy
                     if current_progress_win.winfo_exists():
                         current_progress_win.grab_release()
                         current_progress_win.withdraw()
@@ -1530,14 +1039,12 @@ class BrainzMRIGUI:
                 self.root.after(0, _finish)
 
             except Exception as e:
-                # CRITICAL FIX: Convert exception to string BEFORE lambda closure captures it
                 err_msg = f"Error in feedback worker: {e}"
                 self.root.after(0, lambda: self._on_report_error(err_msg, "Error"))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def action_like_all(self):
-        """Submit feedback for ALL visible tracks."""
         if self.state.filtered_df is None or self.state.filtered_df.empty:
             return
 
@@ -1551,7 +1058,6 @@ class BrainzMRIGUI:
         self._execute_like_task(unique_mbids)
 
     def action_like_selected(self):
-        """Submit feedback for SELECTED tracks in the TreeView."""
         if self.state.filtered_df is None:
             return
 
@@ -1564,26 +1070,19 @@ class BrainzMRIGUI:
             messagebox.showinfo("No Selection", "Please select rows in the table first.")
             return
 
-        # Map selection to MBIDs safely via DataFrame lookups
         df = self.state.filtered_df
-
-        # Ensure we have the column
         if "recording_mbid" not in df.columns:
             messagebox.showerror("Error", "Underlying data is missing MusicBrainz IDs.")
             return
 
         selected_mbids = set()
-
-        # Get all children to find indices
         all_children = tree.get_children()
 
         for item in selection:
             try:
                 idx = all_children.index(item)
                 if idx < len(df):
-                    # We can now safely grab the MBID from the dataframe
                     val = df.iloc[idx]["recording_mbid"]
-                    # Check for valid string/not-null
                     if val and isinstance(val, str) and val.strip() and val != "None":
                         selected_mbids.add(val)
             except ValueError:
@@ -1596,12 +1095,10 @@ class BrainzMRIGUI:
         self._execute_like_task(list(selected_mbids))
 
     def action_export_playlist(self):
-        """Export visible rows as a JSPF playlist, scrubbing items without MBIDs."""
         if self.state.filtered_df is None or self.state.filtered_df.empty:
             return
 
         df = self.state.filtered_df
-        # Need at least artist and track name
         if "artist" not in df.columns or "track_name" not in df.columns:
             messagebox.showerror("Error", "Report must contain Artist and Track Name columns.")
             return
@@ -1615,12 +1112,10 @@ class BrainzMRIGUI:
 
         client = self._get_lb_client()
 
-        # SCRUBBING LOGIC
         track_list = []
         skipped_count = 0
 
         for _, row in df.iterrows():
-            # Check for MBID first
             mbid = row.get("recording_mbid")
             has_mbid = mbid and isinstance(mbid, str) and mbid.strip() and mbid != "None"
 
@@ -1645,14 +1140,13 @@ class BrainzMRIGUI:
                                    "No tracks with valid MusicBrainz IDs were found.\nPlaylist export aborted.")
             return
 
-        # Reuse progress window logic
         self.btn_export_playlist.config(state="disabled")
+        
         current_progress_win = ProgressWindow(self.root, title="Uploading Playlist...")
         self.progress_win = current_progress_win
 
         def worker():
             try:
-                # Update GUI
                 self.root.after(0,
                                 lambda: current_progress_win.update_progress(50, 100, "Generating JSPF Payload..."))
 
@@ -1671,7 +1165,6 @@ class BrainzMRIGUI:
                     msg = f"Failed to create playlist: {e}"
 
                 def _finish():
-                    # Safe Destroy
                     if current_progress_win.winfo_exists():
                         current_progress_win.grab_release()
                         current_progress_win.withdraw()
@@ -1687,7 +1180,6 @@ class BrainzMRIGUI:
                 self.root.after(0, _finish)
 
             except Exception as e:
-                # CRITICAL FIX: Convert exception to string BEFORE lambda closure captures it
                 err_msg = f"Error in playlist worker: {e}"
                 self.root.after(0, lambda: self._on_report_error(err_msg, "Error"))
 
@@ -1810,20 +1302,10 @@ class BrainzMRIGUI:
         self.status_bar.update_idletasks()
 
     def load_config(self) -> dict:
-        try:
-            if os.path.exists("config.json"):
-                with open("config.json", "r", encoding="utf-8") as f:
-                    return json.load(f)
-        except Exception:
-            pass
-        return {}
+        return {} # Deprecated
 
     def save_config(self, data: dict) -> None:
-        try:
-            with open("config.json", "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-        except Exception:
-            pass
+        pass # Deprecated
 
 
 # ======================================================================
@@ -1831,7 +1313,7 @@ class BrainzMRIGUI:
 # ======================================================================
 
 if __name__ == "__main__":
-    setup_logging()  # Initialize file logging
+    setup_logging()
     root = tk.Tk()
     app = BrainzMRIGUI(root)
     root.mainloop()
