@@ -7,7 +7,7 @@ import gzip
 import json
 import os
 import threading
-import logging  # Added logging
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Set, Dict, Any, Optional, List
@@ -51,6 +51,8 @@ def get_cached_usernames() -> list[str]:
 
 def _make_empty_listens_df() -> pd.DataFrame:
     """Return an empty canonical listens DataFrame with the expected columns."""
+    # REVERTED: Do not enforce types here to avoid instability with empty DFs.
+    # Type handling is now deferred to reporting.py
     return pd.DataFrame(
         columns=[
             "artist",
@@ -188,7 +190,7 @@ class User:
             json.dump(data, f, indent=None)
 
     # ------------------------------------------------------------
-    # Source Management Methods (Restored for Editor)
+    # Source Management Methods
     # ------------------------------------------------------------
 
     def get_lastfm_username(self) -> str:
@@ -318,3 +320,6 @@ class User:
             path = os.path.join(get_user_cache_dir(self.username), "listens_intermediate.jsonl")
             if os.path.exists(path):
                 os.remove(path)
+
+    def get_listenbrainz_username(self) -> str:
+        return self.listenbrainz_username

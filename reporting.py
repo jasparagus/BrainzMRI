@@ -239,7 +239,6 @@ def report_top(
                 df = filter_by_days(df, "listened_at", 0, days)
 
     # 2. Filter by Last Listened Date (Recency)
-    #    We must do this BEFORE aggregation to match user intent (filter entities, not just rows)
     if recency_range:
         start_r, end_r = recency_range
         # 0,0 implies disabled
@@ -256,6 +255,10 @@ def report_top(
     # 3. Group and Aggregate
     grouped = _group_listens(df, group_col)
 
+    # FIX: Ensure numeric types for aggregation to avoid TypeError on empty/object columns
+    if "total_duration_ms" in grouped.columns:
+        grouped["total_duration_ms"] = pd.to_numeric(grouped["total_duration_ms"], errors='coerce').fillna(0)
+
     grouped["total_hours_listened"] = (
         grouped["total_duration_ms"] / (1000 * 60 * 60)
     ).round(1)
@@ -271,11 +274,10 @@ def report_top(
 
         grouped = grouped.merge(likes_df, on=join_cols, how="left")
         
-        # PANDAS FIX: Explicitly cast to float before filling NaNs to avoid FutureWarning
+        # PANDAS FIX: Explicitly cast to float before filling NaNs
         if "unique_liked_tracks" in grouped.columns:
             grouped["unique_liked_tracks"] = grouped["unique_liked_tracks"].astype(float).fillna(0).astype(int)
         
-        # Add visual heart indicator for Track reports
         if group_col == "track" and "recording_mbid" in grouped.columns:
              grouped["Liked"] = grouped["recording_mbid"].apply(
                 lambda x: "❤️" if x in liked_mbids else ""
@@ -283,12 +285,10 @@ def report_top(
         else:
              grouped["Liked"] = ""
     else:
-        # PANDAS FIX: Ensure column exists even if no likes provided
         grouped["unique_liked_tracks"] = 0
         grouped["Liked"] = ""
     
     # --- Threshold Filtering ---
-    # RESTORED FIX: Use the dedicated helper to ensure filters are applied
     grouped = filter_by_thresholds(grouped, min_listens, min_minutes, min_likes)
 
     sorted_df = grouped.sort_values(by, ascending=False)

@@ -142,12 +142,13 @@ def normalize_listens(raw_listens: list[dict[str, Any]], origin: str = "zip_impo
         track_name = meta.get("track_name", "Unknown")
         album_name = meta.get("release_name", "Unknown")
 
-        # Additional info
-        add_info = meta.get("additional_info", {})
+        # Additional info - FIX: Handle explicit nulls in JSON
+        add_info = meta.get("additional_info") or {}
 
         # Extract MBIDs
         # They can be in mapping/mbid_mapping OR directly in additional_info
-        mb_maps = meta.get("mbid_mapping", {})
+        # FIX: Handle explicit nulls in JSON
+        mb_maps = meta.get("mbid_mapping") or {}
 
         artist_mbid = mb_maps.get("artist_mbids", [None])[0] or mb_maps.get("artist_mbid")
         recording_mbid = mb_maps.get("recording_mbid") or add_info.get("recording_mbid")

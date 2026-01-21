@@ -93,12 +93,18 @@ class ReportEngine:
         """
         Master orchestration method.
         """
-        # IMPROVED LOGGING
         logging.info(f"Report Requested: Mode='{mode}' | Filters: Time={time_start_days}-{time_end_days}, Recency={rec_start_days}-{rec_end_days}, TopN={topn} | Enrichment: {do_enrich} ({enrichment_mode})")
         
         handler = self._handlers.get(mode)
         if not handler:
             raise ValueError(f"Unknown report mode: {mode}")
+
+        # --- GUARD CLAUSE: EMPTY DATA ---
+        # If the source data is empty (e.g. new user), return immediately.
+        # This prevents the aggregation pipeline from crashing on empty types.
+        if df.empty:
+            logging.warning(f"Report '{mode}' aborted: Source DataFrame is empty.")
+            return pd.DataFrame(), {}, handler["report_type_key"], False, "No data available."
 
         # --------------------------------------------------------
         # 1. Pre-Filtering (Time Range)
