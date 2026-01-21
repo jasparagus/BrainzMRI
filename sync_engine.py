@@ -110,6 +110,7 @@ class SyncManager:
         self.cancel_flag = False
 
     def cancel(self):
+        logging.info("SyncManager: Cancellation requested by user.")
         self.cancel_flag = True
 
     def start(self, start_ts: int, local_head_ts: int):
@@ -176,6 +177,8 @@ class SyncManager:
                 except Exception as e:
                     logging.error(f"Error persisting likes: {e}")
                     self.barrier["likes_failed"] = True
+            else:
+                logging.info("Likes Sync: Aborted due to cancellation.")
 
         except Exception as e:
             logging.error(f"Background Likes Sync Failed: {e}", exc_info=True)
@@ -255,6 +258,8 @@ class SyncManager:
 
             self.barrier["gap_closed"] = gap_closed
             self.barrier["listens_count"] = fetched_total
+            if self.cancel_flag:
+                logging.info("Listens Sync: Aborted due to cancellation.")
 
         except Exception as e:
             logging.error(f"Background Listens Sync Failed: {e}", exc_info=True)

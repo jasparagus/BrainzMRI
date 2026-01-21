@@ -7,6 +7,7 @@ import gzip
 import json
 import os
 import threading
+import logging  # Added logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Set, Dict, Any, Optional, List
@@ -127,6 +128,7 @@ class User:
             for zip_path in listenbrainz_zips:
                 user.ingest_listenbrainz_zip(zip_path)
                 
+        logging.info(f"Created new user: {username}")
         return user
 
     @classmethod
@@ -157,7 +159,8 @@ class User:
                     user.liked_recording_mbids = set(likes_data.get("liked_mbids", []))
             except Exception:
                 pass
-                
+        
+        logging.info(f"Loaded user: {username}")
         return user
 
     def save_cache(self) -> None:
@@ -184,8 +187,31 @@ class User:
         with open(os.path.join(user_dir, "likes.json"), "w", encoding="utf-8") as f:
             json.dump(data, f, indent=None)
 
+    # ------------------------------------------------------------
+    # Source Management Methods (Restored for Editor)
+    # ------------------------------------------------------------
+
+    def get_lastfm_username(self) -> str:
+        return self.lastfm_username
+
+    def get_listenbrainz_username(self) -> str:
+        return self.listenbrainz_username
+
+    def update_sources(self, lastfm_username: str, listenbrainz_username: str, listenbrainz_token: str):
+        """Update user credentials and save."""
+        self.lastfm_username = lastfm_username or ""
+        self.listenbrainz_username = listenbrainz_username or ""
+        self.listenbrainz_token = listenbrainz_token or ""
+        self.save_cache()
+        logging.info(f"Updated sources/credentials for user: {self.username}")
+
+    # ------------------------------------------------------------
+    # Ingestion Methods
+    # ------------------------------------------------------------
+
     def ingest_listenbrainz_zip(self, zip_path: str) -> None:
         """Ingest a ListenBrainz ZIP export."""
+        logging.info(f"Ingesting ZIP for {self.username}: {zip_path}")
         new_df, new_likes = parsing.load_listens_from_zip(zip_path)
         
         with self._io_lock:
@@ -200,6 +226,8 @@ class User:
             # 2. Merge Likes
             self.liked_recording_mbids.update(new_likes)
             self._save_likes()
+        
+        logging.info(f"Ingestion complete. Total history: {len(merged_df)} rows.")
 
     def sync_likes(self, new_mbids: Set[str]):
         """Replace local likes with a fresh set from the server (Atomic Replacement)."""
@@ -290,6 +318,3 @@ class User:
             path = os.path.join(get_user_cache_dir(self.username), "listens_intermediate.jsonl")
             if os.path.exists(path):
                 os.remove(path)
-
-    def get_listenbrainz_username(self) -> str:
-        return self.listenbrainz_username

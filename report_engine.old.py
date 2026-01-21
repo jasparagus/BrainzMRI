@@ -6,7 +6,6 @@ Acts as the bridge between GUI inputs, Aggregation logic, and Enrichment.
 
 import pandas as pd
 import numpy as np
-import logging
 from typing import Optional, Dict, Any, Callable, Tuple
 
 from datetime import datetime, timedelta, timezone
@@ -93,8 +92,6 @@ class ReportEngine:
         """
         Master orchestration method.
         """
-        # IMPROVED LOGGING
-        logging.info(f"Report Requested: Mode='{mode}' | Filters: Time={time_start_days}-{time_end_days}, Recency={rec_start_days}-{rec_end_days}, TopN={topn} | Enrichment: {do_enrich} ({enrichment_mode})")
         
         handler = self._handlers.get(mode)
         if not handler:
@@ -133,6 +130,7 @@ class ReportEngine:
         # --- SPECIALIZED PIPELINE: GENRE FLAVOR ---
         if mode == "Genre Flavor":
             # Step A: Aggregate by Artist (Proxy Step)
+            # We need 'total_listens' per artist to weight the genres correctly.
             if progress_callback: progress_callback(20, 100, "Aggregating artists...")
             
             artist_kwargs = base_kwargs.copy()
@@ -140,6 +138,7 @@ class ReportEngine:
             artist_kwargs["by"] = "total_listens"
             artist_kwargs["df"] = df
             
+            # Execute Aggregation
             raw_artist_result = reporting.report_top(**artist_kwargs)
             if isinstance(raw_artist_result, tuple):
                 df_artists = raw_artist_result[0]
@@ -147,7 +146,6 @@ class ReportEngine:
                 df_artists = raw_artist_result
                 
             if is_cancelled and is_cancelled():
-                logging.info("Report generation cancelled during aggregation.")
                 return pd.DataFrame(), {}, "", False, "Cancelled."
 
             # Step B: Enrich Artist Data
@@ -160,17 +158,17 @@ class ReportEngine:
                     force_cache_update=force_cache_update,
                     progress_callback=progress_callback,
                     is_cancelled=is_cancelled,
-                    deep_query=False
+                    deep_query=False # Always false for Genre Flavor (we only care about artists)
                 )
                 last_enriched = True
             
             if is_cancelled and is_cancelled():
-                logging.info("Report generation cancelled during enrichment.")
                 return pd.DataFrame(), {}, "", False, "Cancelled."
 
             # Step C: Generate Flavor Report (Transform)
             if progress_callback: progress_callback(80, 100, "Calculating genre weights...")
             
+            # report_genre_flavor expects a DF with 'total_listens' and 'Genres'/'artist_genres'
             raw_result = reporting.report_genre_flavor(df_artists)
             
             if isinstance(raw_result, tuple):
@@ -181,10 +179,16 @@ class ReportEngine:
         # --- STANDARD PIPELINE (Aggregate -> Enrich) ---
         else:
             func = handler["func"]
+            
+            # Inject DF
             base_kwargs["df"] = df
             
+            # Aggregate
             if progress_callback: progress_callback(20, 100, "Aggregating data...")
             
+            # DIRECT CALL - Removed try/except TypeError block
+            # This ensures that if the reporting function signature mismatches,
+            # we get a visible error instead of a silent fallback to defaults.
             raw_result = func(**base_kwargs)
 
             if isinstance(raw_result, tuple):
@@ -193,7 +197,6 @@ class ReportEngine:
                 result, result_meta = raw_result, {}
 
             if is_cancelled and is_cancelled():
-                logging.info("Report generation cancelled.")
                 return pd.DataFrame(), {}, "", False, "Cancelled."
 
             # Enrich Result
@@ -209,6 +212,7 @@ class ReportEngine:
                     deep_query=deep_query
                 )
                 last_enriched = True
+                
                 result = reporting.apply_column_order(result)
 
         # --------------------------------------------------------
@@ -217,6 +221,7 @@ class ReportEngine:
         if progress_callback:
             progress_callback(100, 100, "Complete.")
 
+        # Construct Status Message
         if not result_meta:
             result_meta = {
                 "entity": report_type_key, 
@@ -249,5 +254,4 @@ class ReportEngine:
                     extra = extra[:-1] + f" | {s['fallbacks']} Fallbacks)"
                 status_text += extra
 
-        logging.info(f"Report generation complete. Rows: {len(result)}")
         return result, result_meta, report_type_key, last_enriched, status_text

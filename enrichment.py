@@ -227,6 +227,9 @@ def enrich_report(
     if df.empty:
         return df, {}
 
+    # FIX: Explicit copy to avoid SettingWithCopyWarning if df is a slice
+    df = df.copy()
+
     stats_report = {}
 
     # ------------------------------------------------------------------

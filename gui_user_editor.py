@@ -1,6 +1,6 @@
 """
-gui.py
-Tkinter GUI for BrainzMRI, using reporting, enrichment, and user modules.
+gui_user_editor.py
+Tkinter GUI for BrainzMRI - User Creation/Editing.
 """
 
 import json
@@ -77,18 +77,14 @@ class UserEditorWindow(tk.Toplevel):
         # Separator
         ttk.Separator(frm, orient="horizontal").grid(row=5, column=0, columnspan=2, sticky="ew", pady=10)
 
-        # ZIP selection
-        tk.Label(frm, text="Previously Ingested ZIPs:").grid(
+        # ZIP selection (New ZIPs only)
+        # Note: We no longer display "Previous ZIPs" as they are fully merged into the database.
+        tk.Label(frm, text="Import New ListenBrainz Data (ZIP):").grid(
             row=6, column=0, sticky="nw", pady=(0, 0)
         )
-        self.lst_existing_zips = tk.Listbox(frm, width=60, height=4)
-        self.lst_existing_zips.grid(row=6, column=1, pady=(0, 0))
-
-        tk.Label(frm, text="New ZIPs to Ingest:").grid(
-            row=7, column=0, sticky="nw", pady=(10, 0)
-        )
+        
         self.lst_pending_zips = tk.Listbox(frm, width=60, height=4)
-        self.lst_pending_zips.grid(row=7, column=1, pady=(10, 0))
+        self.lst_pending_zips.grid(row=6, column=1, pady=(0, 0))
 
         btn_choose_zip = tk.Button(
             frm,
@@ -96,11 +92,11 @@ class UserEditorWindow(tk.Toplevel):
             command=self._choose_zip,
             width=25,
         )
-        btn_choose_zip.grid(row=8, column=1, sticky="w", pady=5)
+        btn_choose_zip.grid(row=7, column=1, sticky="w", pady=5)
 
         # Save / Cancel
         frm_buttons = tk.Frame(frm)
-        frm_buttons.grid(row=9, column=0, columnspan=2, pady=15)
+        frm_buttons.grid(row=8, column=0, columnspan=2, pady=15)
 
         tk.Button(
             frm_buttons,
@@ -128,17 +124,12 @@ class UserEditorWindow(tk.Toplevel):
         self.ent_app_username.insert(0, user.username)
         self.ent_app_username.config(state="readonly")
 
+        # Now using the methods added to user.py
         self.ent_lastfm.insert(0, user.get_lastfm_username() or "")
         self.ent_listenbrainz.insert(0, user.get_listenbrainz_username() or "")
         
         if user.listenbrainz_token:
             self.ent_token.insert(0, user.listenbrainz_token)
-
-        zips = user.sources.get("listenbrainz_zips", [])
-        for z in zips:
-            self.lst_existing_zips.insert(
-                tk.END, f"{z.get('path')} (ingested {z.get('ingested_at')})"
-            )
 
     # ------------------------------------------------------------
     # ZIP selection
@@ -177,6 +168,7 @@ class UserEditorWindow(tk.Toplevel):
         # If editing, update existing user
         if self.existing_user:
             user = self.existing_user
+            # Now using the method added to user.py
             user.update_sources(lastfm_username, listenbrainz_username, token)
 
             for zip_path in self.pending_zips:
