@@ -45,8 +45,6 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 * **Resume Capability:** Interrupted downloads automatically save their progress to an "Island" cache and resume exactly where they left off.
 * **CSV Import:** Load arbitrary CSV playlists (e.g., from Spotify exports) to analyze them using BrainzMRI's matching engine.
 
-[UI EXAMPLES HERE]
-
 ---
 
 ## Attribution
@@ -130,28 +128,33 @@ python gui_main.py
 BrainzMRI/
 │
 ├── BrainzMRI.bat                 # Windows launcher
-├── gui_main.py                   # Main Orchestrator: Threading, Updates, & Workflow
-├── gui_charts.py                 # Matplotlib Logic: Treemaps, Stacked Area/Bar Charts
-├── gui_tableview.py              # Table Logic: Rendering, Regex Filter, & "Æ" Sorting
-├── gui_user_editor.py            # User Profile Management & ZIP Ingestion
-├── api_client.py                 # Network Layer: Retries, Rate Limiting (MB/Last.fm/LB)
-├── report_engine.py              # Report Routing & Status Management
-├── reporting.py                  # Core Logic: Aggregation, Statistics, & Pandas operations
-├── enrichment.py                 # Metadata Logic: Caching, Fetching, & MBID Resolution
-├── user.py                       # Persistence: Data I/O, Deduplication, & Intermediate Cache
-├── parsing.py                    # Utilities: Key Generation, Normalization, & File Parsing
+├── gui_main.py                   # View: Root Window, Event Loop, & Component Assembly
+├── gui_header.py                 # View: User Selection, Source Management, & Session State
+├── gui_filters.py                # View: Report Inputs, Thresholds, & Validation
+├── gui_actions.py                # View: Upstream Actions (Likes, Playlist, Resolve)
+├── gui_tableview.py              # View: Data Grid, Sorting, & Regex Filtering
+├── gui_charts.py                 # View: Matplotlib Visualization Logic
+├── gui_user_editor.py            # View: User Creation & ZIP Ingestion Dialog
+│
+├── report_engine.py              # Controller: Aggregation Pipeline & Data Routing
+├── sync_engine.py                # Controller: Background Synchronization & Concurrency
+│
+├── reporting.py                  # Model: Core Aggregation, Statistics, & Filtering Logic
+├── enrichment.py                 # Model: Metadata Fetching, Caching, & Resolution
+├── user.py                       # Model: Data Persistence, File I/O, & Thread Locking
+├── api_client.py                 # Network: HTTP Client, Retries, & Rate Limiting
+├── parsing.py                    # Utility: File Parsing, Normalization, & Key Generation
+├── config.py                     # Utility: Global Configuration & Constants
 │
 ├── tests/                        # Unit tests
 ├── README.md
 ├── requirements.txt
 └── config.json                   # Auto-created settings
-
 ```
 
 ---
 
 # Master Roadmap
-
 
 ## Playlist Prep: Album Expansion Engine
 
@@ -199,10 +202,3 @@ BrainzMRI/
  * Example: "Forgotten Favorites" (`High Play Count` + `Last Listened > 1 Year Ago`).
  * Example: "All Time Greatest Albums" (`High Play Count` + `High Play Count` + `4+ Likes Per Album`).
 
-
-## Advanced Filtering
-* Goal: "Negative" filtering (e.g., "Artist DOES NOT match regex").
-
-
-## Condense Likes Columns
-* Goal: Replace `Liked` and `unique_liked_tracks` with a single column called `Likes`

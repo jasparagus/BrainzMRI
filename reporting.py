@@ -24,8 +24,7 @@ PREFERRED_COLUMN_ORDER = [
     "album",
     "track_name",
     "total_listens",
-    "Liked",                # Visual indicator column
-    "unique_liked_tracks",  # Aggregated count
+    "Likes",                # Unified Integer Column (0, 1, or Count)
     "Genres",
     "last_listened",
     "first_listened",
@@ -95,8 +94,8 @@ def filter_by_thresholds(
     
     # AND logic for likes (must be met if set)
     if min_likes > 0:
-        if "unique_liked_tracks" in df.columns:
-            mask = mask & (df["unique_liked_tracks"] >= min_likes)
+        if "Likes" in df.columns:
+            mask = mask & (df["Likes"] >= min_likes)
         else:
             # If min_likes is requested but data is missing, return empty
             return df.iloc[0:0]
@@ -123,18 +122,18 @@ def apply_column_order(df: pd.DataFrame) -> pd.DataFrame:
 def report_raw_listens(df: pd.DataFrame, topn: int = None, liked_mbids: set = None):
     """
     Generate a simple Raw Listens report.
-    Adds a 'Liked' column if liked_mbids are provided.
+    Adds a 'Likes' integer column (1 if liked, 0 if not).
     """
     # Create a copy to safely add columns
     result = df.head(topn).copy() if (topn is not None and topn > 0) else df.copy()
     
-    # Calculate Liked column (Universal Like Aggregation)
+    # Calculate Likes column (1/0 Integer)
     if liked_mbids and "recording_mbid" in result.columns:
-        result["Liked"] = result["recording_mbid"].apply(
-            lambda x: "❤️" if x in liked_mbids else ""
+        result["Likes"] = result["recording_mbid"].apply(
+            lambda x: 1 if x in liked_mbids else 0
         )
     else:
-        result["Liked"] = ""
+        result["Likes"] = 0
     
     meta = {
         "entity": "RawListens",
@@ -149,9 +148,10 @@ def report_raw_listens(df: pd.DataFrame, topn: int = None, liked_mbids: set = No
 # Helper: Compute unique liked tracks per entity
 # ------------------------------------------------------------
 
-def _compute_unique_likes(df: pd.DataFrame, liked_mbids: set, group_col: str) -> pd.DataFrame:
+def _compute_likes_count(df: pd.DataFrame, liked_mbids: set, group_col: str) -> pd.DataFrame:
     """
     Compute the number of unique liked tracks for each grouped entity.
+    Returns a DataFrame with [entity_cols, 'Likes'].
     """
     if group_col == "artist":
         cols = ["artist"]
@@ -160,7 +160,7 @@ def _compute_unique_likes(df: pd.DataFrame, liked_mbids: set, group_col: str) ->
     else:  # track
         cols = ["artist", "track_name"]
     
-    empty_cols = cols + ["unique_liked_tracks"]
+    empty_cols = cols + ["Likes"]
 
     if not liked_mbids:
         return pd.DataFrame(columns=empty_cols)
@@ -169,8 +169,9 @@ def _compute_unique_likes(df: pd.DataFrame, liked_mbids: set, group_col: str) ->
     if liked_df.empty:
         return pd.DataFrame(columns=empty_cols)
 
+    # Count unique recording MBIDs per group
     grouped = liked_df.groupby(cols)["recording_mbid"].nunique().reset_index()
-    grouped = grouped.rename(columns={"recording_mbid": "unique_liked_tracks"})
+    grouped = grouped.rename(columns={"recording_mbid": "Likes"})
     return grouped
 
 
@@ -265,28 +266,20 @@ def report_top(
 
     grouped = grouped.drop(columns=["total_duration_ms"]).reset_index()
 
-    # --- Universal Like Aggregation ---
+    # --- Unified Likes Aggregation ---
     if liked_mbids:
-        likes_df = _compute_unique_likes(df, liked_mbids, group_col)
+        likes_df = _compute_likes_count(df, liked_mbids, group_col)
         join_cols = ["artist"]
         if group_col == "album": join_cols = ["artist", "album"]
         elif group_col == "track": join_cols = ["artist", "track_name"]
 
         grouped = grouped.merge(likes_df, on=join_cols, how="left")
         
-        # PANDAS FIX: Explicitly cast to float before filling NaNs
-        if "unique_liked_tracks" in grouped.columns:
-            grouped["unique_liked_tracks"] = grouped["unique_liked_tracks"].astype(float).fillna(0).astype(int)
-        
-        if group_col == "track" and "recording_mbid" in grouped.columns:
-             grouped["Liked"] = grouped["recording_mbid"].apply(
-                lambda x: "❤️" if x in liked_mbids else ""
-            )
-        else:
-             grouped["Liked"] = ""
+        # Ensure strict integer type
+        if "Likes" in grouped.columns:
+            grouped["Likes"] = grouped["Likes"].fillna(0).astype(int)
     else:
-        grouped["unique_liked_tracks"] = 0
-        grouped["Liked"] = ""
+        grouped["Likes"] = 0
     
     # --- Threshold Filtering ---
     grouped = filter_by_thresholds(grouped, min_listens, min_minutes, min_likes)
@@ -407,23 +400,39 @@ def report_new_music_by_year(df: pd.DataFrame, **kwargs):
 
 def report_genre_flavor(df: pd.DataFrame):
     """
-    Generate 'Genre Flavor' report: Top genres weighted by listen counts.
+    Generate 'Genre Flavor' report: Top genres weighted by listen counts AND likes.
+    Uses Artist-Weighted logic for likes: An artist's total likes are attributed to each of their genres.
     """
     source_col = "Genres" if "Genres" in df.columns else "artist_genres"
     
     if source_col not in df.columns:
-        return pd.DataFrame(columns=["Genre", "Listens"]), {"entity": "Genre", "metric": "Listens"}
+        return pd.DataFrame(columns=["Genre", "Listens", "Likes"]), {"entity": "Genre", "metric": "Listens"}
 
-    work = df[["total_listens", source_col]].copy()
+    # Include Likes in the working set if available
+    cols_to_use = ["total_listens", source_col]
+    if "Likes" in df.columns:
+        cols_to_use.append("Likes")
+    
+    work = df[cols_to_use].copy()
     work = work[work[source_col].notna() & (work[source_col] != "")]
+    
+    # Ensure Likes is numeric
+    if "Likes" in work.columns:
+        work["Likes"] = work["Likes"].fillna(0).astype(int)
+    else:
+        work["Likes"] = 0
+
     work["Genre"] = work[source_col].astype(str).str.split("|")
     
     exploded = work.explode("Genre")
     exploded["Genre"] = exploded["Genre"].str.strip()
     
-    grouped = exploded.groupby("Genre")["total_listens"].sum().reset_index()
+    # Aggregate both Listens and Likes per Genre
+    grouped = exploded.groupby("Genre")[["total_listens", "Likes"]].sum().reset_index()
     grouped = grouped.rename(columns={"total_listens": "Listens"})
-    grouped = grouped.sort_values("Listens", ascending=False).reset_index(drop=True)
+    
+    # Sort by Listens primarily, then Likes
+    grouped = grouped.sort_values(["Listens", "Likes"], ascending=[False, False]).reset_index(drop=True)
     
     meta = {
         "entity": "Genre",

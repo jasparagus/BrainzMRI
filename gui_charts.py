@@ -162,17 +162,15 @@ def show_new_music_stacked_bar(df: pd.DataFrame):
 def show_genre_flavor_treemap(df: pd.DataFrame):
     """
     Generate a Treemap for Genre Flavor using squarify.
-    Expects a DataFrame with a string column (Genre) and numeric column (Count).
+    Expects a DataFrame with columns: Genre, Listens, Likes.
     """
     # 1. Identify Columns
-    str_cols = df.select_dtypes(include=['object', 'string']).columns
-    num_cols = df.select_dtypes(include=['number']).columns
-    
-    if len(str_cols) == 0 or len(num_cols) == 0:
-        raise ValueError("Data must have at least one text column and one numeric column.")
+    if "Genre" not in df.columns or "Listens" not in df.columns:
+        raise ValueError("Data must have 'Genre' and 'Listens' columns.")
         
-    label_col = str_cols[0]
-    value_col = num_cols[0]
+    label_col = "Genre"
+    value_col = "Listens"
+    like_col = "Likes" if "Likes" in df.columns else None
     
     # 2. Filter Top 30
     plot_df = df.sort_values(by=value_col, ascending=False).head(30)
@@ -184,11 +182,14 @@ def show_genre_flavor_treemap(df: pd.DataFrame):
     if fig.canvas.manager:
         fig.canvas.manager.set_window_title("Genre Flavor Profile")
     
-    # Generate label text with counts: "Metal\n(7619)"
-    labels = [
-        f"{row[label_col]}\n({row[value_col]})" 
-        for _, row in plot_df.iterrows()
-    ]
+    # Generate label text
+    # e.g. "Metal\n5000 listens\n❤️270"
+    labels = []
+    for _, row in plot_df.iterrows():
+        txt = f"{row[label_col]}\n{row[value_col]} listens"
+        if like_col:
+            txt += f"\n❤️{int(row[like_col])}"
+        labels.append(txt)
     
     # Create color palette (viridis reversed looks nice for frequency)
     colors = plt.cm.viridis(np.linspace(0.8, 0.2, len(plot_df)))
