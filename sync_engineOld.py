@@ -10,7 +10,7 @@ import logging
 import tkinter as tk
 from tkinter import ttk
 import parsing
-from config import config
+from config import config  # REFACTORED: Use global config
 
 # ======================================================================
 # Shared UI Components
@@ -46,7 +46,8 @@ class ProgressWindow(tk.Toplevel):
         self.lbl_secondary = tk.Label(self, text="", anchor="w", fg="#666666", font=("Segoe UI", 9))
         self.lbl_secondary.pack(fill="x", padx=20, pady=(0, 5))
 
-        self.progress = ttk.Progressbar(self, orient="horizontal", mode="indeterminate")
+        self.progress = ttk.Progressbar(self, orient="horizontal",
+                                        mode="indeterminate")
         self.progress.pack(fill="x", padx=20, pady=5)
 
         self.btn_cancel = tk.Button(self, text="Cancel", command=self.cancel, width=10)
@@ -57,12 +58,8 @@ class ProgressWindow(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self.cancel)
 
     def update_progress(self, current, total, message):
-        """Update the main progress bar."""
-        # GUARD: Prevent updates to destroyed widgets
-        if self.cancelled or not self.winfo_exists():
-            return
-
         try:
+            if not self.winfo_exists(): return
             self.lbl_status.config(text=message)
             if total > 0:
                 self.progress.config(mode="determinate")
@@ -75,12 +72,8 @@ class ProgressWindow(tk.Toplevel):
             pass
 
     def update_secondary(self, message):
-        """Update the secondary status label."""
-        # GUARD: Prevent updates to destroyed widgets
-        if self.cancelled or not self.winfo_exists():
-            return
-
         try:
+            if not self.winfo_exists(): return
             self.lbl_secondary.config(text=message)
         except Exception:
             pass
@@ -103,8 +96,8 @@ class SyncManager:
     def __init__(self, user, client, scheduler, callbacks):
         self.user = user
         self.client = client
-        self.scheduler = scheduler # e.g. root.after
-        self.callbacks = callbacks # Dict of callback functions
+        self.scheduler = scheduler
+        self.callbacks = callbacks
 
         self.barrier = {
             "listens_done": False,
@@ -125,11 +118,9 @@ class SyncManager:
         threading.Thread(target=self._listens_worker, args=(start_ts, local_head_ts), daemon=True).start()
 
     def _check_barrier(self):
-        """Check if all threads are done and notify main thread."""
         if self.barrier["listens_done"] and self.barrier["likes_done"]:
             self.scheduler(0, self.callbacks["on_complete"], self.barrier)
 
-    # --- Worker: Likes ---
     def _likes_worker(self):
         try:
             self.scheduler(0, self.callbacks["update_secondary"], "Syncing User Likes...")
@@ -142,7 +133,6 @@ class SyncManager:
 
             while not self.cancel_flag:
                 try:
-                    # Using get_user_likes (Restored Logic)
                     resp = self.client.get_user_likes(username, offset=offset, count=count)
                 except Exception as e:
                     logging.warning(f"Likes API Warning (Page {offset}): {e}")
@@ -155,11 +145,9 @@ class SyncManager:
                     break
 
                 likes_page = resp.get("feedback", [])
-                # Fallbacks for different API response structures
-                if not likes_page and "likes" in resp: 
-                    likes_page = resp["likes"]
-                elif not likes_page and "payload" in resp: 
-                    likes_page = resp["payload"].get("likes", [])
+                # Fallbacks
+                if not likes_page and "likes" in resp: likes_page = resp["likes"]
+                elif not likes_page and "payload" in resp: likes_page = resp["payload"].get("likes", [])
 
                 if not likes_page:
                     logging.info("Likes Sync: No more pages found.")
@@ -171,17 +159,13 @@ class SyncManager:
                 self.scheduler(0, self.callbacks["update_secondary"],
                                f"Syncing User Likes ({len(all_likes_data)} found)...")
 
-                # Pagination check
                 total_count = resp.get("total_count")
-                if total_count is None and "payload" in resp: 
-                    total_count = resp["payload"].get("total_count")
+                if total_count is None and "payload" in resp: total_count = resp["payload"].get("total_count")
 
-                if total_count is not None and len(all_likes_data) >= total_count: 
-                    break
-                if len(likes_page) < count: 
-                    break
+                if total_count is not None and len(all_likes_data) >= total_count: break
+                if len(likes_page) < count: break
 
-                time.sleep(config.network_delay)
+                time.sleep(config.network_delay) # USE CONFIG
 
             if not self.cancel_flag:
                 try:
@@ -205,7 +189,6 @@ class SyncManager:
             self.barrier["likes_done"] = True
             self.scheduler(0, self._check_barrier)
 
-    # --- Worker: Listens ---
     def _listens_worker(self, start_ts, local_head_ts):
         try:
             logging.info(f"Starting Listens fetch. Start TS: {start_ts}, Local Head: {local_head_ts}")
@@ -219,7 +202,6 @@ class SyncManager:
                 self.scheduler(0, self.callbacks["update_primary"], fetched_total, "Fetching batch...")
 
                 try:
-                    # Using get_user_listens (Restored Logic)
                     resp = self.client.get_user_listens(username, max_ts=current_max_ts, count=100)
                 except Exception as e:
                     logging.error(f"API Error during listens fetch: {e}")
@@ -251,7 +233,6 @@ class SyncManager:
 
                 current_max_ts = batch_min
 
-                # Safety Pause
                 if fetched_total > 5000 and not warning_triggered:
                     warning_triggered = True
                     logging.info("Listens Sync: Safety pause triggered at 5000 items.")
@@ -273,7 +254,7 @@ class SyncManager:
                         logging.info("Listens Sync: User cancelled at safety pause.")
                         break
 
-                time.sleep(config.network_delay)
+                time.sleep(config.network_delay) # USE CONFIG
 
             self.barrier["gap_closed"] = gap_closed
             self.barrier["listens_count"] = fetched_total

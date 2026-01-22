@@ -17,25 +17,26 @@ class FilterComponent:
 
         # --- Row 1: Time, Last Listened, First Listened (Side-by-Side) ---
         self.frm_row1 = tk.Frame(self.frm_inputs)
-        self.frm_row1.pack(pady=2, fill="x")
+        # FIX: Center the row instead of filling width, so the 3 items sit in the middle
+        self.frm_row1.pack(pady=2, anchor="center")
 
         # 1. Time Range (Listen Date)
         (self.ent_time_start, self.ent_time_end, frm_time) = self._create_labeled_double_entry(
             self.frm_row1, "Time Range To Analyze (Days Ago)", 0, 0
         )
-        frm_time.pack(side="left", padx=5, expand=True, fill="both")
+        frm_time.pack(side="left", padx=5, fill="y")
 
         # 2. Last Listened
         (self.ent_last_start, self.ent_last_end, frm_last) = self._create_labeled_double_entry(
             self.frm_row1, "Last Listened Date (Days Ago)", 0, 0
         )
-        frm_last.pack(side="left", padx=5, expand=True, fill="both")
+        frm_last.pack(side="left", padx=5, fill="y")
 
-        # 3. First Listened (New)
+        # 3. First Listened
         (self.ent_first_start, self.ent_first_end, frm_first) = self._create_labeled_double_entry(
             self.frm_row1, "First Listened Date (Days Ago)", 0, 0
         )
-        frm_first.pack(side="left", padx=5, expand=True, fill="both")
+        frm_first.pack(side="left", padx=5, fill="y")
 
         # Tooltips
         self._add_tooltip(self.ent_time_start, "Time range filtering. Excludes listens by date.\nExample: [365, 730] will display listens from 1–2 years ago.\nDefault: [0, 0] (days ago).")
@@ -98,7 +99,7 @@ class FilterComponent:
         
         # Inner row to hold the entries centered
         row = tk.Frame(frm)
-        row.pack(anchor="center")
+        row.pack(anchor="center", ipadx=10, pady=2)
         
         tk.Label(row, text="Start:", width=5, anchor="e").pack(side="left")
         ent1 = tk.Entry(row, width=6)
@@ -189,8 +190,8 @@ class FilterComponent:
             "time_end_days": max(t_start, t_end),
             "rec_start_days": min(l_start, l_end),
             "rec_end_days": max(l_start, l_end),
-            "first_start_days": min(f_start, f_end), # NEW
-            "first_end_days": max(f_start, f_end),   # NEW
+            "first_start_days": min(f_start, f_end),
+            "first_end_days": max(f_start, f_end),
             "topn": _get_int(self.ent_topn, "Top N"),
             "min_listens": _get_int(self.ent_min_listens, "Min Listens"),
             "min_minutes": _get_float(self.ent_min_minutes, "Min Minutes"),

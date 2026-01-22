@@ -259,7 +259,10 @@ class BrainzMRIGUI:
             
             def worker():
                 try:
-                    def cb(c, t, m): win.after(0, lambda: win.update_progress(c, t, m))
+                    # FIX: Use self.root.after (permanent) instead of win.after (transient)
+                    # This prevents TclError if 'win' is destroyed before callback runs.
+                    def cb(c, t, m): 
+                        self.root.after(0, lambda: win.update_progress(c, t, m))
                     
                     res, meta, key, enriched, status = self.report_engine.generate_report(
                         base_df,
@@ -303,9 +306,9 @@ class BrainzMRIGUI:
         self.table_view.show_table(result)
         self.status_var.set(status)
 
-        # Toggle Graph - UPDATED: Turn Red when active
+        # Toggle Graph
         if mode in ["Favorite Artist Trend", "New Music By Year", "Genre Flavor"]:
-            self.btn_graph.config(state="normal", bg="#EF5350", fg="white") # Material Red
+            self.btn_graph.config(state="normal", bg="#EF5350", fg="white")
         else:
             self.btn_graph.config(state="disabled", bg="SystemButtonFace", fg="black")
 
