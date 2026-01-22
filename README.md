@@ -16,10 +16,12 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 ## Key Features
 
 ### Advanced Analysis & Reporting
+
 * **Top N Reports:** Aggregate by **Artist**, **Album**, or **Track**.
     * **Filters:** Time Range (e.g., "Last 365 Days"), Recency (e.g., "Last Listened > 1 year ago"), and Activity Thresholds.
-    * **Visual Indicators:** Tracks liked on ListenBrainz are marked with a ❤️.
-* **Genre Flavor:** A weighted analysis of your listening habits. Unlike simple tag counts, this report weights genres by the *volume of listens*, giving a more accurate picture of your actual musical "diet."
+    * **Metrics:** View total listen counts and **Like counts** for every entity.
+* **Genre Flavor:** A weighted analysis of your listening habits. Unlike simple tag counts, this report weights genres by the *volume of listens* and *likes*, giving a more accurate picture of your actual musical "diet."
+* **Genre Treemap:** A rectangular visualization of genre dominance, displaying both listen counts and **Like counts (❤️)** in the labels. Uses the same data as **Genre Flavor**.
 * **Favorite Artist Trends:** A time-series analysis that bins your history (Daily/Weekly/Monthly) to show the rise and fall of your top artists over time.
 * **New Music by Year:** A discovery analysis comparing "New Discoveries" (artists heard for the first time that year) vs. "Catalog" (re-listening to known artists).
 * **Raw Listens:** A forensic view of your individual listen events, useful for verifying imports and data integrity.
