@@ -44,10 +44,22 @@ def filter_by_days(df: pd.DataFrame, col: str, start_days: int = 0, end_days: in
     return df[(df[col] >= start_dt) & (df[col] <= end_dt)]
 
 
-def filter_by_recency(df: pd.DataFrame, entity_cols: list[str], start_days: int, end_days: int) -> pd.DataFrame:
+def filter_by_recency(
+    df: pd.DataFrame, 
+    entity_cols: list[str], 
+    start_days: int, 
+    end_days: int, 
+    mode: str = "last"
+) -> pd.DataFrame:
     """
-    Filter the DataFrame to include only entities that were *last listened to*
-    within the specified 'days ago' window.
+    Filter the DataFrame to include only entities based on their aggregated listen date.
+    
+    Args:
+        df: Source DataFrame
+        entity_cols: Columns to group by (e.g. ['artist'] or ['artist', 'album'])
+        start_days: Start of the 'days ago' window
+        end_days: End of the 'days ago' window
+        mode: 'last' (Recency/Max) or 'first' (Discovery/Min)
     """
     if start_days == 0 and end_days == 0:
         return df
@@ -56,18 +68,26 @@ def filter_by_recency(df: pd.DataFrame, entity_cols: list[str], start_days: int,
     min_dt = now - timedelta(days=end_days)
     max_dt = now - timedelta(days=start_days)
 
-    # 1. Calculate the TRUE last listen date for every entity (ignoring time range filters)
-    true_last = (
+    # Determine aggregation strategy
+    if mode == "first":
+        agg_func = "min"
+        temp_col = "true_first_listened"
+    else:
+        agg_func = "max"
+        temp_col = "true_last_listened"
+
+    # 1. Calculate the TRUE aggregate date for every entity
+    grouped = (
         df.groupby(entity_cols)["listened_at"]
-        .max()
+        .agg(agg_func)
         .reset_index()
-        .rename(columns={"listened_at": "true_last_listened"})
+        .rename(columns={"listened_at": temp_col})
     )
 
-    # 2. Find entities where the last listen falls in the window
-    allowed = true_last[
-        (true_last["true_last_listened"] >= min_dt)
-        & (true_last["true_last_listened"] <= max_dt)
+    # 2. Find entities where the aggregate date falls in the window
+    allowed = grouped[
+        (grouped[temp_col] >= min_dt)
+        & (grouped[temp_col] <= max_dt)
     ]
 
     # 3. Filter original DF to only include those entities
@@ -227,6 +247,7 @@ def report_top(
     min_likes: int = 0,
     liked_mbids: set = None,
     recency_range: tuple = None,
+    first_range: tuple = None, 
     **kwargs
 ):
     """
@@ -244,21 +265,27 @@ def report_top(
             if days != 0:
                 df = filter_by_days(df, "listened_at", 0, days)
 
+    # Prepare columns for grouping/filtering
+    if group_col == "artist":
+        cols = ["artist"]
+    elif group_col == "album":
+        cols = ["artist", "album"]
+    else: # track
+        cols = ["artist", "track_name"]
+
     # 2. Filter by Last Listened Date (Recency)
     if recency_range:
         start_r, end_r = recency_range
-        # 0,0 implies disabled
         if start_r > 0 or end_r > 0:
-            if group_col == "artist":
-                cols = ["artist"]
-            elif group_col == "album":
-                cols = ["artist", "album"]
-            else: # track
-                cols = ["artist", "track_name"]
-            
-            df = filter_by_recency(df, cols, start_r, end_r)
+            df = filter_by_recency(df, cols, start_r, end_r, mode="last")
 
-    # 3. Group and Aggregate
+    # 3. Filter by First Listened Date (Discovery)
+    if first_range:
+        start_f, end_f = first_range
+        if start_f > 0 or end_f > 0:
+            df = filter_by_recency(df, cols, start_f, end_f, mode="first")
+
+    # 4. Group and Aggregate
     grouped = _group_listens(df, group_col)
 
     # FIX: Ensure numeric types for aggregation to avoid TypeError on empty/object columns

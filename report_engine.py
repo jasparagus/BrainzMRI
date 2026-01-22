@@ -48,7 +48,7 @@ class ReportEngine:
                 "status": "Genre Flavor report generated.",
             },
             "Favorite Artist Trend": {
-                # FIX: Use real reporting function for tabular view
+                # Use real reporting function for tabular view
                 "func": reporting.report_artist_trend,
                 "kwargs": {},
                 "report_type_key": "trend",
@@ -80,6 +80,8 @@ class ReportEngine:
         time_end_days: int = 0,
         rec_start_days: int = 0,
         rec_end_days: int = 0,
+        first_start_days: int = 0, # NEW
+        first_end_days: int = 0,   # NEW
         min_listens: int = 0,
         min_minutes: float = 0.0,
         min_likes: int = 0,
@@ -94,7 +96,7 @@ class ReportEngine:
         """
         Master orchestration method.
         """
-        logging.info(f"Report Requested: Mode='{mode}' | Filters: Time={time_start_days}-{time_end_days}, Recency={rec_start_days}-{rec_end_days}, TopN={topn} | Enrichment: {do_enrich} ({enrichment_mode})")
+        logging.info(f"Report Requested: Mode='{mode}' | Filters: Time={time_start_days}-{time_end_days}, Recency={rec_start_days}-{rec_end_days}, First={first_start_days}-{first_end_days}, TopN={topn} | Enrichment: {do_enrich} ({enrichment_mode})")
         
         handler = self._handlers.get(mode)
         if not handler:
@@ -129,7 +131,8 @@ class ReportEngine:
             "min_minutes": min_minutes,
             "min_likes": min_likes,
             "liked_mbids": liked_mbids,
-            "recency_range": (rec_start_days, rec_end_days) if (rec_start_days or rec_end_days) else None
+            "recency_range": (rec_start_days, rec_end_days) if (rec_start_days or rec_end_days) else None,
+            "first_range": (first_start_days, first_end_days) if (first_start_days or first_end_days) else None # NEW
         })
 
         if progress_callback:

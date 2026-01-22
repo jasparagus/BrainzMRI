@@ -1,0 +1,9 @@
+2026-01-21 22:03:40,036 [INFO] === BrainzMRI v7.0 Session Started ===
+2026-01-21 22:03:40,046 [INFO] Loaded user: jasparagus
+2026-01-21 22:03:42,436 [INFO] Report Requested: Mode='By Artist' | Filters: Time=0-0, Recency=0-0, First=0-0, TopN=200 | Enrichment: False (None (Data Only, No Genres))
+2026-01-21 22:03:42,474 [INFO] Report generation complete. Rows: 200
+2026-01-21 22:03:54,519 [INFO] Report Requested: Mode='By Artist' | Filters: Time=0-0, Recency=0-0, First=900-1000, TopN=200 | Enrichment: False (None (Data Only, No Genres))
+2026-01-21 22:03:54,545 [WARNING] C:\Users\jaspe\AppData\Local\Programs\BrainzMRI\reporting.py:329: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
+  grouped["Likes"] = grouped["Likes"].fillna(0).astype(int)
+
+2026-01-21 22:03:54,547 [INFO] Report generation complete. Rows: 5

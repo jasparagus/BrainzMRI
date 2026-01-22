@@ -15,11 +15,11 @@ class FilterComponent:
         self.frm_inputs = tk.Frame(parent)
         self.frm_inputs.pack(pady=5, fill="x")
 
-        # --- Row 1: Time & Recency (Side-by-Side LabelFrames) ---
+        # --- Row 1: Time, Last Listened, First Listened (Side-by-Side) ---
         self.frm_row1 = tk.Frame(self.frm_inputs)
         self.frm_row1.pack(pady=2, fill="x")
 
-        # 1. Time Range
+        # 1. Time Range (Listen Date)
         (self.ent_time_start, self.ent_time_end, frm_time) = self._create_labeled_double_entry(
             self.frm_row1, "Time Range To Analyze (Days Ago)", 0, 0
         )
@@ -31,21 +31,31 @@ class FilterComponent:
         )
         frm_last.pack(side="left", padx=5, expand=True, fill="both")
 
-        self._add_tooltip(self.ent_time_start, "Time range filtering. Excludes listens by date.\nExample: [365, 730] will display listens from 1–2 years ago.\nDefault: [0, 0] (days ago).")
-        self._add_tooltip(self.ent_time_end, "Time range filtering. Excludes listens by date.\nExample: [365, 730] will display listens from 1–2 years ago.\nDefault: [0, 0] (days ago).")
-        
-        self._add_tooltip(self.ent_last_start, "Recency filtering. Exclude entities by last listened.\nExample: [365, 99999] will display entities last listened >1 year ago.\nDefault: [0, 0] (days ago).")
-        self._add_tooltip(self.ent_last_end, "Recency filtering. Exclude entities by last listened.\nExample: [365, 99999] will display entities last listened >1 year ago.\nDefault: [0, 0] (days ago).")
+        # 3. First Listened (New)
+        (self.ent_first_start, self.ent_first_end, frm_first) = self._create_labeled_double_entry(
+            self.frm_row1, "First Listened Date (Days Ago)", 0, 0
+        )
+        frm_first.pack(side="left", padx=5, expand=True, fill="both")
 
-        # 3. Thresholds (Grouped in LabelFrame)
+        # Tooltips
+        self._add_tooltip(self.ent_time_start, "Time range filtering. Excludes listens by date.\nExample: [365, 730] will display listens from 1–2 years ago.\nDefault: [0, 0] (days ago).")
+        self._add_tooltip(self.ent_last_start, "Recency filtering. Exclude entities by last listened date.\nExample: [365, 9999] = Last heard over a year ago.")
+        self._add_tooltip(self.ent_first_start, "Discovery filtering. Exclude entities by first listened date.\nExample: [0, 30] = First heard in the last month (New discoveries).")
+
+        # 4. Thresholds (Grouped in LabelFrame)
         self._build_threshold_frame()
 
         # Bind Enter Key to all inputs
-        for ent in [self.ent_time_start, self.ent_time_end, self.ent_last_start, self.ent_last_end,
-                    self.ent_topn, self.ent_min_listens, self.ent_min_minutes, self.ent_min_likes]:
+        all_entries = [
+            self.ent_time_start, self.ent_time_end, 
+            self.ent_last_start, self.ent_last_end,
+            self.ent_first_start, self.ent_first_end,
+            self.ent_topn, self.ent_min_listens, self.ent_min_minutes, self.ent_min_likes
+        ]
+        for ent in all_entries:
             ent.bind("<Return>", lambda e: self.on_enter_key())
 
-        # 4. Enrichment Controls
+        # 5. Enrichment Controls
         self._build_enrichment_controls()
 
     def _build_threshold_frame(self):
@@ -171,11 +181,16 @@ class FilterComponent:
         l_start = _get_int(self.ent_last_start, "Recency Start")
         l_end = _get_int(self.ent_last_end, "Recency End")
 
+        f_start = _get_int(self.ent_first_start, "First Start")
+        f_end = _get_int(self.ent_first_end, "First End")
+
         return {
             "time_start_days": min(t_start, t_end),
             "time_end_days": max(t_start, t_end),
             "rec_start_days": min(l_start, l_end),
             "rec_end_days": max(l_start, l_end),
+            "first_start_days": min(f_start, f_end), # NEW
+            "first_end_days": max(f_start, f_end),   # NEW
             "topn": _get_int(self.ent_topn, "Top N"),
             "min_listens": _get_int(self.ent_min_listens, "Min Listens"),
             "min_minutes": _get_float(self.ent_min_minutes, "Min Minutes"),
