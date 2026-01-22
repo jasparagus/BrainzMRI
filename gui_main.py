@@ -303,11 +303,11 @@ class BrainzMRIGUI:
         self.table_view.show_table(result)
         self.status_var.set(status)
 
-        # Toggle Graph
+        # Toggle Graph - UPDATED: Turn Red when active
         if mode in ["Favorite Artist Trend", "New Music By Year", "Genre Flavor"]:
-            self.btn_graph.config(state="normal")
+            self.btn_graph.config(state="normal", bg="#EF5350", fg="white") # Material Red
         else:
-            self.btn_graph.config(state="disabled")
+            self.btn_graph.config(state="disabled", bg="SystemButtonFace", fg="black")
 
         # Toggle Actions Panel
         has_tracks = "track_name" in result.columns

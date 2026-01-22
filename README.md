@@ -207,8 +207,6 @@ BrainzMRI/
 ## Minor Aesthetic Improvements
 * Rename track_name -> Track
 * Rename total_listens -> Listens
-* Generate Graph Button -> add color
-* Move "Time Range" and "Last Listened" blocks to be on the same row; 
 
 ## First-Listened Filter
-* Add "First Listened" filter, identical behavior to "Last Listened" filter; add to same row as "Last Listened" filter.
+* Add a "First Listened" filter with identical behavior to "Last Listened" filter, but operating on the column first_listened instead of last_listened. Place the entry fields beside last_listened.

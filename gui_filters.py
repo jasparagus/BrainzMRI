@@ -13,16 +13,23 @@ class FilterComponent:
         self.on_enter_key = on_enter_key
 
         self.frm_inputs = tk.Frame(parent)
-        self.frm_inputs.pack(pady=5)
+        self.frm_inputs.pack(pady=5, fill="x")
 
-        # 1. Time Ranges
-        (self.ent_time_start, self.ent_time_end, _) = self._create_labeled_double_entry(
-            self.frm_inputs, "Time Range To Analyze (Days Ago)", 0, 0
+        # --- Row 1: Time & Recency (Side-by-Side LabelFrames) ---
+        self.frm_row1 = tk.Frame(self.frm_inputs)
+        self.frm_row1.pack(pady=2, fill="x")
+
+        # 1. Time Range
+        (self.ent_time_start, self.ent_time_end, frm_time) = self._create_labeled_double_entry(
+            self.frm_row1, "Time Range To Analyze (Days Ago)", 0, 0
         )
-        
-        (self.ent_last_start, self.ent_last_end, _) = self._create_labeled_double_entry(
-            self.frm_inputs, "Last Listened Date (Days Ago)", 0, 0
+        frm_time.pack(side="left", padx=5, expand=True, fill="both")
+
+        # 2. Last Listened
+        (self.ent_last_start, self.ent_last_end, frm_last) = self._create_labeled_double_entry(
+            self.frm_row1, "Last Listened Date (Days Ago)", 0, 0
         )
+        frm_last.pack(side="left", padx=5, expand=True, fill="both")
 
         self._add_tooltip(self.ent_time_start, "Time range filtering. Excludes listens by date.\nExample: [365, 730] will display listens from 1–2 years ago.\nDefault: [0, 0] (days ago).")
         self._add_tooltip(self.ent_time_end, "Time range filtering. Excludes listens by date.\nExample: [365, 730] will display listens from 1–2 years ago.\nDefault: [0, 0] (days ago).")
@@ -30,7 +37,7 @@ class FilterComponent:
         self._add_tooltip(self.ent_last_start, "Recency filtering. Exclude entities by last listened.\nExample: [365, 99999] will display entities last listened >1 year ago.\nDefault: [0, 0] (days ago).")
         self._add_tooltip(self.ent_last_end, "Recency filtering. Exclude entities by last listened.\nExample: [365, 99999] will display entities last listened >1 year ago.\nDefault: [0, 0] (days ago).")
 
-        # 2. Thresholds (Grouped in LabelFrame)
+        # 3. Thresholds (Grouped in LabelFrame)
         self._build_threshold_frame()
 
         # Bind Enter Key to all inputs
@@ -38,7 +45,7 @@ class FilterComponent:
                     self.ent_topn, self.ent_min_listens, self.ent_min_minutes, self.ent_min_likes]:
             ent.bind("<Return>", lambda e: self.on_enter_key())
 
-        # 3. Enrichment Controls
+        # 4. Enrichment Controls
         self._build_enrichment_controls()
 
     def _build_threshold_frame(self):
@@ -76,14 +83,23 @@ class FilterComponent:
         self._add_tooltip(self.ent_min_likes, "Minimum number of unique liked tracks.\nDefault: 0 (disabled).")
 
     def _create_labeled_double_entry(self, parent, label, default1, default2):
-        frm = tk.Frame(parent)
-        frm.pack(fill="x", pady=2)
-        tk.Label(frm, text=label).pack(anchor="center")
-        row = tk.Frame(frm); row.pack(anchor="center")
-        tk.Label(row, text="Start:", width=8, anchor="e").pack(side="left")
-        ent1 = tk.Entry(row, width=6); ent1.insert(0, str(default1)); ent1.pack(side="left", padx=5)
-        tk.Label(row, text="End:", width=8, anchor="e").pack(side="left")
-        ent2 = tk.Entry(row, width=6); ent2.insert(0, str(default2)); ent2.pack(side="left", padx=5)
+        # REFACTORED: Use LabelFrame for clarity and grouping
+        frm = tk.LabelFrame(parent, text=label, padx=5, pady=5)
+        
+        # Inner row to hold the entries centered
+        row = tk.Frame(frm)
+        row.pack(anchor="center")
+        
+        tk.Label(row, text="Start:", width=5, anchor="e").pack(side="left")
+        ent1 = tk.Entry(row, width=6)
+        ent1.insert(0, str(default1))
+        ent1.pack(side="left", padx=5)
+        
+        tk.Label(row, text="End:", width=5, anchor="e").pack(side="left")
+        ent2 = tk.Entry(row, width=6)
+        ent2.insert(0, str(default2))
+        ent2.pack(side="left", padx=5)
+        
         return ent1, ent2, frm
 
     def _add_tooltip(self, widget, text):
