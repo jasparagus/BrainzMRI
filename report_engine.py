@@ -48,10 +48,11 @@ class ReportEngine:
                 "status": "Genre Flavor report generated.",
             },
             "Favorite Artist Trend": {
-                "func": lambda df, **kw: df, # Pass-through, handled by charts
+                # FIX: Use real reporting function for tabular view
+                "func": reporting.report_artist_trend,
                 "kwargs": {},
                 "report_type_key": "trend",
-                "status": "Trend data prepared.",
+                "status": "Trend report generated.",
             },
             "New Music By Year": {
                 "func": reporting.report_new_music_by_year,
@@ -60,7 +61,7 @@ class ReportEngine:
                 "status": "New Music analysis complete.",
             },
             "Raw Listens": {
-                "func": lambda df, **kw: df.sort_values(by="listened_at", ascending=False),
+                "func": reporting.report_raw_listens,
                 "kwargs": {},
                 "report_type_key": "raw",
                 "status": "Raw history loaded.",
@@ -100,8 +101,6 @@ class ReportEngine:
             raise ValueError(f"Unknown report mode: {mode}")
 
         # --- GUARD CLAUSE: EMPTY DATA ---
-        # If the source data is empty (e.g. new user), return immediately.
-        # This prevents the aggregation pipeline from crashing on empty types.
         if df.empty:
             logging.warning(f"Report '{mode}' aborted: Source DataFrame is empty.")
             return pd.DataFrame(), {}, handler["report_type_key"], False, "No data available."

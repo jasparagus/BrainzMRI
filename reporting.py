@@ -119,10 +119,11 @@ def apply_column_order(df: pd.DataFrame) -> pd.DataFrame:
 # Raw Listens Report
 # ------------------------------------------------------------
 
-def report_raw_listens(df: pd.DataFrame, topn: int = None, liked_mbids: set = None):
+def report_raw_listens(df: pd.DataFrame, topn: int = None, liked_mbids: set = None, **kwargs):
     """
     Generate a simple Raw Listens report.
     Adds a 'Likes' integer column (1 if liked, 0 if not).
+    Accepts **kwargs to sink unused filter arguments.
     """
     # Create a copy to safely add columns
     result = df.head(topn).copy() if (topn is not None and topn > 0) else df.copy()
@@ -225,9 +226,13 @@ def report_top(
     min_minutes: float = 0.0,
     min_likes: int = 0,
     liked_mbids: set = None,
-    recency_range: tuple = None,  
+    recency_range: tuple = None,
+    **kwargs
 ):
-    """Generate a Top-N report for artists, albums, or tracks."""
+    """
+    Generate a Top-N report for artists, albums, or tracks.
+    Accepts **kwargs to sink unused arguments from ReportEngine.
+    """
 
     # 1. Filter by Listen Date (Time Range)
     if days is not None:
@@ -448,10 +453,11 @@ def report_genre_flavor(df: pd.DataFrame):
 # Favorite Artist Trend Report (Time Binning)
 # ------------------------------------------------------------
 
-def report_artist_trend(df: pd.DataFrame, bins: int = 15, topn: int = 20):
+def report_artist_trend(df: pd.DataFrame, bins: int = 15, topn: int = 20, **kwargs):
     """
     Generate 'Favorite Artist Trend' report (Tabular format).
     Divides time range into `bins`. For each bin, finds top `topn` artists.
+    Accepts **kwargs to act as a sink for unused filters (min_listens, etc).
     """
     effective_topn = min(topn, 20) if topn else 20
     

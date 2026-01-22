@@ -202,3 +202,11 @@ BrainzMRI/
  * Example: "Forgotten Favorites" (`High Play Count` + `Last Listened > 1 Year Ago`).
  * Example: "All Time Greatest Albums" (`High Play Count` + `High Play Count` + `4+ Likes Per Album`).
 
+## Minor Aesthetic Improvements
+* Rename track_name -> Track
+* Rename total_listens -> Listens
+* Generate Graph Button -> add color
+* Move "Time Range" and "Last Listened" blocks to be on the same row; 
+
+## First-Listened Filter
+* Add "First Listened" filter, identical behavior to "Last Listened" filter; add to same row as "Last Listened" filter.
