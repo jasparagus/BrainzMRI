@@ -7,9 +7,9 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 
 ## Gallery
 
-| Main Interface | Artist Trends | New Music Discovery |
+| Main Interface | Artist Trends | New Music Discovery | Genre Flavor |
 | :---: | :---: | :---: |
-| <img src="example_main_ui.png" width="250" /> | <img src="example_artist_trend.png" width="250" /> | <img src="example_music_discovery.png" width="250" /> |
+| <img src="example_main_ui.png" width="200" /> | <img src="example_artist_trend.png" width="200" /> | <img src="example_music_discovery.png" width="200" /> | <img src="example_genre_flavor.png" width="200" /> |
 
 ---
 
@@ -21,7 +21,7 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
     * **Filters:** Time Range (e.g., "Last 365 Days"), Recency (e.g., "Last Listened > 1 year ago"), and Activity Thresholds.
     * **Metrics:** View total listen counts and **Like counts** for every entity.
 * **Genre Flavor:** A weighted analysis of your listening habits. Unlike simple tag counts, this report weights genres by the *volume of listens* and *likes*, giving a more accurate picture of your actual musical "diet."
-* **Genre Treemap:** A rectangular visualization of genre dominance, displaying both listen counts and **Like counts (❤️)** in the labels. Uses the same data as **Genre Flavor**.
+* **Genre Flavor Treemap:** A rectangular visualization of genre dominance, displaying both listen counts and **Like counts (❤️)** in the labels. Uses the same data as the **Genre Flavor** report.
 * **Favorite Artist Trends:** A time-series analysis that bins your history (Daily/Weekly/Monthly) to show the rise and fall of your top artists over time.
 * **New Music by Year:** A discovery analysis comparing "New Discoveries" (artists heard for the first time that year) vs. "Catalog" (re-listening to known artists).
 * **Raw Listens:** A forensic view of your individual listen events, useful for verifying imports and data integrity.
