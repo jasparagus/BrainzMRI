@@ -241,14 +241,21 @@ class SyncManager:
                 batch_ts = [l["listened_at"] for l in listens]
                 batch_min = min(batch_ts)
 
-                self.user.append_to_intermediate_cache(listens)
-                fetched_total += len(listens)
+                # FIX: Filter BEFORE saving/counting to handle overlap accurately
+                # Only keep items strictly newer than the local head
+                new_items = [x for x in listens if x["listened_at"] > local_head_ts]
+                
+                if new_items:
+                    self.user.append_to_intermediate_cache(new_items)
+                    fetched_total += len(new_items)
 
+                # If the batch minimum dips into known history, we are done
                 if batch_min <= local_head_ts:
                     logging.info("Listens Sync: Gap closed.")
                     gap_closed = True
                     break
-
+                
+                # If we're not done, prepare for next batch
                 current_max_ts = batch_min
 
                 # Safety Pause

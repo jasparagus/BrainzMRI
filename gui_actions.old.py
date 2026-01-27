@@ -5,7 +5,7 @@ Encapsulates API interaction logic.
 """
 
 import tkinter as tk
-from tkinter import simpledialog, messagebox, ttk
+from tkinter import simpledialog, messagebox
 from idlelib.tooltip import Hovertip
 import threading
 import time
@@ -16,81 +16,6 @@ import enrichment
 import parsing
 from sync_engine import ProgressWindow
 from api_client import ListenBrainzClient
-
-# ======================================================================
-# Custom Confirmation Dialog
-# ======================================================================
-
-class ActionConfirmDialog(tk.Toplevel):
-    """
-    A modal dialog that forces the user to choose between
-    Live Execution, Dry Run, or Cancel.
-    """
-    def __init__(self, parent, title, prompt):
-        super().__init__(parent)
-        self.result = None  # None=Cancel, True=DryRun, False=Live
-        self.title(title)
-        self.geometry("450x200")
-        self.resizable(False, False)
-        
-        # Center relative to parent
-        self.update_idletasks()
-        x = parent.winfo_rootx() + 50
-        y = parent.winfo_rooty() + 50
-        self.geometry(f"+{x}+{y}")
-
-        # Content
-        lbl = tk.Label(self, text=prompt, wraplength=400, justify="left", font=("Segoe UI", 10))
-        lbl.pack(pady=20, padx=20, fill="x")
-
-        # Buttons Frame
-        btn_frame = tk.Frame(self)
-        btn_frame.pack(pady=20)
-
-        # 1. Execute (Red/Bold to indicate risk)
-        btn_live = tk.Button(
-            btn_frame, text="Execute (LIVE)", 
-            bg="#EF5350", fg="white", font=("Segoe UI", 10),
-            command=self.on_live, width=15
-        )
-        btn_live.pack(side="left", padx=10)
-        Hovertip(btn_live, "SEND data to ListenBrainz API.\nThis will modify your account.")
-
-        # 2. Dry Run (Green/Safe)
-        btn_dry = tk.Button(
-            btn_frame, text="Dry Run (Test)", 
-            bg="#66BB6A", fg="white", font=("Segoe UI", 10),
-            command=self.on_dry, width=15
-        )
-        btn_dry.pack(side="left", padx=10)
-        Hovertip(btn_dry, "Simulate the action.\nNo data will be sent.")
-
-        # 3. Cancel
-        btn_cancel = tk.Button(btn_frame, text="Cancel", command=self.on_cancel, width=10)
-        btn_cancel.pack(side="left", padx=10)
-
-        # Modal Setup
-        self.transient(parent)
-        self.grab_set()
-        self.protocol("WM_DELETE_WINDOW", self.on_cancel)
-        self.wait_window()
-
-    def on_live(self):
-        self.result = False # dry_run = False
-        self.destroy()
-
-    def on_dry(self):
-        self.result = True # dry_run = True
-        self.destroy()
-
-    def on_cancel(self):
-        self.result = None # Abort
-        self.destroy()
-
-
-# ======================================================================
-# Action Component
-# ======================================================================
 
 class ActionComponent:
     def __init__(self, parent: tk.Frame, app_state, table_view, on_update_callback):
@@ -105,7 +30,10 @@ class ActionComponent:
         # UI Elements
         tk.Label(self.frame, text="Send To ListenBrainz:", bg="#ECEFF1", font=("Segoe UI", 9, "bold")).pack(side="left", padx=10, pady=5)
 
-        # REMOVED: Checkbox for Dry Run. Now handled via Dialog.
+        self.dry_run_var = tk.BooleanVar(value=True)
+        chk = tk.Checkbutton(self.frame, text="Dry Run", variable=self.dry_run_var, bg="#ECEFF1")
+        chk.pack(side="left", padx=(0, 15))
+        Hovertip(chk, "Simulate actions without sending data.")
 
         self.btn_like_all = tk.Button(self.frame, text="Like All", bg="#FFB74D", command=self.action_like_all)
         self.btn_like_all.pack(side="left", padx=5)
@@ -139,17 +67,8 @@ class ActionComponent:
     # Actions
     # ------------------------------------------------------------------
 
-    def _ask_execution_mode(self, action_name, detail_text):
-        """Helper to show the custom dialog and return dry_run boolean or None."""
-        dlg = ActionConfirmDialog(
-            self.parent, 
-            f"Confirm {action_name}", 
-            f"{detail_text}\n\nSelect execution mode:"
-        )
-        return dlg.result
-
-    def _get_client(self, dry_run):
-        return ListenBrainzClient(token=self.state.user.listenbrainz_token, dry_run=dry_run)
+    def _get_client(self):
+        return ListenBrainzClient(token=self.state.user.listenbrainz_token, dry_run=self.dry_run_var.get())
 
     def action_like_all(self):
         df = self.state.filtered_df
@@ -189,15 +108,10 @@ class ActionComponent:
         count = len(mbids)
         if count == 0: return
         
-        # Step 1: Confirm via Custom Dialog
-        dry_run = self._ask_execution_mode("Like Tracks", f"You are about to send 'Love' feedback for {count} tracks.")
-        if dry_run is None: return # Cancelled
+        if not messagebox.askyesno("Confirm", f"Like {count} tracks?"): return
 
-        # Step 2: Initialize Client with user choice
-        client = self._get_client(dry_run)
-        mode_str = "[DRY RUN] " if dry_run else ""
-        
-        win = ProgressWindow(self.frame, f"{mode_str}Liking...")
+        client = self._get_client()
+        win = ProgressWindow(self.frame, "Liking...")
         
         def worker():
             success = 0
@@ -206,7 +120,7 @@ class ActionComponent:
                 
                 # UI Update
                 def _upd():
-                    if win.winfo_exists(): win.update_progress(i, count, f"{mode_str}Liking {i+1}/{count}...")
+                    if win.winfo_exists(): win.update_progress(i, count, f"Liking {i+1}/{count}...")
                 win.after(0, _upd)
 
                 try:
@@ -219,18 +133,13 @@ class ActionComponent:
                         win.cancelled = True
                         break
                 
-                # Sleep logic
-                if not dry_run: 
-                    time.sleep(0.3)
-                else:
-                    time.sleep(0.05) # Faster simulation
+                if not self.dry_run_var.get(): time.sleep(0.3)
 
-            win.after(0, lambda: [win.destroy(), messagebox.showinfo("Done", f"{mode_str}Liked {success} tracks.")])
+            win.after(0, lambda: [win.destroy(), messagebox.showinfo("Done", f"Liked {success} tracks.")])
 
         threading.Thread(target=worker, daemon=True).start()
 
     def action_resolve(self):
-        # Resolve does not write to LB, so we don't need the Dry Run dialog here.
         if self.state.last_report_df is None: return
         
         win = ProgressWindow(self.frame, "Resolving...")
@@ -265,11 +174,13 @@ class ActionComponent:
         df = self.state.filtered_df
         if df is None: return
         
-        # Step 1: Get Name
         name = simpledialog.askstring("Export", "Playlist Name:", initialvalue=f"Export {datetime.now().strftime('%Y-%m-%d')}")
         if not name: return
 
-        # Prepare Payload (Fast in-memory op)
+        client = self._get_client()
+        win = ProgressWindow(self.frame, "Exporting...")
+
+        # Prepare Payload
         tracks = []
         for _, row in df.iterrows():
             mbid = row.get("recording_mbid")
@@ -282,24 +193,11 @@ class ActionComponent:
                 "mbid": str(mbid)
             })
 
-        if not tracks:
-            messagebox.showwarning("Empty", "No valid tracks found to export.")
-            return
-
-        # Step 2: Confirm Mode
-        dry_run = self._ask_execution_mode("Export Playlist", f"Create playlist '{name}' with {len(tracks)} tracks?")
-        if dry_run is None: return
-
-        # Step 3: Execute
-        client = self._get_client(dry_run)
-        mode_str = "[DRY RUN] " if dry_run else ""
-        win = ProgressWindow(self.frame, f"{mode_str}Exporting...")
-
         def worker():
             try:
-                win.after(0, lambda: win.update_progress(50, 100, f"{mode_str}Sending..."))
+                win.after(0, lambda: win.update_progress(50, 100, "Sending..."))
                 client.create_playlist(name, tracks)
-                win.after(0, lambda: [win.destroy(), messagebox.showinfo("Success", f"{mode_str}Created playlist '{name}'.")])
+                win.after(0, lambda: [win.destroy(), messagebox.showinfo("Success", f"Created playlist '{name}' with {len(tracks)} tracks.")])
             except Exception as e:
                 # FIX: Capture exception string
                 err_msg = str(e)
