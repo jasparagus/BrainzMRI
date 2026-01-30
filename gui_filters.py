@@ -1,6 +1,6 @@
 """
 gui_filters.py
-Input component for filtering, thresholds, and enrichment settings.
+Input component for filtering and thresholds.
 """
 
 import tkinter as tk
@@ -55,9 +55,6 @@ class FilterComponent:
         ]
         for ent in all_entries:
             ent.bind("<Return>", lambda e: self.on_enter_key())
-
-        # 5. Enrichment Controls
-        self._build_enrichment_controls()
 
     def _build_threshold_frame(self):
         # Create Bordered LabelFrame
@@ -116,53 +113,6 @@ class FilterComponent:
     def _add_tooltip(self, widget, text):
         Hovertip(widget, text, hover_delay=500)
 
-    def _build_enrichment_controls(self):
-        frm = tk.Frame(self.parent)
-        frm.pack(fill="x", pady=5, anchor="center")
-        inner = tk.Frame(frm); inner.pack(anchor="center")
-
-        tk.Label(inner, text="Genre Lookup (Enrichment) Source:", width=30, anchor="e").pack(side="left")
-
-        self.enrichment_mode_var = tk.StringVar(value="None (Data Only, No Genres)")
-        self.cmb_enrich = ttk.Combobox(
-            inner,
-            textvariable=self.enrichment_mode_var,
-            values=[
-                "None (Data Only, No Genres)",
-                "Cache Only",
-                "Query MusicBrainz",
-                "Query Last.fm",
-                "Query All Sources (Slow)",
-            ],
-            state="readonly",
-            width=28,
-        )
-        self.cmb_enrich.pack(side="left", padx=(0, 10))
-        self._add_tooltip(self.cmb_enrich, "Note: API-based lookups are slow.\nUnless 'Force Cache Update' is checked, API lookups will\nuse previously cached Genres when possible.")
-
-        self.force_cache_var = tk.BooleanVar(value=False)
-        self.chk_force = tk.Checkbutton(inner, text="Force Cache Update", variable=self.force_cache_var)
-        self.chk_force.pack(side="left", padx=5)
-        self._add_tooltip(self.chk_force, "Forces querying the API for new genre data.\nNormal behavior will only query for missing genres.\nAny new metadata will update cached genre data.")
-
-        self.deep_query_var = tk.BooleanVar(value=False)
-        self.chk_deep = tk.Checkbutton(inner, text="Deep Query (Slow)", variable=self.deep_query_var)
-        self.chk_deep.pack(side="left", padx=5)
-        self._add_tooltip(self.chk_deep, "If checked, fetches metadata for Albums and Tracks.\nIf unchecked (Default), fetches Artists only (Fast).")
-
-        # Logic to disable checkboxes if None/CacheOnly
-        def _update_state(*_):
-            mode = self.enrichment_mode_var.get()
-            if mode.startswith("None") or mode == "Cache Only":
-                self.chk_force.config(state="disabled"); self.force_cache_var.set(False)
-                self.chk_deep.config(state="disabled"); self.deep_query_var.set(False)
-            else:
-                self.chk_force.config(state="normal")
-                self.chk_deep.config(state="normal")
-        
-        self.enrichment_mode_var.trace_add("write", _update_state)
-        _update_state()
-
     # ------------------------------------------------------------------
     # Public Accessor
     # ------------------------------------------------------------------
@@ -195,8 +145,5 @@ class FilterComponent:
             "topn": _get_int(self.ent_topn, "Top N"),
             "min_listens": _get_int(self.ent_min_listens, "Min Listens"),
             "min_minutes": _get_float(self.ent_min_minutes, "Min Minutes"),
-            "min_likes": _get_int(self.ent_min_likes, "Min Likes"),
-            "enrichment_mode": self.enrichment_mode_var.get(),
-            "force_update": self.force_cache_var.get(),
-            "deep_query": self.deep_query_var.get()
+            "min_likes": _get_int(self.ent_min_likes, "Min Likes")
         }

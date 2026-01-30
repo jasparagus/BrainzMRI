@@ -1,5 +1,5 @@
 """
-gui_main.py (v7.0)
+gui_main.py (v7.2)
 Main entry point for BrainzMRI.
 Assemble UI components (Header, Filters, Table, Actions).
 """
@@ -13,6 +13,7 @@ import traceback
 import time
 import os
 import subprocess
+from idlelib.tooltip import Hovertip
 
 # Core Logic
 from config import config
@@ -106,32 +107,36 @@ class BrainzMRIGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("BrainzMRI - ListenBrainz Metadata Review Instrument")
-        self.root.geometry("1000x850")
+        self.root.geometry("1000x900")
         
         self.state = GUIState()
         self.report_engine = ReportEngine()
         self.processing = False # Simple guard
 
-        # --- 1. Header (User/Source) ---
-        # Pass callback for "Get New Listens"
-        self.header = HeaderComponent(root, self.state, self.start_sync_engine)
+        # Initialize Variables for Enrichment (Moved from Filters)
+        self.enrichment_mode_var = tk.StringVar(value="None (Data Only, No Genres)")
+        self.force_cache_var = tk.BooleanVar(value=False)
+        self.deep_query_var = tk.BooleanVar(value=False)
 
-        # --- 2. Filters ---
+        # 1. Header (User/Source)
+        # Pass callback for "Get New Listens" AND "Import CSV"
+        self.header = HeaderComponent(root, self.state, self.start_sync_engine, self.on_data_imported)
+
+        # 2. Filters (Stripped of enrichment)
         self.filters = FilterComponent(root, on_enter_key=self.run_report)
 
-        # --- 3. Report Type & Buttons ---
-        self._build_command_bar()
+        # 3. Report Settings Group (New Layout)
+        self._build_report_settings_frame()
 
-        # --- 4. Table ---
+        # 4. Table
         self.frm_table = tk.Frame(root)
         self.frm_table.pack(fill="both", expand=True)
         self.table_view = ReportTableView(root, self.frm_table, self.state)
 
-        # --- 5. Actions (Hidden by default) ---
-        # Pass callback for when Resolution finishes
+        # 5. Actions (Now always visible)
         self.actions = ActionComponent(root, self.state, self.table_view, self.on_data_updated)
 
-        # --- 6. Status Bar ---
+        # 6. Status Bar
         self.status_var = tk.StringVar(value="Ready.")
         self.status_bar = tk.Label(root, textvariable=self.status_var, bd=1, relief="sunken", anchor="center")
         self.status_bar.pack(fill="x", side="bottom")
@@ -141,26 +146,83 @@ class BrainzMRIGUI:
             self.header.user_var.set(config.last_user)
             self.header.load_user(config.last_user)
 
-    def _build_command_bar(self):
-        frm = tk.Frame(self.root)
-        frm.pack(pady=5)
+    def on_data_imported(self):
+        """Callback when CSV is imported successfully."""
+        self.cmb_report.set("Raw Listens")
+        self.state.last_mode = "Raw Listens"
+        self.status_var.set(f"Imported Data: {self.state.playlist_name}")
+        self.btn_generate.config(state="normal")
+        # Optional: Auto-run or just let user click Generate
+        # self.run_report() 
 
-        tk.Label(frm, text="Report Type:").pack(side="left")
-        self.cmb_report = ttk.Combobox(frm, values=[
+    def _build_report_settings_frame(self):
+        """Redesigned 'Report Settings' Group."""
+        frm_settings = tk.LabelFrame(self.root, text="Report Settings", padx=10, pady=5)
+        frm_settings.pack(pady=5, fill="x", padx=10)
+
+        # --- Column 1: Report Type ---
+        frm_type = tk.Frame(frm_settings)
+        frm_type.pack(side="left", padx=15, anchor="n")
+        
+        tk.Label(frm_type, text="Report Type").pack(anchor="w")
+        self.cmb_report = ttk.Combobox(frm_type, values=[
             "By Artist", "By Album", "By Track", 
             "Genre Flavor", "Favorite Artist Trend", "New Music By Year", "Raw Listens"
         ], state="readonly", width=18)
         self.cmb_report.current(0)
-        self.cmb_report.pack(side="left", padx=5)
+        self.cmb_report.pack(anchor="w")
         self.cmb_report.bind("<<ComboboxSelected>>", self.on_report_type_changed)
 
-        self.btn_generate = tk.Button(frm, text="Generate Report", bg="#4CAF50", fg="white", command=self.run_report)
+        # --- Column 2: Genre Lookup ---
+        frm_enrich = tk.Frame(frm_settings)
+        frm_enrich.pack(side="left", padx=15, anchor="n")
+
+        tk.Label(frm_enrich, text="Genre Lookup (Enrichment)").pack(anchor="w")
+        self.cmb_enrich = ttk.Combobox(frm_enrich, textvariable=self.enrichment_mode_var, values=[
+            "None (Data Only, No Genres)", "Cache Only", "Query MusicBrainz", "Query Last.fm", "Query All Sources (Slow)"
+        ], state="readonly", width=28)
+        self.cmb_enrich.pack(anchor="w")
+        Hovertip(self.cmb_enrich, "Select source for Genre metadata.\nAPI lookups can be slow.")
+
+        # Logic to disable checkboxes if None/CacheOnly
+        def _update_state(*_):
+            mode = self.enrichment_mode_var.get()
+            state = "disabled" if (mode.startswith("None") or mode == "Cache Only") else "normal"
+            self.chk_force.config(state=state)
+            self.chk_deep.config(state=state)
+            if state == "disabled":
+                self.force_cache_var.set(False)
+                self.deep_query_var.set(False)
+        self.enrichment_mode_var.trace_add("write", _update_state)
+
+        # --- Column 3: Checkboxes (Stacked) ---
+        frm_checks = tk.Frame(frm_settings)
+        frm_checks.pack(side="left", padx=15, anchor="n")
+
+        self.chk_force = tk.Checkbutton(frm_checks, text="Force Cache Update", variable=self.force_cache_var)
+        self.chk_force.pack(anchor="w")
+        Hovertip(self.chk_force, "Force query API even if data exists in cache.")
+
+        self.chk_deep = tk.Checkbutton(frm_checks, text="Deep Query (Slow)", variable=self.deep_query_var)
+        self.chk_deep.pack(anchor="w")
+        Hovertip(self.chk_deep, "Fetch metadata for Albums/Tracks (Default is Artists only).")
+        
+        _update_state() # Init state
+
+        # --- Column 4: Buttons (Side-by-side) ---
+        frm_btns = tk.Frame(frm_settings)
+        frm_btns.pack(side="left", padx=20, fill="y")
+        # Center vertically in the frame
+        frm_btns_inner = tk.Frame(frm_btns)
+        frm_btns_inner.pack(anchor="center", pady=10)
+
+        self.btn_generate = tk.Button(frm_btns_inner, text="Generate Report", bg="#4CAF50", fg="white", command=self.run_report, height=2)
         self.btn_generate.pack(side="left", padx=5)
 
-        tk.Button(frm, text="Save Report", bg="#2196F3", fg="white", command=self.save_report).pack(side="left", padx=5)
-        
-        self.btn_graph = tk.Button(frm, text="Show Graph", state="disabled", command=self.show_graph)
+        self.btn_graph = tk.Button(frm_btns_inner, text="Show Graph", state="disabled", command=self.show_graph, height=2)
         self.btn_graph.pack(side="left", padx=5)
+
+        tk.Button(frm_btns_inner, text="Save Report", bg="#2196F3", fg="white", command=self.save_report, height=2).pack(side="left", padx=5)
 
     def on_report_type_changed(self, event):
         # Auto-set Enrichment to Cache Only for Genre Flavor
@@ -225,33 +287,37 @@ class BrainzMRIGUI:
         manager.start(start_ts, local_ts)
 
     def run_report(self):
-        if self.processing or not self.state.user: return
+        if self.processing or (not self.state.user and not self.state.playlist_df): return
         self.processing = True
         self.btn_generate.config(state="disabled")
 
         try:
-            # 1. Get Params from Component
+            # 1. Get Params from Filters
             params = self.filters.get_values()
             
-            # 2. Add Context
+            # 2. Add Context & Enrichment (From Main UI)
             params["mode"] = self.cmb_report.get()
-            params["liked_mbids"] = self.state.user.get_liked_mbids()
+            if self.state.user:
+                params["liked_mbids"] = self.state.user.get_liked_mbids()
+            else:
+                params["liked_mbids"] = set()
             
-            # Determine Enrichment
-            enrich_str = params.pop("enrichment_mode")
-            params["do_enrich"] = not enrich_str.startswith("None")
-            params["enrichment_mode"] = enrich_str
-            params["force_cache_update"] = params.pop("force_update") # Rename key
+            params["enrichment_mode"] = self.enrichment_mode_var.get()
+            params["do_enrich"] = not params["enrichment_mode"].startswith("None")
+            params["force_cache_update"] = self.force_cache_var.get()
+            params["deep_query"] = self.deep_query_var.get()
             
             self.state.last_params = params.copy()
 
             # 3. Select Data
             if self.state.playlist_df is not None:
                 base_df = self.state.playlist_df.copy()
-            else:
+            elif self.state.user:
                 base_df = self.state.user.get_listens().copy()
+            else:
+                raise ValueError("No user loaded and no CSV imported.")
             
-            if "_username" not in base_df.columns:
+            if "_username" not in base_df.columns and self.state.user:
                 base_df["_username"] = self.state.user.username
 
             # 4. Launch Thread
@@ -312,7 +378,7 @@ class BrainzMRIGUI:
         else:
             self.btn_graph.config(state="disabled", bg="SystemButtonFace", fg="black")
 
-        # Toggle Actions Panel
+        # Update Actions Bar State (New Logic)
         has_tracks = "track_name" in result.columns
         has_mbids = False
         if "recording_mbid" in result.columns:
@@ -323,8 +389,8 @@ class BrainzMRIGUI:
             if "recording_mbid" not in result.columns: has_missing = True
             else: has_missing = result["recording_mbid"].isna().any()
 
-        self.actions.set_visible(
-            visible=(has_tracks or has_mbids),
+        # Replaced set_visible with update_state
+        self.actions.update_state(
             has_mbids=has_mbids,
             has_missing=has_missing
         )

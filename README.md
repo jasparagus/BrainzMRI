@@ -9,7 +9,7 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 
 | Main Interface | Artist Trends | New Music Discovery | Genre Flavor |
 | :---: | :---: | :---: | :---: |
-| <img src="example_main_ui.png" width="200" /> | <img src="example_artist_trend.png" width="200" /> | <img src="example_music_discovery.png" width="200" /> | <img src="example_genre_flavor.png" width="200" /> |
+| <img src="Images/example_main_ui.png" width="200" /> | <img src="Images/example_artist_trend.png" width="200" /> | <img src="Images/example_music_discovery.png" width="200" /> | <img src="Images/example_genre_flavor.png" width="200" /> |
 
 ---
 

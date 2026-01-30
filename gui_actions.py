@@ -98,40 +98,39 @@ class ActionComponent:
         self.on_update_callback = on_update_callback
 
         self.frame = tk.Frame(parent, bg="#ECEFF1", bd=1, relief="groove")
+        self.frame.pack(fill="x", side="bottom", padx=5, pady=5) # Always Visible
         
         # UI Elements
         tk.Label(self.frame, text="Actions:", bg="#ECEFF1", font=("Segoe UI", 9, "bold")).pack(side="left", padx=10, pady=5)
 
-        self.btn_like_all = tk.Button(self.frame, text="Like All", bg="#FFB74D", command=self.action_like_all)
+        self.btn_like_all = tk.Button(self.frame, text="Like All", bg="#FFB74D", command=self.action_like_all, state="disabled")
         self.btn_like_all.pack(side="left", padx=5)
 
-        self.btn_like_sel = tk.Button(self.frame, text="Like Selected", bg="#FFCC80", command=self.action_like_selected)
+        self.btn_like_sel = tk.Button(self.frame, text="Like Selected", bg="#FFCC80", command=self.action_like_selected, state="disabled")
         self.btn_like_sel.pack(side="left", padx=5)
 
-        self.btn_resolve = tk.Button(self.frame, text="Resolve Metadata", bg="#4DD0E1", command=self.action_resolve)
-        
-        self.btn_playlist = tk.Button(self.frame, text="Export Playlist", bg="#9575CD", fg="white", command=self.action_export)
+        self.btn_resolve = tk.Button(self.frame, text="Resolve Metadata", bg="#4DD0E1", command=self.action_resolve, state="disabled")
+        self.btn_resolve.pack(side="left", padx=5)
+
+        self.btn_playlist = tk.Button(self.frame, text="Export Playlist", bg="#9575CD", fg="white", command=self.action_export, state="disabled")
         self.btn_playlist.pack(side="left", padx=5)
 
         # NEW: Import Button
         self.btn_import_likes = tk.Button(self.frame, text="Import Last.fm Likes", bg="#81C784", command=self.action_import_likes)
         self.btn_import_likes.pack(side="left", padx=15)
 
-    def set_visible(self, visible: bool, has_mbids: bool, has_missing: bool):
-        if not visible:
-            self.frame.pack_forget()
-            return
-        
-        self.frame.pack(fill="x", side="bottom", padx=5, pady=5)
-        
+    def update_state(self, has_mbids: bool, has_missing: bool):
+        """Enable/Disable buttons based on available data."""
         state = "normal" if has_mbids else "disabled"
         self.btn_like_all.config(state=state)
         self.btn_like_sel.config(state=state)
+        self.btn_playlist.config(state=state)
 
-        if has_missing:
-            self.btn_resolve.pack(side="left", padx=5)
-        else:
-            self.btn_resolve.pack_forget()
+        # Resolve available if missing mbids
+        self.btn_resolve.config(state="normal" if has_missing else "disabled")
+
+        # Import Likes is always available if a user is loaded (handled by main usually, 
+        # but we can leave it enabled here as the handler checks for Last.fm user)
 
     # ------------------------------------------------------------------
     # Actions

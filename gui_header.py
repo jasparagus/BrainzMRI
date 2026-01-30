@@ -13,10 +13,11 @@ from user import get_cached_usernames, User
 from config import config
 
 class HeaderComponent:
-    def __init__(self, parent: tk.Frame, app_state, callback_refresh_data):
+    def __init__(self, parent: tk.Frame, app_state, callback_refresh_data, on_import_callback=None):
         self.parent = parent
         self.state = app_state
         self.callback_refresh_data = callback_refresh_data # Function to call when source changes
+        self.on_import_callback = on_import_callback       # New Callback for CSV import
 
         # Sub-frames
         self.frm_user = tk.Frame(parent)
@@ -132,10 +133,9 @@ class HeaderComponent:
     # CSV Logic
     # ------------------------------------------------------------------
     def import_csv(self):
-        if not self.state.user:
-            messagebox.showerror("Error", "Please load a user first (to provide context).")
-            return
-
+        # We allow CSV import even if no user is loaded, though enrichment might fail.
+        # But generally a user context is preferred.
+        
         import parsing # Import locally to avoid circular dep risks
         
         path = filedialog.askopenfilename(
@@ -147,8 +147,10 @@ class HeaderComponent:
 
         try:
             df = parsing.parse_generic_csv(path)
-            # Inject username so enrichment works
-            df["_username"] = self.state.user.username
+            
+            # Inject username so enrichment works (if user loaded)
+            if self.state.user:
+                df["_username"] = self.state.user.username
             
             self.state.playlist_df = df
             self.state.playlist_name = os.path.basename(path)
@@ -156,10 +158,11 @@ class HeaderComponent:
             self.lbl_source_status.config(text=f"Active Source: Playlist ({self.state.playlist_name})", fg="#E65100")
             self.btn_close_csv.pack(side="left", padx=5)
             
-            # Signal main to refresh view (handled by caller observing state, or explicit callback?)
-            # For this Phase, we'll rely on the user clicking "Generate" next, 
-            # but ideally we'd trigger a refresh.
-            messagebox.showinfo("Import Successful", f"Loaded {len(df)} tracks. Click 'Generate Report' to view.")
+            messagebox.showinfo("Import Successful", f"Loaded {len(df)} tracks.")
+
+            # Signal main GUI to update state
+            if self.on_import_callback:
+                self.on_import_callback()
 
         except Exception as e:
             messagebox.showerror("Import Failed", f"Could not parse CSV: {e}")
