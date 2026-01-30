@@ -214,7 +214,7 @@ Add a toggle for "Group Similar Tracks and Albums" to enable grouping tracks/alb
 ## Report Presets
 * Goal: Dropdown menu to pre-fill complex filter configurations.
  * Example: "Forgotten Favorites" (`High Play Count` + `Last Listened > 1 Year Ago`).
- * Example: "All Time Greatest Albums" (`High Play Count` + `High Play Count` + `4+ Likes Per Album`).
+ * Example: "All Time Greatest Albums" (`High Play Count` + `High Play Count` + `4+ Likes Per Album`).
 
 ## Minor Aesthetic Improvements
 * Rename track_name -> Track

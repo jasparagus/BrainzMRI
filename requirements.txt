@@ -1,4 +1,5 @@
-pandas
-numpy
 matplotlib
+numpy
+pandas
+requests
 squarify

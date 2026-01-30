@@ -1,314 +1,283 @@
 """
 api_client.py
-Network layer for BrainzMRI. Handles API requests to MusicBrainz, Last.fm, and ListenBrainz.
+Centralized HTTP client for MusicBrainz, ListenBrainz, and Last.fm.
+Handles rate limiting, retries, and error logging.
 """
 
-import json
 import time
+import requests
 import urllib.parse
-import urllib.request
-import urllib.error
-import http.client
 import logging
-from urllib.parse import quote
-from typing import Dict, Any, List, Optional
+from config import config
 
-from config import config  # REFACTORED: Import global config
+class BaseClient:
+    """Base class for API clients with common retry logic."""
+    def __init__(self, base_url, rate_limit_delay=1.1):
+        self.base_url = base_url
+        self.delay = rate_limit_delay
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": config.user_agent})
 
-
-class BaseAPIClient:
-    """
-    Base client handling common network logic: retries, backoff, and error handling.
-    """
-    def __init__(self, user_agent: str = ""):
-        self.user_agent = user_agent or config.user_agent
-
-    def _execute_request(self, url: str, method: str = "GET", headers: Dict[str, str] = None, data: bytes = None) -> Any:
-        """
-        Execute a request with robust error handling and retries.
-        Raises RuntimeError on persistent failure.
-        """
-        if headers is None:
-            headers = {}
+    def _request(self, method, endpoint, params=None, json_data=None, headers=None):
+        url = f"{self.base_url}{endpoint}"
         
-        # Ensure User-Agent is always set
-        if "User-Agent" not in headers:
-            headers["User-Agent"] = self.user_agent
-
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
-        last_error = None
-
+        # [RESTORED] Log the request for debugging
         logging.info(f"API Request: {method} {url}")
-
-        for attempt in range(config.max_retries):
+        
+        attempts = 0
+        while attempts < config.max_retries:
             try:
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    if 200 <= resp.status < 300:
-                        return json.load(resp)
-                    raise RuntimeError(f"API returned status {resp.status}")
-
-            except urllib.error.HTTPError as e:
-                # 429 Too Many Requests - Fixed sleep
-                if e.code == 429:
-                    logging.warning(f"Rate Limited (429). Sleeping 5s... (Attempt {attempt+1}/{config.max_retries})")
-                    time.sleep(5.0)
-                    continue
-
-                # Server Errors - Exponential Backoff
-                if e.code in [500, 502, 503, 504]:
-                    last_error = e
-                    time.sleep(1 * (2 ** attempt))
+                resp = self.session.request(method, url, params=params, json=json_data, headers=headers)
+                
+                # Handle 429 Rate Limit
+                if resp.status_code == 429:
+                    wait = int(resp.headers.get("Retry-After", 5))
+                    logging.warning(f"Rate limited. Waiting {wait}s...")
+                    time.sleep(wait)
+                    attempts += 1
                     continue
                 
-                # Fatal Client Errors (400, 401, 404, etc.)
-                try:
-                    err_body = e.read().decode("utf-8")
-                    raise RuntimeError(f"API Error {e.code}: {err_body}")
-                except Exception:
-                    raise RuntimeError(f"API Error {e.code}")
-
-            except (urllib.error.URLError, http.client.IncompleteRead) as e:
-                last_error = e
-                err_str = str(e)
+                if resp.status_code == 404:
+                    return None # Not found is not an exception
                 
-                # Specific handling for Windows Connection Reset
-                if "10054" in err_str or "Connection reset" in err_str:
-                    logging.warning(f"Connection Reset. Cooling down 5s... (Attempt {attempt+1}/{config.max_retries})")
-                    time.sleep(5.0)
-                else:
-                    time.sleep(1 * (2 ** attempt))
-                continue
-            
+                resp.raise_for_status()
+                return resp.json()
+
+            except (requests.exceptions.ConnectionError, ConnectionResetError) as e:
+                logging.warning(f"Connection error: {e}. Retrying in 5s...")
+                time.sleep(5)
+                attempts += 1
             except Exception as e:
-                # Catch-all for other IO/Network issues
-                last_error = e
-                time.sleep(1)
-
-        raise RuntimeError(f"Network Error after {config.max_retries} attempts: {last_error}")
-
-
-class MusicBrainzClient(BaseAPIClient):
-    """
-    Client for the MusicBrainz API (v2).
-    """
-    
-    def _request(self, path: str, params: Dict[str, str]) -> Dict[str, Any]:
-        """Execute a GET request against MusicBrainz with retries."""
-        query = urllib.parse.urlencode(params)
-        url = f"{config.musicbrainz_api_root}{path}?{query}"
+                logging.error(f"API Request Failed: {e}")
+                raise e
         
-        try:
-            result = self._execute_request(url)
-            # Rate Limiting: Sleep AFTER success
-            time.sleep(config.network_delay)
-            return result
-        except Exception as e:
-            logging.error(f"Non-retriable error in MB lookup: {e}")
-            return {}
-
-    def _extract_tags(self, data: Dict[str, Any]) -> List[str]:
-        """Extract flat tag list from MB response."""
-        tags = []
-        for key in ["tags", "genres"]:
-            items = data.get(key, [])
-            for item in items:
-                name = item.get("name")
-                if name:
-                    tags.append(name)
-        return tags
-
-    def get_entity_tags(self, entity_type: str, mbid: str) -> List[str]:
-        if not mbid: return []
-        data = self._request(f"{entity_type}/{mbid}", {"fmt": "json", "inc": "tags+genres"})
-        return self._extract_tags(data)
-
-    def get_release_group_tags(self, release_mbid: str) -> List[str]:
-        if not release_mbid: return []
-        data = self._request(f"release/{release_mbid}", {"fmt": "json", "inc": "release-groups"})
-        
-        rg_data = data.get("release-group")
-        if not rg_data:
-            return []
-            
-        rg_id = rg_data.get("id")
-        if not rg_id:
-            return []
-            
-        return self.get_entity_tags("release-group", rg_id)
-
-    def search_entity_tags(self, entity_type: str, query: str, result_list_key: str) -> List[str]:
-        data = self._request(entity_type, {"query": query, "fmt": "json", "limit": "1"})
-        results = data.get(result_list_key, [])
-        if results:
-            return self._extract_tags(results[0])
-        return []
-
-    def search_recording_details(self, artist: str, track: str, release: str = None, threshold: int = 85) -> Optional[Dict[str, str]]:
-        if not artist or not track:
-            return None
-
-        query_parts = [f'artist:"{artist}"', f'recording:"{track}"']
-        if release and release.lower() != "unknown":
-            query_parts.append(f'release:"{release}"')
-            
-        q = " AND ".join(query_parts)
-        
-        data = self._request("recording", {"query": q, "fmt": "json", "limit": "3"})
-        results = data.get("recordings", [])
-        
-        if not results:
-            return None
-            
-        best = results[0]
-        try:
-            score = int(best.get("score", "0"))
-        except ValueError:
-            score = 0
-            
-        if score >= threshold:
-            info = {
-                "mbid": best.get("id"),
-                "title": best.get("title", track),
-                "album": "Unknown"
-            }
-            releases = best.get("releases", [])
-            if releases:
-                info["album"] = releases[0].get("title", "Unknown")
-            return info
-            
+        logging.error(f"Max retries exceeded for {url}")
         return None
 
 
-class LastFMClient(BaseAPIClient):
-    """
-    Client for the Last.fm API.
-    """
+class MusicBrainzClient(BaseClient):
+    def __init__(self):
+        super().__init__(config.musicbrainz_api_root, rate_limit_delay=1.1)
 
-    def __init__(self, api_key: Optional[str] = None):
-        super().__init__()
-        # Use provided key or fall back to config
-        self.api_key = api_key or config.lastfm_api_key
-
-    def _request(self, params: Dict[str, str]) -> Dict[str, Any]:
-        if not self.api_key: return {}
-        params = params.copy()
-        params["api_key"] = self.api_key
-        params["format"] = "json"
+    def get_entity_tags(self, entity_type, mbid):
+        """Fetch tags for an artist or recording."""
+        endpoint = f"{entity_type}/{mbid}"
+        data = self._request("GET", endpoint, params={"inc": "tags", "fmt": "json"})
+        if not data: return []
         
-        query = urllib.parse.urlencode(params)
-        url = f"{config.lastfm_api_root}?{query}"
+        tags = [t["name"] for t in data.get("tags", [])]
+        time.sleep(self.delay)
+        return tags
+
+    def get_release_group_tags(self, release_mbid):
+        """Hop from Release -> Release Group to get tags."""
+        # 1. Get Release to find Group ID
+        rel_data = self._request("GET", f"release/{release_mbid}", params={"inc": "release-groups", "fmt": "json"})
+        if not rel_data: return []
         
-        try:
-            result = self._execute_request(url)
-            time.sleep(config.network_delay)
-            return result
-        except Exception:
-            return {}
+        rg_list = rel_data.get("release-groups", [])
+        if not rg_list: return []
+        
+        rg_id = rg_list[0]["id"]
+        
+        # 2. Get Tags for Group
+        rg_data = self._request("GET", f"release-group/{rg_id}", params={"inc": "tags", "fmt": "json"})
+        time.sleep(self.delay)
+        if not rg_data: return []
+        
+        return [t["name"] for t in rg_data.get("tags", [])]
 
-    def _extract_tags(self, data: Dict[str, Any], root_key: str) -> List[str]:
-        toplevel = data.get(root_key) or {}
-        tags_block = toplevel.get("toptags") or toplevel.get("tags") or {}
-        tags_list = tags_block.get("tag") or []
-        if isinstance(tags_list, dict): tags_list = [tags_list]
-        return [t.get("name") for t in tags_list if t.get("name")]
+    def search_entity_tags(self, entity_type, query, result_key):
+        """Search by name/query."""
+        encoded_query = urllib.parse.quote(query)
+        # Note: requests handles basic encoding, but complex lucene queries benefit from explicit care
+        data = self._request("GET", entity_type, params={"query": query, "fmt": "json"})
+        
+        if not data: return []
+        results = data.get(result_key, [])
+        if not results: return []
+        
+        # Return tags of first match
+        return [t["name"] for t in results[0].get("tags", [])]
 
-    def get_tags(self, method: str, root_key: str, **kwargs) -> List[str]:
-        params = {"method": method, **kwargs}
-        data = self._request(params)
-        return self._extract_tags(data, root_key)
+    def search_recording_details(self, artist, track, album=None):
+        """
+        Search for a recording MBID.
+        Returns dict {'mbid': ..., 'album': ...} or None.
+        """
+        # FIX: Strict NaN Guard
+        if not artist or str(artist).lower() == "nan": return None
+        if not track or str(track).lower() == "nan": return None
+        
+        query = f'artist:"{artist}" AND recording:"{track}"'
+        
+        # Only add album if it's a valid string
+        if album and str(album).lower() not in ["", "nan", "none", "unknown"]:
+            query += f' AND release:"{album}"'
+            
+        data = self._request("GET", "recording", params={"query": query, "fmt": "json", "limit": 1})
+        time.sleep(self.delay)
+        
+        if not data: return None
+        recs = data.get("recordings", [])
+        if not recs: return None
+        
+        match = recs[0]
+        res = {"mbid": match["id"]}
+        
+        # Try to extract an album title if present
+        if "releases" in match and match["releases"]:
+            res["album"] = match["releases"][0].get("title", "")
+            
+        return res
 
 
-class ListenBrainzClient(BaseAPIClient):
-    """
-    Client for the ListenBrainz API.
-    """
+class LastFMClient(BaseClient):
+    def __init__(self):
+        super().__init__(config.lastfm_api_root, rate_limit_delay=0.5)
+        self.api_key = config.lastfm_api_key
 
-    def __init__(self, token: Optional[str] = None, dry_run: bool = False):
-        super().__init__()
+    def get_tags(self, method, key, **kwargs):
+        if not self.api_key: return []
+        
+        params = {
+            "method": method,
+            "api_key": self.api_key,
+            "format": "json"
+        }
+        params.update(kwargs)
+        
+        data = self._request("GET", "", params=params)
+        if not data: return []
+        
+        # Handle nested response logic
+        root = data.get("toptags", {})
+        tags = root.get("tag", [])
+        
+        # Last.fm returns single dict if only 1 tag, list otherwise
+        if isinstance(tags, dict): tags = [tags]
+        
+        return [t["name"] for t in tags]
+
+    def get_user_loved_tracks(self, username: str, limit: int = None) -> list[dict]:
+        """
+        Fetch all loved tracks for a user.
+        Returns list of dicts: {'artist': str, 'track': str, 'mbid': str|None}
+        """
+        if not self.api_key: return []
+
+        method = "user.getLovedTracks"
+        params = {
+            "method": method,
+            "user": username, 
+            "api_key": self.api_key,
+            "format": "json",
+            "limit": 100
+        }
+        
+        all_loves = []
+        page = 1
+        
+        while True:
+            params["page"] = page
+            data = self._request("GET", "", params=params)
+            
+            if not data or "lovedtracks" not in data:
+                break
+                
+            tracks = data["lovedtracks"].get("track", [])
+            if not tracks:
+                break
+                
+            if isinstance(tracks, dict): 
+                tracks = [tracks]
+                
+            for t in tracks:
+                artist = t.get("artist", {})
+                if isinstance(artist, dict): artist = artist.get("name", "")
+                elif isinstance(artist, str): artist = artist # Last.fm quirkiness
+                
+                all_loves.append({
+                    "artist": artist,
+                    "track": t.get("name", ""),
+                    "mbid": t.get("mbid", "")
+                })
+            
+            # Pagination
+            attr = data["lovedtracks"].get("@attr", {})
+            total_pages = int(attr.get("totalPages", 1))
+            
+            if limit and len(all_loves) >= limit:
+                return all_loves[:limit]
+            
+            if page >= total_pages:
+                break
+                
+            page += 1
+            time.sleep(self.delay)
+            
+        return all_loves
+
+
+class ListenBrainzClient(BaseClient):
+    def __init__(self, token=None, dry_run=False):
+        super().__init__(config.listenbrainz_api_root, rate_limit_delay=1.1)
         self.token = token
         self.dry_run = dry_run
 
-    def _request_generic(self, endpoint: str, method: str, params: Dict[str, Any] = None, data: bytes = None) -> Dict[str, Any]:
-        url = f"{config.listenbrainz_api_root}{endpoint}"
+    def get_user_listens(self, username, min_ts=None, max_ts=None, count=100):
+        params = {"count": count}
+        if min_ts: params["min_ts"] = min_ts
+        if max_ts: params["max_ts"] = max_ts
         
-        headers = {
-            "User-Agent": self.user_agent,
-        }
-        if self.token:
-            headers["Authorization"] = f"Token {self.token}"
-        if method == "POST":
-            headers["Content-Type"] = "application/json"
-            
-        if params:
-            query = urllib.parse.urlencode(params)
-            url = f"{url}?{query}"
+        endpoint = f"user/{username}/listens"
+        return self._request("GET", endpoint, params=params)
 
-        return self._execute_request(url, method=method, headers=headers, data=data)
+    def get_user_likes(self, username, offset=0, count=100):
+        """Fetch likes (feedback) using get-feedback endpoint."""
+        endpoint = f"feedback/user/{username}/get-feedback"
+        params = {"score": 1, "offset": offset, "count": count}
+        return self._request("GET", endpoint, params=params)
 
-    def _get(self, endpoint: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
-        return self._request_generic(endpoint, "GET", params=params)
-
-    def _post(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def submit_feedback(self, recording_mbid, score):
         if self.dry_run:
-            logging.info(f"--- [DRY RUN] POST REQUEST ---\nURL: {endpoint}")
-            return {"status": "ok", "dry_run": True}
+            logging.info(f"[DRY RUN] Feedback: {recording_mbid} -> {score}")
+            return
             
-        data = json.dumps(payload).encode("utf-8")
-        return self._request_generic(endpoint, "POST", data=data)
+        if not self.token:
+            raise ValueError("No User Token provided.")
+            
+        headers = {"Authorization": f"Token {self.token}"}
+        payload = {"recording_mbid": recording_mbid, "score": score}
+        
+        self._request("POST", "feedback/recording-feedback", json_data=payload, headers=headers)
 
-    # --- Write Methods ---
+    def create_playlist(self, name, tracks):
+        """
+        Create a JSPF playlist.
+        tracks: list of dicts {'title', 'artist', 'release', 'recording_mbid'}
+        """
+        if self.dry_run:
+            logging.info(f"[DRY RUN] Create Playlist '{name}' with {len(tracks)} tracks.")
+            return
 
-    def submit_feedback(self, recording_mbid: str, score: int) -> Dict[str, Any]:
-        if score not in (-1, 0, 1):
-            raise ValueError("Score must be -1, 0, or 1.")
-        if not recording_mbid:
-            raise ValueError("Cannot submit feedback: Missing Recording MBID.")
-
-        payload = {
-            "recording_mbid": recording_mbid,
-            "score": score
-        }
-        return self._post("feedback/recording-feedback", payload)
-
-    def create_playlist(self, name: str, tracks: List[Dict[str, str]], description: str = "") -> Dict[str, Any]:
-        playlist_tracks = []
-        for t in tracks:
-            track_obj = {
-                "title": t.get("title", "Unknown Title"),
-                "creator": t.get("artist", "Unknown Artist"),
-            }
-            if t.get("album"):
-                track_obj["album"] = t.get("album")
-            if t.get("mbid"):
-                track_obj["identifier"] = f"https://musicbrainz.org/recording/{t['mbid']}"
-            playlist_tracks.append(track_obj)
+        if not self.token: raise ValueError("No Token.")
 
         jspf = {
             "playlist": {
                 "title": name,
-                "annotation": description,
-                "extension": {
-                    "https://musicbrainz.org/doc/jspf#playlist": {
-                        "public": False
-                    }
-                },
-                "track": playlist_tracks
+                "track": []
             }
         }
-        return self._post("playlist/create", jspf)
-
-    # --- Read Methods ---
-
-    def get_user_listens(self, username: str, max_ts: int = None, count: int = 100) -> Dict[str, Any]:
-        params = {"count": count}
-        if max_ts:
-            params["max_ts"] = max_ts
-        return self._get(f"user/{quote(username)}/listens", params)
         
-    def get_user_likes(self, username: str, offset: int = 0, count: int = 100) -> Dict[str, Any]:
-        params = {
-            "score": 1,
-            "count": count,
-            "offset": offset
-        }
-        return self._get(f"feedback/user/{quote(username)}/get-feedback", params)
+        for t in tracks:
+            entry = {
+                "title": t.get("title"),
+                "creator": t.get("artist"),
+                "album": t.get("album"),
+                "identifier": f"https://musicbrainz.org/recording/{t.get('mbid')}"
+            }
+            jspf["playlist"]["track"].append(entry)
+            
+        headers = {"Authorization": f"Token {self.token}"}
+        self._request("POST", "playlist/create", json_data=jspf, headers=headers)

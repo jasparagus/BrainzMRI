@@ -16,11 +16,10 @@ import enrichment
 import parsing
 from sync_engine import ProgressWindow
 from api_client import ListenBrainzClient
+# Import the new Sync Manager
+from likes_sync import LikeSyncManager
 
-# ======================================================================
-# Custom Confirmation Dialog
-# ======================================================================
-
+# ... [Confirmation Dialog Class remains unchanged] ...
 class ActionConfirmDialog(tk.Toplevel):
     """
     A modal dialog that forces the user to choose between
@@ -35,9 +34,12 @@ class ActionConfirmDialog(tk.Toplevel):
         
         # Center relative to parent
         self.update_idletasks()
-        x = parent.winfo_rootx() + 50
-        y = parent.winfo_rooty() + 50
-        self.geometry(f"+{x}+{y}")
+        try:
+            x = parent.winfo_rootx() + 50
+            y = parent.winfo_rooty() + 50
+            self.geometry(f"+{x}+{y}")
+        except:
+            pass
 
         # Content
         lbl = tk.Label(self, text=prompt, wraplength=400, justify="left", font=("Segoe UI", 10))
@@ -50,7 +52,7 @@ class ActionConfirmDialog(tk.Toplevel):
         # 1. Execute (Red/Bold to indicate risk)
         btn_live = tk.Button(
             btn_frame, text="Execute (LIVE)", 
-            bg="#EF5350", fg="white", font=("Segoe UI", 10),
+            bg="#EF5350", fg="white", font=("Segoe UI", 9, "bold"),
             command=self.on_live, width=15
         )
         btn_live.pack(side="left", padx=10)
@@ -59,7 +61,7 @@ class ActionConfirmDialog(tk.Toplevel):
         # 2. Dry Run (Green/Safe)
         btn_dry = tk.Button(
             btn_frame, text="Dry Run (Test)", 
-            bg="#66BB6A", fg="white", font=("Segoe UI", 10),
+            bg="#66BB6A", fg="white",
             command=self.on_dry, width=15
         )
         btn_dry.pack(side="left", padx=10)
@@ -88,24 +90,17 @@ class ActionConfirmDialog(tk.Toplevel):
         self.destroy()
 
 
-# ======================================================================
-# Action Component
-# ======================================================================
-
 class ActionComponent:
     def __init__(self, parent: tk.Frame, app_state, table_view, on_update_callback):
         self.parent = parent
         self.state = app_state
         self.table_view = table_view
-        self.on_update_callback = on_update_callback # Called after Resolve to refresh table
+        self.on_update_callback = on_update_callback
 
         self.frame = tk.Frame(parent, bg="#ECEFF1", bd=1, relief="groove")
-        # Don't pack immediately; set_visible handles that
-
+        
         # UI Elements
-        tk.Label(self.frame, text="Send To ListenBrainz:", bg="#ECEFF1", font=("Segoe UI", 9, "bold")).pack(side="left", padx=10, pady=5)
-
-        # REMOVED: Checkbox for Dry Run. Now handled via Dialog.
+        tk.Label(self.frame, text="Actions:", bg="#ECEFF1", font=("Segoe UI", 9, "bold")).pack(side="left", padx=10, pady=5)
 
         self.btn_like_all = tk.Button(self.frame, text="Like All", bg="#FFB74D", command=self.action_like_all)
         self.btn_like_all.pack(side="left", padx=5)
@@ -114,10 +109,13 @@ class ActionComponent:
         self.btn_like_sel.pack(side="left", padx=5)
 
         self.btn_resolve = tk.Button(self.frame, text="Resolve Metadata", bg="#4DD0E1", command=self.action_resolve)
-        # Packed conditionally
-
+        
         self.btn_playlist = tk.Button(self.frame, text="Export Playlist", bg="#9575CD", fg="white", command=self.action_export)
         self.btn_playlist.pack(side="left", padx=5)
+
+        # NEW: Import Button
+        self.btn_import_likes = tk.Button(self.frame, text="Import Last.fm Likes", bg="#81C784", command=self.action_import_likes)
+        self.btn_import_likes.pack(side="left", padx=15)
 
     def set_visible(self, visible: bool, has_mbids: bool, has_missing: bool):
         if not visible:
@@ -165,7 +163,6 @@ class ActionComponent:
             messagebox.showinfo("Info", "Select rows first.")
             return
         
-        # Map visual selection to MBIDs
         df = self.state.filtered_df
         mbids = set()
         children = tree.get_children()
@@ -189,11 +186,9 @@ class ActionComponent:
         count = len(mbids)
         if count == 0: return
         
-        # Step 1: Confirm via Custom Dialog
         dry_run = self._ask_execution_mode("Like Tracks", f"You are about to send 'Love' feedback for {count} tracks.")
-        if dry_run is None: return # Cancelled
+        if dry_run is None: return 
 
-        # Step 2: Initialize Client with user choice
         client = self._get_client(dry_run)
         mode_str = "[DRY RUN] " if dry_run else ""
         
@@ -204,7 +199,6 @@ class ActionComponent:
             for i, mbid in enumerate(mbids):
                 if win.cancelled: break
                 
-                # UI Update
                 def _upd():
                     if win.winfo_exists(): win.update_progress(i, count, f"{mode_str}Liking {i+1}/{count}...")
                 win.after(0, _upd)
@@ -214,23 +208,20 @@ class ActionComponent:
                     success += 1
                 except Exception as e:
                     logging.error(f"Like failed: {e}")
-                    # Stop on 401/429
                     if "401" in str(e) or "429" in str(e):
                         win.cancelled = True
                         break
                 
-                # Sleep logic
                 if not dry_run: 
                     time.sleep(0.3)
                 else:
-                    time.sleep(0.05) # Faster simulation
+                    time.sleep(0.05)
 
             win.after(0, lambda: [win.destroy(), messagebox.showinfo("Done", f"{mode_str}Liked {success} tracks.")])
 
         threading.Thread(target=worker, daemon=True).start()
 
     def action_resolve(self):
-        # Resolve does not write to LB, so we don't need the Dry Run dialog here.
         if self.state.last_report_df is None: return
         
         win = ProgressWindow(self.frame, "Resolving...")
@@ -240,21 +231,15 @@ class ActionComponent:
             def cb(c, t, m):
                 win.after(0, lambda: win.update_progress(c, t, m))
             
-            # Run Logic
             df_res, ok, fail = enrichment.resolve_missing_mbids(
                 df_in, progress_callback=cb, is_cancelled=lambda: win.cancelled
             )
 
-            # Finish on Main Thread
             def _finish():
                 if win.winfo_exists(): win.destroy()
-                
-                # Update State
                 self.state.last_report_df = df_res
                 self.state.original_df = df_res.copy()
                 self.state.filtered_df = df_res.copy()
-                
-                # Notify Main to refresh table
                 self.on_update_callback(df_res, ok, fail)
 
             win.after(0, _finish)
@@ -265,11 +250,9 @@ class ActionComponent:
         df = self.state.filtered_df
         if df is None: return
         
-        # Step 1: Get Name
         name = simpledialog.askstring("Export", "Playlist Name:", initialvalue=f"Export {datetime.now().strftime('%Y-%m-%d')}")
         if not name: return
 
-        # Prepare Payload (Fast in-memory op)
         tracks = []
         for _, row in df.iterrows():
             mbid = row.get("recording_mbid")
@@ -286,11 +269,9 @@ class ActionComponent:
             messagebox.showwarning("Empty", "No valid tracks found to export.")
             return
 
-        # Step 2: Confirm Mode
         dry_run = self._ask_execution_mode("Export Playlist", f"Create playlist '{name}' with {len(tracks)} tracks?")
         if dry_run is None: return
 
-        # Step 3: Execute
         client = self._get_client(dry_run)
         mode_str = "[DRY RUN] " if dry_run else ""
         win = ProgressWindow(self.frame, f"{mode_str}Exporting...")
@@ -301,8 +282,16 @@ class ActionComponent:
                 client.create_playlist(name, tracks)
                 win.after(0, lambda: [win.destroy(), messagebox.showinfo("Success", f"{mode_str}Created playlist '{name}'.")])
             except Exception as e:
-                # FIX: Capture exception string
                 err_msg = str(e)
                 win.after(0, lambda: [win.destroy(), messagebox.showerror("Error", err_msg)])
 
         threading.Thread(target=worker, daemon=True).start()
+
+    # NEW ACTION HANDLER
+    def action_import_likes(self):
+        if not self.state.user.lastfm_username:
+            messagebox.showwarning("Setup", "Please configure your Last.fm username in 'Edit User' first.")
+            return
+            
+        manager = LikeSyncManager(self.state.user, self.state, self.parent)
+        manager.import_lastfm_likes()
