@@ -15,6 +15,8 @@ from datetime import datetime, timezone, timedelta
 import time
 import os
 
+from config import config  # FIX: Import config for paths
+
 # ------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------
@@ -558,7 +560,8 @@ def prepare_artist_trend_chart_data(df: pd.DataFrame, bins: int = 15, topn: int 
 
 def save_report(df: pd.DataFrame, user, meta: dict = None, report_name: str = None) -> str:
     """Save the DataFrame to a CSV file in the user's reports directory."""
-    reports_dir = os.path.join(user.cache_dir, "reports")
+    # FIX: Use global config for reports path instead of non-existent user.cache_dir
+    reports_dir = config.reports_dir
     os.makedirs(reports_dir, exist_ok=True)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
