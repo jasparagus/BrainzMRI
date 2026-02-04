@@ -160,8 +160,12 @@ class BrainzMRIGUI:
         frm_settings = tk.LabelFrame(self.root, text="Report Settings", padx=10, pady=5)
         frm_settings.pack(pady=5, fill="x", padx=10)
 
+        # FIX: Container to center the content
+        container = tk.Frame(frm_settings)
+        container.pack(expand=True, anchor="center")
+
         # --- Column 1: Report Type ---
-        frm_type = tk.Frame(frm_settings)
+        frm_type = tk.Frame(container)
         frm_type.pack(side="left", padx=15, anchor="n")
         
         tk.Label(frm_type, text="Report Type").pack(anchor="w")
@@ -174,7 +178,7 @@ class BrainzMRIGUI:
         self.cmb_report.bind("<<ComboboxSelected>>", self.on_report_type_changed)
 
         # --- Column 2: Genre Lookup ---
-        frm_enrich = tk.Frame(frm_settings)
+        frm_enrich = tk.Frame(container)
         frm_enrich.pack(side="left", padx=15, anchor="n")
 
         tk.Label(frm_enrich, text="Genre Lookup (Enrichment)").pack(anchor="w")
@@ -196,7 +200,7 @@ class BrainzMRIGUI:
         self.enrichment_mode_var.trace_add("write", _update_state)
 
         # --- Column 3: Checkboxes (Stacked) ---
-        frm_checks = tk.Frame(frm_settings)
+        frm_checks = tk.Frame(container)
         frm_checks.pack(side="left", padx=15, anchor="n")
 
         self.chk_force = tk.Checkbutton(frm_checks, text="Force Cache Update", variable=self.force_cache_var)
@@ -210,7 +214,7 @@ class BrainzMRIGUI:
         _update_state() # Init state
 
         # --- Column 4: Buttons (Side-by-side) ---
-        frm_btns = tk.Frame(frm_settings)
+        frm_btns = tk.Frame(container)
         frm_btns.pack(side="left", padx=20, fill="y")
         # Center vertically in the frame
         frm_btns_inner = tk.Frame(frm_btns)
@@ -292,32 +296,28 @@ class BrainzMRIGUI:
         self.btn_generate.config(state="disabled")
 
         try:
-            # 1. Get Params from Filters
+            # 1. Get Params from Component
             params = self.filters.get_values()
             
-            # 2. Add Context & Enrichment (From Main UI)
+            # 2. Add Context
             params["mode"] = self.cmb_report.get()
-            if self.state.user:
-                params["liked_mbids"] = self.state.user.get_liked_mbids()
-            else:
-                params["liked_mbids"] = set()
+            params["liked_mbids"] = self.state.user.get_liked_mbids()
             
-            params["enrichment_mode"] = self.enrichment_mode_var.get()
-            params["do_enrich"] = not params["enrichment_mode"].startswith("None")
-            params["force_cache_update"] = self.force_cache_var.get()
-            params["deep_query"] = self.deep_query_var.get()
+            # Determine Enrichment
+            enrich_str = params.pop("enrichment_mode")
+            params["do_enrich"] = not enrich_str.startswith("None")
+            params["enrichment_mode"] = enrich_str
+            params["force_cache_update"] = params.pop("force_update") # Rename key
             
             self.state.last_params = params.copy()
 
             # 3. Select Data
             if self.state.playlist_df is not None:
                 base_df = self.state.playlist_df.copy()
-            elif self.state.user:
-                base_df = self.state.user.get_listens().copy()
             else:
-                raise ValueError("No user loaded and no CSV imported.")
+                base_df = self.state.user.get_listens().copy()
             
-            if "_username" not in base_df.columns and self.state.user:
+            if "_username" not in base_df.columns:
                 base_df["_username"] = self.state.user.username
 
             # 4. Launch Thread
@@ -378,7 +378,7 @@ class BrainzMRIGUI:
         else:
             self.btn_graph.config(state="disabled", bg="SystemButtonFace", fg="black")
 
-        # Update Actions Bar State (New Logic)
+        # Toggle Actions Panel
         has_tracks = "track_name" in result.columns
         has_mbids = False
         if "recording_mbid" in result.columns:
@@ -389,7 +389,6 @@ class BrainzMRIGUI:
             if "recording_mbid" not in result.columns: has_missing = True
             else: has_missing = result["recording_mbid"].isna().any()
 
-        # Replaced set_visible with update_state
         self.actions.update_state(
             has_mbids=has_mbids,
             has_missing=has_missing

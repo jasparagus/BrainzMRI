@@ -30,6 +30,11 @@ class LikeSyncManager:
             messagebox.showerror("Error", "No Last.fm username configured.")
             return
 
+        # FIX: Check for API Key presence
+        if not self.lfm_client.api_key:
+            messagebox.showerror("Setup Error", "Last.fm API Key is missing.\nPlease add 'lastfm_api_key' to your config.json.")
+            return
+
         win = ProgressWindow(self.parent, "Importing Last.fm Likes...")
 
         def worker():
