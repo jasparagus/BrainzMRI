@@ -149,12 +149,14 @@ class ActionComponent:
         return ListenBrainzClient(token=self.state.user.listenbrainz_token, dry_run=dry_run)
 
     def action_like_all(self):
+        logging.info("User Action: Clicked 'Like All'")
         df = self.state.filtered_df
         if df is None or "recording_mbid" not in df.columns: return
         valid = df[df["recording_mbid"].notna() & (df["recording_mbid"] != "") & (df["recording_mbid"] != "None")]
         self._run_like_worker(list(valid["recording_mbid"].unique()))
 
     def action_like_selected(self):
+        logging.info("User Action: Clicked 'Like Selected'")
         tree = self.table_view.tree
         if not tree: return
         selected = tree.selection()
@@ -221,6 +223,7 @@ class ActionComponent:
         threading.Thread(target=worker, daemon=True).start()
 
     def action_resolve(self):
+        logging.info("User Action: Clicked 'Resolve Metadata'")
         if self.state.last_report_df is None: return
         
         win = ProgressWindow(self.frame, "Resolving...")
@@ -236,6 +239,14 @@ class ActionComponent:
 
             def _finish():
                 if win.winfo_exists(): win.destroy()
+                
+                # Re-apply Likes status to newly resolved MBIDs
+                liked_mbids = self.state.user.get_liked_mbids()
+                if "recording_mbid" in df_res.columns:
+                     df_res["Likes"] = df_res["recording_mbid"].apply(
+                         lambda x: 1 if x in liked_mbids else 0
+                     )
+
                 self.state.last_report_df = df_res
                 self.state.original_df = df_res.copy()
                 self.state.filtered_df = df_res.copy()
@@ -246,6 +257,7 @@ class ActionComponent:
         threading.Thread(target=worker, daemon=True).start()
 
     def action_export(self):
+        logging.info("User Action: Clicked 'Export Playlist'")
         df = self.state.filtered_df
         if df is None: return
         
@@ -288,6 +300,7 @@ class ActionComponent:
 
     # NEW ACTION HANDLER
     def action_import_likes(self):
+        logging.info("User Action: Clicked 'Import Last.fm Likes'")
         if not self.state.user.lastfm_username:
             messagebox.showwarning("Setup", "Please configure your Last.fm username in 'Edit User' first.")
             return

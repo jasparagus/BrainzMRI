@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from idlelib.tooltip import Hovertip
 import os
+import logging
 
 from gui_user_editor import UserEditorWindow
 from user import get_cached_usernames, User
@@ -111,9 +112,11 @@ class HeaderComponent:
             messagebox.showerror("Error Loading User", str(e))
 
     def new_user(self):
+        logging.info("User Action: Clicked 'New User'")
         UserEditorWindow(self.parent, None, self._on_user_saved)
 
     def edit_user(self):
+        logging.info("User Action: Clicked 'Edit User'")
         if not self.state.user:
             messagebox.showerror("Error", "Select a user to edit.")
             return
@@ -133,6 +136,7 @@ class HeaderComponent:
     # CSV Logic
     # ------------------------------------------------------------------
     def import_csv(self):
+        logging.info("User Action: Clicked 'Import CSV'")
         # We allow CSV import even if no user is loaded, though enrichment might fail.
         # But generally a user context is preferred.
         
@@ -168,6 +172,7 @@ class HeaderComponent:
             messagebox.showerror("Import Failed", f"Could not parse CSV: {e}")
 
     def close_csv(self):
+        logging.info("User Action: Clicked 'Close CSV'")
         self.state.playlist_df = None
         self.state.playlist_name = None
         

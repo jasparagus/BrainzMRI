@@ -22,7 +22,10 @@ class BaseClient:
         url = f"{self.base_url}{endpoint}"
         
         # [RESTORED] Log the request for debugging
-        logging.info(f"API Request: {method} {url}")
+        full_url = url
+        if params:
+            full_url += "?" + urllib.parse.urlencode(params)
+        logging.info(f"API Request: {method} {full_url}")
         
         attempts = 0
         while attempts < config.max_retries:
@@ -115,19 +118,62 @@ class MusicBrainzClient(BaseClient):
         if album and str(album).lower() not in ["", "nan", "none", "unknown"]:
             query += f' AND release:"{album}"'
             
-        data = self._request("GET", "recording", params={"query": query, "fmt": "json", "limit": 1})
+        # Increase limit to check candidates
+        data = self._request("GET", "recording", params={"query": query, "fmt": "json", "limit": 5})
         time.sleep(self.delay)
         
         if not data: return None
         recs = data.get("recordings", [])
         if not recs: return None
         
-        match = recs[0]
-        res = {"mbid": match["id"]}
+        # Scorer function
+        from difflib import SequenceMatcher
+        def similar(a, b): return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+        best_match = None
+        best_score = -1
+
+        for r in recs:
+            score = 0
+            
+            # Check Artist (Highest Priority)
+            # MB returns artist-credit list
+            credits = r.get("artist-credit", [])
+            artist_name = credits[0].get("name", "") if credits else ""
+            if isinstance(artist_name, dict): artist_name = artist_name.get("name", "") 
+            
+            art_score = similar(artist, artist_name)
+            if art_score < 0.3: continue # Filter out completely wrong artists
+            score += art_score * 10
+            
+            # Check Album (if provided in query)
+            r_album = ""
+            if "releases" in r and r["releases"]:
+                r_album = r["releases"][0].get("title", "")
+            
+            if album and str(album).lower() not in ["", "nan", "none", "unknown"]:
+                if r_album:
+                    alb_score = similar(album, r_album)
+                    score += alb_score * 5
+            
+            # Penalize "Live" or "Remix" if not in query
+            title = r.get("title", "").lower()
+            if "live" in title and "live" not in track.lower(): score -= 2
+            if "remix" in title and "remix" not in track.lower(): score -= 2
+            
+            if score > best_score:
+                best_score = score
+                best_match = r
+
+        if not best_match: 
+            best_match = recs[0] # Fallback
+
+        res = {"mbid": best_match["id"]}
         
-        # Try to extract an album title if present
-        if "releases" in match and match["releases"]:
-            res["album"] = match["releases"][0].get("title", "")
+        if "releases" in best_match and best_match["releases"]:
+            res["album"] = best_match["releases"][0].get("title", "")
+            
+        return res
             
         return res
 

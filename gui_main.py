@@ -238,6 +238,7 @@ class BrainzMRIGUI:
     # Core Actions
     # ------------------------------------------------------------------
     def start_sync_engine(self):
+        logging.info("User Action: Clicked 'Get New Listens'")
         if not self.state.user: return
         
         self.header.btn_get_listens.config(state="disabled")
@@ -291,6 +292,7 @@ class BrainzMRIGUI:
         manager.start(start_ts, local_ts)
 
     def run_report(self):
+        logging.info("User Action: Clicked 'Generate Report'")
         if self.processing or (not self.state.user and not self.state.playlist_df): return
         self.processing = True
         self.btn_generate.config(state="disabled")
@@ -409,6 +411,7 @@ class BrainzMRIGUI:
                              tk.Toplevel()) # Dummy win to satisfy sig
 
     def save_report(self):
+        logging.info("User Action: Clicked 'Save Report'")
         if self.state.last_report_df is None: return
         try:
             path = reporting.save_report(self.state.last_report_df, self.state.user, self.state.last_meta)
@@ -418,6 +421,7 @@ class BrainzMRIGUI:
             messagebox.showerror("Error", str(e))
 
     def show_graph(self):
+        logging.info("User Action: Clicked 'Show Graph'")
         mode = self.state.last_mode
         if mode == "Favorite Artist Trend":
             # Recalculate trend data
