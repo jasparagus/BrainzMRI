@@ -153,7 +153,7 @@ class BrainzMRIGUI:
         self.status_var.set(f"Imported Data: {self.state.playlist_name}")
         self.btn_generate.config(state="normal")
         # Optional: Auto-run or just let user click Generate
-        # self.run_report() 
+        self.run_report() 
 
     def _build_report_settings_frame(self):
         """Redesigned 'Report Settings' Group."""
@@ -304,10 +304,11 @@ class BrainzMRIGUI:
             params["liked_mbids"] = self.state.user.get_liked_mbids()
             
             # Determine Enrichment
-            enrich_str = params.pop("enrichment_mode")
+            enrich_str = self.enrichment_mode_var.get()
             params["do_enrich"] = not enrich_str.startswith("None")
             params["enrichment_mode"] = enrich_str
-            params["force_cache_update"] = params.pop("force_update") # Rename key
+            params["force_cache_update"] = self.force_cache_var.get()
+            params["deep_query"] = self.deep_query_var.get()
             
             self.state.last_params = params.copy()
 
