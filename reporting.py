@@ -188,16 +188,11 @@ def _compute_likes_count(df: pd.DataFrame, liked_mbids: set, group_col: str) -> 
     if not liked_mbids:
         return pd.DataFrame(columns=empty_cols)
 
-    liked_df = df[df["recording_mbid"].isin(liked_mbids)]
+    liked_df = df[df["recording_mbid"].isin(liked_mbids)].copy()
     if liked_df.empty:
         return pd.DataFrame(columns=empty_cols)
 
     # Count unique recording MBIDs per group
-    # Ensure join columns are string for safety
-    for col in cols:
-        if col in liked_df.columns:
-            liked_df[col] = liked_df[col].fillna("").astype(str)
-            
     grouped = liked_df.groupby(cols)["recording_mbid"].nunique().reset_index()
     grouped = grouped.rename(columns={"recording_mbid": "Likes"})
     return grouped

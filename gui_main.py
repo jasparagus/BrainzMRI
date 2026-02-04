@@ -458,11 +458,12 @@ class BrainzMRIGUI:
         mode = self.cmb_report.get()
         enrich = self.enrichment_mode_var.get()
         
-        # Force Cache: Enabled if Fetching from API OR if using Imported CSV (to allow resolution updates)
-        fetching = enrich in ["Query MusicBrainz", "Query Last.fm", "Query All Sources (Slow)"]
+        # Force Cache: Enabled if ANY Enrichment is selected (to allow upgrading Cache Only -> Query)
+        # OR if using Imported CSV
+        can_enrich = not enrich.startswith("None")
         is_csv = (mode == "Imported CSV")
         
-        if fetching or is_csv:
+        if can_enrich or is_csv:
             self.chk_force.config(state="normal")
         else:
             self.chk_force.config(state="disabled")
