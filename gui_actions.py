@@ -233,8 +233,14 @@ class ActionComponent:
             def cb(c, t, m):
                 win.after(0, lambda: win.update_progress(c, t, m))
             
+            # Check for force update param
+            force = self.state.last_params.get("force_cache_update", False) if self.state.last_params else False
+            
             df_res, ok, fail = enrichment.resolve_missing_mbids(
-                df_in, progress_callback=cb, is_cancelled=lambda: win.cancelled
+                df_in, 
+                force_update=force,
+                progress_callback=cb, 
+                is_cancelled=lambda: win.cancelled
             )
 
             def _finish():

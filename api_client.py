@@ -103,6 +103,16 @@ class MusicBrainzClient(BaseClient):
         # Return tags of first match
         return [t["name"] for t in results[0].get("tags", [])]
 
+    def _clean_title(self, text):
+        """Remove common noise from track titles for fallback search."""
+        import re
+        if not text: return ""
+        # Remove (Extension) types
+        t = re.sub(r"\s*[\(\[]\s*(fit\.|feat\.|ft\.|with|featuring).+?[\)\]]", "", text, flags=re.IGNORECASE)
+        t = re.sub(r"\s*[\(\[]\s*(remix|instrumental|live|demo|edit|remaster|remastered).+?[\)\]]", "", t, flags=re.IGNORECASE)
+        t = re.sub(r"\s*-\s*(remix|instrumental|live|demo|edit|remaster|remastered).*", "", t, flags=re.IGNORECASE)
+        return t.strip()
+
     def search_recording_details(self, artist, track, album=None):
         """
         Search for a recording MBID.
@@ -112,23 +122,31 @@ class MusicBrainzClient(BaseClient):
         if not artist or str(artist).lower() == "nan": return None
         if not track or str(track).lower() == "nan": return None
         
-        query = f'artist:"{artist}" AND recording:"{track}"'
-        
-        # Only add album if it's a valid string
-        if album and str(album).lower() not in ["", "nan", "none", "unknown"]:
-            query += f' AND release:"{album}"'
-            
-        # Increase limit to check candidates
-        data = self._request("GET", "recording", params={"query": query, "fmt": "json", "limit": 5})
-        time.sleep(self.delay)
-        
-        if not data: return None
-        recs = data.get("recordings", [])
-        if not recs: return None
-        
         # Scorer function
         from difflib import SequenceMatcher
         def similar(a, b): return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+        def perform_search(q_artist, q_track, q_album):
+            query = f'artist:"{q_artist}" AND recording:"{q_track}"'
+            if q_album and str(q_album).lower() not in ["", "nan", "none", "unknown"]:
+                query += f' AND release:"{q_album}"'
+            
+            data = self._request("GET", "recording", params={"query": query, "fmt": "json", "limit": 5})
+            time.sleep(self.delay)
+            if not data: return []
+            return data.get("recordings", [])
+
+        # 1. Strict Search
+        recs = perform_search(artist, track, album)
+        
+        # 2. Fallback: Cleaned Search (if no results or low confidence could be checked, but simpler to just try if empty)
+        if not recs:
+            clean_track = self._clean_title(track)
+            if clean_track != track:
+                logging.info(f"Retrying search with cleaned title: '{clean_track}'")
+                recs = perform_search(artist, clean_track, album)
+
+        if not recs: return None
 
         best_match = None
         best_score = -1
@@ -137,16 +155,15 @@ class MusicBrainzClient(BaseClient):
             score = 0
             
             # Check Artist (Highest Priority)
-            # MB returns artist-credit list
             credits = r.get("artist-credit", [])
             artist_name = credits[0].get("name", "") if credits else ""
             if isinstance(artist_name, dict): artist_name = artist_name.get("name", "") 
             
             art_score = similar(artist, artist_name)
-            if art_score < 0.3: continue # Filter out completely wrong artists
+            if art_score < 0.4: continue # Loose filter
             score += art_score * 10
             
-            # Check Album (if provided in query)
+            # Check Album
             r_album = ""
             if "releases" in r and r["releases"]:
                 r_album = r["releases"][0].get("title", "")
@@ -156,26 +173,36 @@ class MusicBrainzClient(BaseClient):
                     alb_score = similar(album, r_album)
                     score += alb_score * 5
             
-            # Penalize "Live" or "Remix" if not in query
-            title = r.get("title", "").lower()
-            if "live" in title and "live" not in track.lower(): score -= 2
-            if "remix" in title and "remix" not in track.lower(): score -= 2
+            # Check Title
+            r_title = r.get("title", "")
+            title_score = similar(track, r_title)
+            score += title_score * 3
+
+            # Penalize "Live" / "Remix" / "Karaoke"
+            r_title_lower = r_title.lower()
+            track_lower = track.lower()
+            
+            # If query didn't ask for Live, penalize
+            if "live" in r_title_lower and "live" not in track_lower: score -= 3
+            if "remix" in r_title_lower and "remix" not in track_lower: score -= 3
+            if "instrumental" in r_title_lower and "instrumental" not in track_lower: score -= 3
+            if "karaoke" in r_title_lower: score -= 5
+            
+            # Boost "Official" status if available in release info (hard to check in search results easily, ignoring for now)
             
             if score > best_score:
                 best_score = score
                 best_match = r
 
         if not best_match: 
-            best_match = recs[0] # Fallback
+            return None # Don't just return first trash result
 
         res = {"mbid": best_match["id"]}
-        
         if "releases" in best_match and best_match["releases"]:
             res["album"] = best_match["releases"][0].get("title", "")
             
         return res
             
-        return res
 
 
 class LastFMClient(BaseClient):

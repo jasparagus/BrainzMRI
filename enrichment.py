@@ -379,6 +379,7 @@ def enrich_report(
 
 def resolve_missing_mbids(
     df: pd.DataFrame,
+    force_update: bool = False,
     progress_callback: Optional[Callable] = None,
     is_cancelled: Optional[Callable] = None
 ) -> tuple[pd.DataFrame, int, int]:
@@ -393,6 +394,13 @@ def resolve_missing_mbids(
     original_cache_size = len(results_map)
 
     # Identify rows needing resolution
+    # Logic: if force_update is True, we attempt to resolve ALL rows, even if they have MBIDs?
+    # NO, force_update usually means "re-fetch items that are in cache but maybe stale" OR "re-fetch items that failed".
+    # But here, we are iterating "unique_rows".
+    # For now, let's keep the mask strictly for "missing or empty" MBIDs in the DataFrame.
+    # The user wants to "Force a cache overwrite".
+    # This implies that if the item IS missing in DF, but IS in cache, we should ignore the cache and fetch again.
+    
     mask_missing = (
         (df["recording_mbid"].isna() | (df["recording_mbid"] == "") | (df["recording_mbid"] == "None")) &
         (df["artist"].notna() & (df["artist"] != "")) &
@@ -423,8 +431,8 @@ def resolve_missing_mbids(
 
         key = parsing.make_track_key(artist, track, album)
 
-        # Check Cache
-        if key in results_map:
+        # Check Cache (bypass if force_update)
+        if not force_update and key in results_map:
             # We count it as resolved if the cache has a valid entry
             if results_map[key]: 
                 resolved_count += 1

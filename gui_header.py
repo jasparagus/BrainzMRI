@@ -99,7 +99,8 @@ class HeaderComponent:
             config.save()
 
             # UI Updates
-            self.close_csv() # Reset to history mode
+            # UI Updates
+            self.close_csv(silent=True) # Reset to history mode
             self.lbl_source_status.config(text="Active Source: User History", fg="gray")
             
             # API Button State
@@ -171,8 +172,9 @@ class HeaderComponent:
         except Exception as e:
             messagebox.showerror("Import Failed", f"Could not parse CSV: {e}")
 
-    def close_csv(self):
-        logging.info("User Action: Clicked 'Close CSV'")
+    def close_csv(self, silent=False):
+        if not silent:
+            logging.info("User Action: Clicked 'Close CSV'")
         self.state.playlist_df = None
         self.state.playlist_name = None
         
