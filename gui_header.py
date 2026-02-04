@@ -14,11 +14,12 @@ from user import get_cached_usernames, User
 from config import config
 
 class HeaderComponent:
-    def __init__(self, parent: tk.Frame, app_state, callback_refresh_data, on_import_callback=None):
+    def __init__(self, parent: tk.Frame, app_state, callback_refresh_data, on_import_callback=None, on_cleared_callback=None):
         self.parent = parent
         self.state = app_state
         self.callback_refresh_data = callback_refresh_data # Function to call when source changes
         self.on_import_callback = on_import_callback       # New Callback for CSV import
+        self.on_cleared_callback = on_cleared_callback     # Callback for CSV close
 
         # Sub-frames
         self.frm_user = tk.Frame(parent)
@@ -180,3 +181,6 @@ class HeaderComponent:
         
         self.lbl_source_status.config(text="Active Source: User History", fg="gray")
         self.btn_close_csv.pack_forget()
+
+        if self.on_cleared_callback:
+            self.on_cleared_callback()

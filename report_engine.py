@@ -22,19 +22,19 @@ class ReportEngine:
 
     def __init__(self) -> None:
         self._handlers = {
-            "By Artist": {
+            "Top Artists": {
                 "func": reporting.report_top,
                 "kwargs": {"group_col": "artist", "by": "total_listens"},
                 "report_type_key": "artist",
                 "status": "Artist report generated.",
             },
-            "By Album": {
+            "Top Albums": {
                 "func": reporting.report_top,
                 "kwargs": {"group_col": "album", "by": "total_listens"},
                 "report_type_key": "album",
                 "status": "Album report generated.",
             },
-            "By Track": {
+            "Top Tracks": {
                 "func": reporting.report_top,
                 "kwargs": {"group_col": "track", "by": "total_listens"},
                 "report_type_key": "track",

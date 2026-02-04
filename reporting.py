@@ -193,6 +193,11 @@ def _compute_likes_count(df: pd.DataFrame, liked_mbids: set, group_col: str) -> 
         return pd.DataFrame(columns=empty_cols)
 
     # Count unique recording MBIDs per group
+    # Ensure join columns are string for safety
+    for col in cols:
+        if col in liked_df.columns:
+            liked_df[col] = liked_df[col].fillna("").astype(str)
+            
     grouped = liked_df.groupby(cols)["recording_mbid"].nunique().reset_index()
     grouped = grouped.rename(columns={"recording_mbid": "Likes"})
     return grouped
@@ -299,6 +304,11 @@ def report_top(
     ).round(1)
 
     grouped = grouped.drop(columns=["total_duration_ms"]).reset_index()
+
+    # FIX: Ensure join columns are strictly strings to prevent merge errors (float vs object)
+    if "artist" in grouped.columns: grouped["artist"] = grouped["artist"].fillna("").astype(str)
+    if "album" in grouped.columns: grouped["album"] = grouped["album"].fillna("").astype(str)
+    if "track_name" in grouped.columns: grouped["track_name"] = grouped["track_name"].fillna("").astype(str)
 
     # --- Unified Likes Aggregation ---
     if liked_mbids:

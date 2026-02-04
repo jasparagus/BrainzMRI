@@ -252,6 +252,11 @@ def parse_generic_csv(csv_path: str) -> pd.DataFrame:
     if "album" not in df.columns:
         df["album"] = "Unknown"
 
+    # SANITIZATION: Enforce string types for core columns to prevent merge/groupby crashes
+    df["artist"] = df["artist"].fillna("Unknown").astype(str)
+    df["track_name"] = df["track_name"].fillna("Unknown").astype(str)
+    df["album"] = df["album"].fillna("Unknown").astype(str)
+
     if "listened_at" not in df.columns:
         # Default to now if missing
         df["listened_at"] = datetime.now(timezone.utc)
@@ -261,10 +266,13 @@ def parse_generic_csv(csv_path: str) -> pd.DataFrame:
     if "duration_ms" not in df.columns:
         df["duration_ms"] = 0
 
-    # Ensure ID columns exist
+    # Ensure ID columns exist and are consistent
     for col in ["recording_mbid", "release_mbid", "artist_mbid"]:
         if col not in df.columns:
             df[col] = None
+        else:
+             # Clean up "nan" strings or actual NaNs to None or ""
+             df[col] = df[col].astype(str).replace({"nan": None, "None": None, "NaN": None})
 
     df["origin"] = "csv_import"
 

@@ -113,6 +113,10 @@ class BrainzMRIGUI:
         self.report_engine = ReportEngine()
         self.processing = False # Simple guard
 
+        # Define Report Modes
+        self.REPORT_MODES_BASE = ["Raw Listens", "Top Artists", "Top Albums", "Top Tracks", "Favorite Artist Trend", "New Music By Year", "Genre Flavor"]
+        self.REPORT_MODES_CSV = ["Imported CSV"]
+
         # Initialize Variables for Enrichment (Moved from Filters)
         self.enrichment_mode_var = tk.StringVar(value="None (Data Only, No Genres)")
         self.force_cache_var = tk.BooleanVar(value=False)
@@ -120,7 +124,12 @@ class BrainzMRIGUI:
 
         # 1. Header (User/Source)
         # Pass callback for "Get New Listens" AND "Import CSV"
-        self.header = HeaderComponent(root, self.state, self.start_sync_engine, self.on_data_imported)
+        self.header = HeaderComponent(
+            root, self.state, 
+            self.start_sync_engine, 
+            on_import_callback=self.on_data_imported,
+            on_cleared_callback=self.on_data_cleared
+        )
 
         # 2. Filters (Stripped of enrichment)
         self.filters = FilterComponent(root, on_enter_key=self.run_report)
@@ -146,14 +155,45 @@ class BrainzMRIGUI:
             self.header.user_var.set(config.last_user)
             self.header.load_user(config.last_user)
 
+    # ------------------------------------------------------------------
+    # Dynamic Mode Logic
+    # ------------------------------------------------------------------
+    def _update_report_modes(self):
+        """Update report dropdown based on available data."""
+        modes = self.REPORT_MODES_BASE.copy()
+        
+        if self.state.playlist_df is not None:
+             modes = self.REPORT_MODES_CSV + modes
+             
+        self.cmb_report["values"] = modes
+        
+        # Auto-select if current is invalid
+        current = self.cmb_report.get()
+        if current not in modes:
+            if self.state.playlist_df is not None:
+                self.cmb_report.set("Imported CSV")
+            else:
+                self.cmb_report.set("Raw Listens")
+
     def on_data_imported(self):
         """Callback when CSV is imported successfully."""
-        self.cmb_report.set("Raw Listens")
-        self.state.last_mode = "Raw Listens"
+        self._update_report_modes()
+        self.cmb_report.set("Imported CSV")
+        self.state.last_mode = "Imported CSV"
         self.status_var.set(f"Imported Data: {self.state.playlist_name}")
         self.btn_generate.config(state="normal")
-        # Optional: Auto-run or just let user click Generate
+        
+        # Validate UI state immediately (Force Cache needs enabling)
+        self._update_ui_state()
+        
+        # Auto-run
         self.run_report() 
+
+    def on_data_cleared(self):
+        """Callback when CSV is closed (called by header via new callback)."""
+        self._update_report_modes()
+        self.cmb_report.set("Raw Listens")
+        self._update_ui_state()
 
     def _build_report_settings_frame(self):
         """Redesigned 'Report Settings' Group."""
@@ -169,13 +209,10 @@ class BrainzMRIGUI:
         frm_type.pack(side="left", padx=15, anchor="n")
         
         tk.Label(frm_type, text="Report Type").pack(anchor="w")
-        self.cmb_report = ttk.Combobox(frm_type, values=[
-            "By Artist", "By Album", "By Track", 
-            "Genre Flavor", "Favorite Artist Trend", "New Music By Year", "Raw Listens"
-        ], state="readonly", width=18)
+        self.cmb_report = ttk.Combobox(frm_type, values=self.REPORT_MODES_BASE, state="readonly", width=18)
         self.cmb_report.current(0)
         self.cmb_report.pack(anchor="w")
-        self.cmb_report.bind("<<ComboboxSelected>>", self.on_report_type_changed)
+        self.cmb_report.bind("<<ComboboxSelected>>", lambda e: self._update_ui_state())
 
         # --- Column 2: Genre Lookup ---
         frm_enrich = tk.Frame(container)
@@ -187,17 +224,7 @@ class BrainzMRIGUI:
         ], state="readonly", width=28)
         self.cmb_enrich.pack(anchor="w")
         Hovertip(self.cmb_enrich, "Select source for Genre metadata.\nAPI lookups can be slow.")
-
-        # Logic to disable checkboxes if None/CacheOnly
-        def _update_state(*_):
-            mode = self.enrichment_mode_var.get()
-            state = "disabled" if (mode.startswith("None") or mode == "Cache Only") else "normal"
-            self.chk_force.config(state=state)
-            self.chk_deep.config(state=state)
-            if state == "disabled":
-                self.force_cache_var.set(False)
-                self.deep_query_var.set(False)
-        self.enrichment_mode_var.trace_add("write", _update_state)
+        self.cmb_enrich.bind("<<ComboboxSelected>>", lambda e: self._update_ui_state())
 
         # --- Column 3: Checkboxes (Stacked) ---
         frm_checks = tk.Frame(container)
@@ -211,7 +238,7 @@ class BrainzMRIGUI:
         self.chk_deep.pack(anchor="w")
         Hovertip(self.chk_deep, "Fetch metadata for Albums/Tracks (Default is Artists only).")
         
-        _update_state() # Init state
+        self._update_ui_state() # Init state
 
         # --- Column 4: Buttons (Side-by-side) ---
         frm_btns = tk.Frame(container)
@@ -302,25 +329,47 @@ class BrainzMRIGUI:
             params = self.filters.get_values()
             
             # 2. Add Context
-            params["mode"] = self.cmb_report.get()
-            params["liked_mbids"] = self.state.user.get_liked_mbids()
+            selected_mode = self.cmb_report.get()
+            
+            # Alias "Imported CSV" to "Raw Listens" logic
+            if selected_mode == "Imported CSV":
+                params["mode"] = "Raw Listens"
+            else:
+                params["mode"] = selected_mode
+
+            # Handle Likes context (User might be None if just reviewing CSV)
+            if self.state.user:
+                params["liked_mbids"] = self.state.user.get_liked_mbids()
+            else:
+                params["liked_mbids"] = set()
             
             # Determine Enrichment
             enrich_str = self.enrichment_mode_var.get()
+            force_update = self.force_cache_var.get()
+            
+            # Logic: If Force Update is requested, we MUST query API
+            if force_update and (enrich_str.startswith("None") or enrich_str == "Cache Only (Fast)"):
+                enrich_str = "Query MusicBrainz"
+                logging.info(f"Auto-switching enrichment to '{enrich_str}' because Force Update is enabled.")
+
             params["do_enrich"] = not enrich_str.startswith("None")
             params["enrichment_mode"] = enrich_str
-            params["force_cache_update"] = self.force_cache_var.get()
+            params["force_cache_update"] = force_update
             params["deep_query"] = self.deep_query_var.get()
             
             self.state.last_params = params.copy()
 
-            # 3. Select Data
-            if self.state.playlist_df is not None:
-                base_df = self.state.playlist_df.copy()
+            # 3. Select Data (Decoupled: Standard Reports ALWAYS use User History)
+            if selected_mode == "Imported CSV":
+                 if self.state.playlist_df is None:
+                     raise ValueError("No CSV loaded.")
+                 base_df = self.state.playlist_df.copy()
             else:
-                base_df = self.state.user.get_listens().copy()
+                 if not self.state.user:
+                     raise ValueError("No User loaded. Please load a user to view history reports.")
+                 base_df = self.state.user.get_listens().copy()
             
-            if "_username" not in base_df.columns:
+            if self.state.user and "_username" not in base_df.columns:
                 base_df["_username"] = self.state.user.username
 
             # 4. Launch Thread
@@ -359,43 +408,72 @@ class BrainzMRIGUI:
             self._reset_ui()
 
     def _on_report_done(self, result, meta, key, enriched, status, mode, win):
-        if win.winfo_exists(): win.destroy()
-        self._reset_ui()
+        try:
+            if win.winfo_exists(): win.destroy()
+            self._reset_ui()
 
-        # Update State
-        self.state.last_report_df = result
-        self.state.last_meta = meta
-        self.state.last_mode = mode
-        self.state.last_report_type_key = key
-        self.state.last_enriched = enriched
-        self.state.original_df = result.copy()
-        self.state.filtered_df = result.copy()
+            # Update State
+            self.state.last_report_df = result
+            self.state.last_meta = meta
+            self.state.last_mode = mode
+            self.state.last_report_type_key = key
+            self.state.last_enriched = enriched
+            self.state.original_df = result.copy()
+            self.state.filtered_df = result.copy()
 
-        # Update UI
-        self.table_view.show_table(result)
-        self.status_var.set(status)
+            # Update UI
+            self.table_view.show_table(result)
+            self.status_var.set(status)
 
-        # Toggle Graph
-        if mode in ["Favorite Artist Trend", "New Music By Year", "Genre Flavor"]:
-            self.btn_graph.config(state="normal", bg="#EF5350", fg="white")
-        else:
-            self.btn_graph.config(state="disabled", bg="SystemButtonFace", fg="black")
+            # Toggle Graph
+            if mode in ["Favorite Artist Trend", "New Music By Year", "Genre Flavor"]:
+                self.btn_graph.config(state="normal", bg="#EF5350", fg="white")
+            else:
+                self.btn_graph.config(state="disabled", bg="SystemButtonFace", fg="black")
 
-        # Toggle Actions Panel
-        has_tracks = "track_name" in result.columns
-        has_mbids = False
-        if "recording_mbid" in result.columns:
-            has_mbids = result["recording_mbid"].notna().any()
+            # Toggle Actions Panel
+            has_tracks = "track_name" in result.columns
+            has_mbids = False
+            if "recording_mbid" in result.columns:
+                has_mbids = result["recording_mbid"].notna().any()
+            
+            has_missing = False
+            if has_tracks:
+                if "recording_mbid" not in result.columns: has_missing = True
+                else: has_missing = result["recording_mbid"].isna().any()
+
+            self.actions.update_state(
+                has_mbids=has_mbids,
+                has_missing=has_missing
+            )
+        except Exception as e:
+            logging.error(f"UI Update failed: {e}", exc_info=True)
+            messagebox.showerror("UI Error", f"Failed to update display: {e}")
+
+    def _update_ui_state(self):
+        """Enable/Disable checkboxes based on selection."""
+        # Check if cmb_report exists first (guards against early init calls)
+        if not hasattr(self, 'cmb_report') or not hasattr(self, 'chk_force'): return
+
+        mode = self.cmb_report.get()
+        enrich = self.enrichment_mode_var.get()
         
-        has_missing = False
-        if has_tracks:
-            if "recording_mbid" not in result.columns: has_missing = True
-            else: has_missing = result["recording_mbid"].isna().any()
+        # Force Cache: Enabled if Fetching from API OR if using Imported CSV (to allow resolution updates)
+        fetching = enrich in ["Query MusicBrainz", "Query Last.fm", "Query All Sources (Slow)"]
+        is_csv = (mode == "Imported CSV")
+        
+        if fetching or is_csv:
+            self.chk_force.config(state="normal")
+        else:
+            self.chk_force.config(state="disabled")
+            self.force_cache_var.set(False)
 
-        self.actions.update_state(
-            has_mbids=has_mbids,
-            has_missing=has_missing
-        )
+        # Deep Query: Only meaningful if enriching and NOT None
+        if enrich.startswith("None") or enrich == "Cache Only (Fast)":
+             self.chk_deep.config(state="disabled")
+             self.deep_query_var.set(False)
+        else:
+             self.chk_deep.config(state="normal")
 
     def _reset_ui(self):
         self.processing = False
