@@ -1,6 +1,6 @@
 # Project Instantiation Document: BrainzMRI
-**Version:** 7.3 (Cross-Platform Sync & UI Refactor)
-**Date:** 2026-01-30
+**Version:** 7.2 (Stable Modular Architecture)
+**Date:** 2026-01-21
 
 ## 1. Meta-Instructions for the LLM
 **Role:** You are the Lead Python Developer and Architect for **BrainzMRI**.
@@ -21,8 +21,7 @@ This document is the **immutable Source of Truth** for the project's architectur
     * Use `logging` module only. `print()` is forbidden.
     * Must hook `sys.excepthook`, `sys.unraisablehook`, and `root.report_callback_exception` to ensure GUI crashes are captured in `brainzmri.log`.
     * Must enable `logging.captureWarnings(True)` to catch Pandas warnings (e.g., `SettingWithCopyWarning`).
-* **Networking:** All HTTP requests MUST use the `requests` library (not `urllib`).
-* **Session Management:** API Clients must use `requests.Session()` to enable connection pooling.
+
 ---
 
 ## 2. Project Overview
@@ -109,24 +108,21 @@ Expect to receive the following files.
 
 | File | Type | Responsibility |
 | :--- | :--- | :--- |
-| **`gui_main.py`** | **View/Controller** | Main Window, "Report Settings" Logic, and thread orchestration. |
+| **`gui_main.py`** | **View (Root)** | Assembly, Logging Hooks, Event Loop. |
 | **`gui_header.py`** | **View** | User/Source Selection UI. |
-| **`gui_filters.py`** | **View** | Strictly input widgets for Time, Recency, and Thresholds. (No Enrichment logic). |
-| **`gui_actions.py`** | **View/Controller** | Persistent Actions Bar (Like, Resolve, Playlist, Import). Manages button states (`update_state`). |
+| **`gui_filters.py`** | **View** | Inputs, Thresholds, Tooltips. |
+| **`gui_actions.py`** | **View/Controller** | Upstream Actions & Workers. |
 | **`gui_tableview.py`** | **View** | Treeview & Sort Logic. |
 | **`gui_charts.py`** | **View** | Matplotlib Visualizations. |
 | **`gui_user_editor.py`** | **View** | User Creation Dialog. |
 | **`report_engine.py`** | **Controller** | Pipeline Orchestration. |
 | **`sync_engine.py`** | **Controller** | Sync Threading & Barrier. |
-| **`api_client.py`** | **Service** | `requests`-based client for MusicBrainz, ListenBrainz, and Last.fm. |
+| **`api_client.py`** | **Network** | HTTP, Retries, Backoff. |
 | **`user.py`** | **Model** | Persistence, File I/O. |
 | **`reporting.py`** | **Model** | Pandas Aggregation Logic. |
-| **`enrichment.py`** | **Model/Service** | Fetches Genre tags and resolves missing MBIDs using persistent caching. |
+| **`enrichment.py`** | **Model** | Metadata Fetching & Caching. |
 | **`parsing.py`** | **Utility** | Data Normalization. |
 | **`config.py`** | **Utility** | Singleton Settings. |
-| **`sync_engine.py`** | **Controller** | Orchestrates background synchronization (Filter-First logic) and Progress UI. |
-| **`likes_sync.py`** | **Controller** | Manages cross-platform logic: Fetch Last.fm Likes  Resolve MBIDs  Diff  User Confirm  Push LB. |
-
 
 ---
 
@@ -147,13 +143,6 @@ Columns: `listened_at` (datetime64[ns, UTC]), `track_name`, `artist`, `album`, `
 * **Thread Safety:** UI updates from background threads must use `root.after` (via callbacks).
 * **Copy-on-Write:** When passing DataFrame slices (e.g., filtered by time) to `enrichment.py`, you MUST call `.copy()` to avoid `SettingWithCopyWarning`.
 * **Logging Hooks:** The `setup_logging` function in `gui_main.py` is the only authorized place to configure `sys` exception hooks.
-* **UI Layout:** Report configuration (Type, Enrichment Source, Settings) is grouped into a central `LabelFrame` in `gui_main.py`. The `gui_filters.py` module is restricted solely to data filtering (Time/Count).
-* **Duplicate Prevention (Sync):** The `SyncManager` must strictly apply "Filter-First" logic. Incoming batches must be filtered against local data **before** being written to disk or counted for the UI.
-
-### 6.4 Global Caches (`cache/global/`)
-* **`artist_enrichment.json`**: Caches genre tags for artists.
-* **`mbid_resolver_cache.json`**: **[NEW]** Caches `(Artist, Track, Album)` $\to$ `MBID` resolutions. Critical for "Import Likes" performance.
-* **`genres_excluded.json`**: User-defined list of tags to ignore.
 
 ---
 
