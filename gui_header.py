@@ -14,12 +14,13 @@ from user import get_cached_usernames, User
 from config import config
 
 class HeaderComponent:
-    def __init__(self, parent: tk.Frame, app_state, callback_refresh_data, on_import_callback=None, on_cleared_callback=None):
+    def __init__(self, parent: tk.Frame, app_state, callback_refresh_data, on_import_callback=None, on_cleared_callback=None, on_import_lastfm_callback=None):
         self.parent = parent
         self.state = app_state
         self.callback_refresh_data = callback_refresh_data # Function to call when source changes
         self.on_import_callback = on_import_callback       # New Callback for CSV import
         self.on_cleared_callback = on_cleared_callback     # Callback for CSV close
+        self.on_import_lastfm_callback = on_import_lastfm_callback # Callback from Main -> Actions
 
         # Sub-frames
         self.frm_user = tk.Frame(parent)
@@ -55,6 +56,17 @@ class HeaderComponent:
         )
         self.btn_get_listens.pack(side="left", padx=(0, 10))
         Hovertip(self.btn_get_listens, "Fetch recent listens from ListenBrainz API.\nRequires username in profile.", hover_delay=500)
+
+        # Import Last.fm Likes (New Button)
+        self.btn_import_lastfm = tk.Button(
+            self.frm_source,
+            text="Import Last.fm Likes",
+            command=self.on_import_lastfm_callback,
+            bg="#81C784",  # Matches Action button color
+            state="disabled"
+        )
+        self.btn_import_lastfm.pack(side="left", padx=(0, 10))
+        Hovertip(self.btn_import_lastfm, "Sync 'Loved Tracks' from Last.fm.\nRequires Last.fm connection.", hover_delay=500)
 
         self.lbl_source_status = tk.Label(
             self.frm_source,
@@ -109,6 +121,11 @@ class HeaderComponent:
                 self.btn_get_listens.config(state="normal")
             else:
                 self.btn_get_listens.config(state="disabled")
+
+            if user.get_lastfm_username():
+                self.btn_import_lastfm.config(state="normal")
+            else:
+                self.btn_import_lastfm.config(state="disabled")
 
         except Exception as e:
             messagebox.showerror("Error Loading User", str(e))

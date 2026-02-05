@@ -57,34 +57,39 @@ class UserEditorWindow(tk.Toplevel):
         self.ent_lastfm = tk.Entry(frm, width=40)
         self.ent_lastfm.grid(row=1, column=1, pady=3)
 
+        # Last.fm API Key
+        tk.Label(frm, text="Last.fm API Key:").grid(row=2, column=0, sticky="w")
+        self.ent_lastfm_key = tk.Entry(frm, width=40, show="*")
+        self.ent_lastfm_key.grid(row=2, column=1, pady=3)
+
         # ListenBrainz Username
-        tk.Label(frm, text="ListenBrainz Username:").grid(row=2, column=0, sticky="w")
+        tk.Label(frm, text="ListenBrainz Username:").grid(row=3, column=0, sticky="w")
         self.ent_listenbrainz = tk.Entry(frm, width=40)
-        self.ent_listenbrainz.grid(row=2, column=1, pady=3)
+        self.ent_listenbrainz.grid(row=3, column=1, pady=3)
 
         # ListenBrainz Token
         lbl_token = tk.Label(frm, text="ListenBrainz User Token:")
-        lbl_token.grid(row=3, column=0, sticky="w")
+        lbl_token.grid(row=4, column=0, sticky="w")
         
         self.ent_token = tk.Entry(frm, width=40, show="*") # Masked input
-        self.ent_token.grid(row=3, column=1, pady=3)
+        self.ent_token.grid(row=4, column=1, pady=3)
         
         # Helper link
         link = tk.Label(frm, text="(Get token from your profile)", fg="blue", cursor="hand2")
-        link.grid(row=4, column=1, sticky="w")
+        link.grid(row=5, column=1, sticky="w")
         link.bind("<Button-1>", lambda e: webbrowser.open("https://listenbrainz.org/profile/"))
 
         # Separator
-        ttk.Separator(frm, orient="horizontal").grid(row=5, column=0, columnspan=2, sticky="ew", pady=10)
+        ttk.Separator(frm, orient="horizontal").grid(row=6, column=0, columnspan=2, sticky="ew", pady=10)
 
         # ZIP selection (New ZIPs only)
         # Note: We no longer display "Previous ZIPs" as they are fully merged into the database.
         tk.Label(frm, text="Import New ListenBrainz Data (ZIP):").grid(
-            row=6, column=0, sticky="nw", pady=(0, 0)
+            row=7, column=0, sticky="nw", pady=(0, 0)
         )
         
         self.lst_pending_zips = tk.Listbox(frm, width=60, height=4)
-        self.lst_pending_zips.grid(row=6, column=1, pady=(0, 0))
+        self.lst_pending_zips.grid(row=7, column=1, pady=(0, 0))
 
         btn_choose_zip = tk.Button(
             frm,
@@ -92,11 +97,11 @@ class UserEditorWindow(tk.Toplevel):
             command=self._choose_zip,
             width=25,
         )
-        btn_choose_zip.grid(row=7, column=1, sticky="w", pady=5)
+        btn_choose_zip.grid(row=8, column=1, sticky="w", pady=5)
 
         # Save / Cancel
         frm_buttons = tk.Frame(frm)
-        frm_buttons.grid(row=8, column=0, columnspan=2, pady=15)
+        frm_buttons.grid(row=9, column=0, columnspan=2, pady=15)
 
         tk.Button(
             frm_buttons,
@@ -126,6 +131,10 @@ class UserEditorWindow(tk.Toplevel):
 
         # Now using the methods added to user.py
         self.ent_lastfm.insert(0, user.get_lastfm_username() or "")
+        
+        if hasattr(user, "lastfm_api_key") and user.lastfm_api_key:
+             self.ent_lastfm_key.insert(0, user.lastfm_api_key)
+        
         self.ent_listenbrainz.insert(0, user.get_listenbrainz_username() or "")
         
         if user.listenbrainz_token:
@@ -153,6 +162,7 @@ class UserEditorWindow(tk.Toplevel):
     def _save_user(self):
         app_username = self.ent_app_username.get().strip()
         lastfm_username = self.ent_lastfm.get().strip() or None
+        lastfm_api_key = self.ent_lastfm_key.get().strip() or None
         listenbrainz_username = self.ent_listenbrainz.get().strip() or None
         token = self.ent_token.get().strip() or None
 
@@ -169,7 +179,7 @@ class UserEditorWindow(tk.Toplevel):
         if self.existing_user:
             user = self.existing_user
             # Now using the method added to user.py
-            user.update_sources(lastfm_username, listenbrainz_username, token)
+            user.update_sources(lastfm_username, lastfm_api_key, listenbrainz_username, token)
 
             for zip_path in self.pending_zips:
                 try:
@@ -190,6 +200,7 @@ class UserEditorWindow(tk.Toplevel):
             user = User.from_sources(
                 username=app_username,
                 lastfm_username=lastfm_username,
+                lastfm_api_key=lastfm_api_key,
                 listenbrainz_username=listenbrainz_username,
                 listenbrainz_token=token,
                 listenbrainz_zips=[],

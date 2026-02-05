@@ -123,12 +123,13 @@ class BrainzMRIGUI:
         self.deep_query_var = tk.BooleanVar(value=False)
 
         # 1. Header (User/Source)
-        # Pass callback for "Get New Listens" AND "Import CSV"
+        # Pass callback for "Get New Listens" AND "Import CSV" AND "Import Last.fm"
         self.header = HeaderComponent(
             root, self.state, 
             self.start_sync_engine, 
             on_import_callback=self.on_data_imported,
-            on_cleared_callback=self.on_data_cleared
+            on_cleared_callback=self.on_data_cleared,
+            on_import_lastfm_callback=self.trigger_import_lastfm
         )
 
         # 2. Filters (Stripped of enrichment)
@@ -264,6 +265,11 @@ class BrainzMRIGUI:
     # ------------------------------------------------------------------
     # Core Actions
     # ------------------------------------------------------------------
+    def trigger_import_lastfm(self):
+        """Proxy to trigger Last.fm import from Header."""
+        if hasattr(self, 'actions') and self.actions:
+            self.actions.action_import_likes()
+            
     def start_sync_engine(self):
         logging.info("User Action: Clicked 'Get New Listens'")
         if not self.state.user: return

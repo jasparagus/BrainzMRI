@@ -115,9 +115,6 @@ class ActionComponent:
         self.btn_playlist = tk.Button(self.frame, text="Export Playlist", bg="#9575CD", fg="white", command=self.action_export, state="disabled")
         self.btn_playlist.pack(side="left", padx=5)
 
-        # NEW: Import Button
-        self.btn_import_likes = tk.Button(self.frame, text="Import Last.fm Likes", bg="#81C784", command=self.action_import_likes)
-        self.btn_import_likes.pack(side="left", padx=15)
 
     def update_state(self, has_mbids: bool, has_missing: bool):
         """Enable/Disable buttons based on available data."""
