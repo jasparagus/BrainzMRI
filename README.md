@@ -158,6 +158,10 @@ BrainzMRI/
 
 # Master Roadmap
 
+## Playlists
+Read JSPF and XSPF playlists, enabling much better Resolver behavior
+
+
 ## Fix Resolver
 
 Resolver currently sends NaN values to the API for albums (recordings), which prevents any matches. This breaks resolving items. The resolver should send nothing rather than a "NaN" when a field is unavailable from the data.
