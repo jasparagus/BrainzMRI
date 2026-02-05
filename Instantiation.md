@@ -51,11 +51,17 @@ This document is the **immutable Source of Truth** for the project's architectur
 * **Hovertip Ubiquity:** Every interactive UI element (buttons, inputs, checkboxes) must utilize `Hovertip` to provide context-sensitive help.
 
 ### 3.4 Data Integrity & Resilience
-* **Empty Data Protocol (The Guard Clause):** The `ReportEngine` **MUST** check `if df.empty` at the very start of generation. It must return a valid "No Data" response immediately. This prevents the pipeline from attempting operations on empty, untyped DataFrames which leads to crashes.
-* **Just-In-Time Type Safety:** `reporting.py` must convert columns to numeric types (e.g., `pd.to_numeric(..., errors='coerce').fillna(0)`) *immediately before* performing calculations (division, rounding). Do not rely on types being preserved correctly across empty DataFrame initialization.
+* **Empty Data Protocol (The Guard Clause):** The `ReportEngine` **MUST** check `if df.empty` at the very start of generation. It must return a valid "No Data" response immediately.
+* **Just-In-Time Type Safety:** `reporting.py` must convert columns to numeric types `pd.to_numeric(..., errors='coerce').fillna(0)` *immediately before* calculation.
+* **Ingestion Sanitization (The Anti-NaN Rule):** When importing data (CSV or JSON), all text-based identifiers (`artist`, `album`, `track_name`) **MUST** be explicitly cast to string and have `NaN`/None replaced with `"Unknown"` or `""` (empty string). This defaults must happen at the *Ingestion Boundary* (`parsing.py`), not deep in the reporting logic. This prevents "Hidden Float" crashes during merging.
 * **Transactional Ingestion:**
     * **Stateful (Listens):** "Backwards Crawl" with Intermediate Caching.
     * **Stateless (Likes):** Atomic Replacement.
+
+### 3.8 Report Mode Decoupling
+* **Strict Data Isolation:** Analytical reports ("Top Artists", "Genre Flavor", etc.) **MUST ONLY** operate on the loaded User History. They must never silently fall back to an imported CSV.
+* **Dedicated CSV Mode:** Imported CSVs are treated as a transient "Playlist Review" state. They are accessible **ONLY** via the dedicated "Imported CSV" report mode. This prevents cross-contamination of metrics (e.g., your "Top Artists of 2024" should not include tracks from a CSV you just imported to check formatting).
+* **UI State Management:** The `gui_main.py` controller must dynamically update the available options in the Report Dropdown based on the current context (e.g., showing/hiding "Imported CSV" option).
 
 ### 3.5 Metadata & Enrichment Strategy
 * **The "Release Group Hop":** Resolve Album genres via `release-group`, never `release`.

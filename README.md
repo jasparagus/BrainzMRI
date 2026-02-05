@@ -101,14 +101,16 @@ python gui_main.py
 
 2. **Fetch Data:**
 * **Incremental Update:** Click **"Get New Listens"** to fetch recent tracks from the server. This process is safe to interrupt; it will resume from where it left off next time.
-* **Import CSV:** Alternatively, click "Import CSV" to load an external playlist for analysis.
+* **Import CSV:** Click "Import CSV" to load an external playlist (e.g., Spotify export).
+    * *Note:* This enables a special **"Imported CSV"** report mode. It does *not* merge with your persistent history. You can switch between "Imported CSV" and your main "Top Artists" reports at any time.
 
 
 3. **Generate Report:**
-* Select a **Report Type** (e.g., "Genre Flavor", "By Artist").
+* Select a **Report Type** (e.g., "Genre Flavor", "Top Artists").
 * **Time Filters:** Enter "0, 365" to analyze the last year.
-* **Enrichment:** Select "Query MusicBrainz" to fetch genres. Check "Deep Query" if you need album-level precision (slower).
+* **Enrichment:** Select "Query MusicBrainz" to fetch genres. Check "Force Cache Update" to retry previously failed lookups. Check "Deep Query" if you need album- or track-level precision (slower).
 * Click **"Generate Report"**.
+    * *Note:* Standard reports (Top Artists, Trends) always utilize your full User History. To view your CSV data, explicitly select **"Imported CSV"** from the dropdown.
 
 
 4. **Visualize:**
