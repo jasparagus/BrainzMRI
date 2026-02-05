@@ -9,7 +9,7 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 
 | Main Interface | Artist Trends | New Music Discovery | Genre Flavor |
 | :---: | :---: | :---: | :---: |
-| <img src="Images/example_main_ui.png" width="200" /> | <img src="Images/example_artist_trend.png" width="200" /> | <img src="Images/example_music_discovery.png" width="200" /> | <img src="Images/example_genre_flavor.png" width="200" /> |
+| <img src="images/example_main_ui.png" width="200" /> | <img src="images/example_artist_trend.png" width="200" /> | <img src="images/example_music_discovery.png" width="200" /> | <img src="images/example_genre_flavor.png" width="200" /> |
 
 ---
 
@@ -162,11 +162,6 @@ BrainzMRI/
 
 ## Playlists
 Read JSPF and XSPF playlists, enabling much better Resolver behavior
-
-
-## Fix Resolver
-
-Resolver currently sends NaN values to the API for albums (recordings), which prevents any matches. This breaks resolving items. The resolver should send nothing rather than a "NaN" when a field is unavailable from the data.
 
 ## Track Deduplication
 

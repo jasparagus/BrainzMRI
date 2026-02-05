@@ -53,7 +53,7 @@ This document is the **immutable Source of Truth** for the project's architectur
 ### 3.4 Data Integrity & Resilience
 * **Empty Data Protocol (The Guard Clause):** The `ReportEngine` **MUST** check `if df.empty` at the very start of generation. It must return a valid "No Data" response immediately.
 * **Just-In-Time Type Safety:** `reporting.py` must convert columns to numeric types `pd.to_numeric(..., errors='coerce').fillna(0)` *immediately before* calculation.
-* **Ingestion Sanitization (The Anti-NaN Rule):** When importing data (CSV or JSON), all text-based identifiers (`artist`, `album`, `track_name`) **MUST** be explicitly cast to string and have `NaN`/None replaced with `"Unknown"` or `""` (empty string). This defaults must happen at the *Ingestion Boundary* (`parsing.py`), not deep in the reporting logic. This prevents "Hidden Float" crashes during merging.
+* **Ingestion Sanitization (The Anti-NaN Rule):** When importing data (CSV or JSON), all text-based identifiers (`artist`, `album`, `track_name`) **MUST** be explicitly cast to string and have `NaN`/None replaced with `""` (empty string). This defaults must happen at the *Ingestion Boundary* (`parsing.py`), not deep in the reporting logic. This prevents "Hidden Float" crashes during merging.
 * **Transactional Ingestion:**
     * **Stateful (Listens):** "Backwards Crawl" with Intermediate Caching.
     * **Stateless (Likes):** Atomic Replacement.
