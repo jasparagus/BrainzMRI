@@ -13,6 +13,8 @@ import traceback
 import time
 import os
 import subprocess
+import gc # Memory management for crash prevention
+import faulthandler # Diagnostic
 from idlelib.tooltip import Hovertip
 
 # Core Logic
@@ -38,6 +40,13 @@ def setup_logging(root=None):
     Configure logging to file and console.
     Hooks into Tkinter's exception handler if root is provided.
     """
+    # 0. Enable Fault Handler for Segfaults
+    try:
+        f = open(os.path.join(os.getcwd(), "fault_log.txt"), "w")
+        faulthandler.enable(file=f)
+    except Exception:
+        pass
+
     # 1. Capture Python Warnings (like SettingWithCopyWarning)
     logging.captureWarnings(True)
 
@@ -112,6 +121,8 @@ class BrainzMRIGUI:
         self.state = GUIState()
         self.report_engine = ReportEngine()
         self.processing = False # Simple guard
+
+
 
         # Define Report Modes
         self.REPORT_MODES_BASE = ["Raw Listens", "Top Artists", "Top Albums", "Top Tracks", "Favorite Artist Trend", "New Music By Year", "Genre Flavor"]
@@ -188,7 +199,9 @@ class BrainzMRIGUI:
         self._update_ui_state()
         
         # Auto-run
-        self.run_report() 
+        # NOTE: Reusing existing widget makes this safe to run immediately, but we keep a micro-delay 
+        # just to let the dialog close visually.
+        self.root.after(0, self.run_report) 
 
     def on_data_cleared(self):
         """Callback when CSV is closed (called by header via new callback)."""
@@ -224,7 +237,7 @@ class BrainzMRIGUI:
             "None (Data Only, No Genres)", "Cache Only", "Query MusicBrainz", "Query Last.fm", "Query All Sources (Slow)"
         ], state="readonly", width=28)
         self.cmb_enrich.pack(anchor="w")
-        Hovertip(self.cmb_enrich, "Select source for Genre metadata.\nAPI lookups can be slow.")
+        Hovertip(self.cmb_enrich, "Select source for Genre metadata.\\nAPI lookups can be slow.")
         self.cmb_enrich.bind("<<ComboboxSelected>>", lambda e: self._update_ui_state())
 
         # --- Column 3: Checkboxes (Stacked) ---
@@ -269,7 +282,7 @@ class BrainzMRIGUI:
         """Proxy to trigger Last.fm import from Header."""
         if hasattr(self, 'actions') and self.actions:
             self.actions.action_import_likes()
-            
+
     def start_sync_engine(self):
         logging.info("User Action: Clicked 'Get New Listens'")
         if not self.state.user: return
@@ -302,8 +315,8 @@ class BrainzMRIGUI:
             if barrier["gap_closed"]:
                 self.state.user.merge_intermediate_cache()
                 msg = f"Imported {barrier['listens_count']} new listens."
-                if barrier.get("likes_failed"): msg += "\nWARNING: Likes Sync Failed."
-                else: msg += f"\nSynced {barrier['likes_count']} likes."
+                if barrier.get("likes_failed"): msg += "\\nWARNING: Likes Sync Failed."
+                else: msg += f"\\nSynced {barrier['likes_count']} likes."
                 messagebox.showinfo("Success", msg)
                 if self.cmb_report.get() == "Raw Listens": self.run_report()
             else:
@@ -415,8 +428,12 @@ class BrainzMRIGUI:
 
     def _on_report_done(self, result, meta, key, enriched, status, mode, win):
         try:
+            logging.info("TRACE: _on_report_done started")
             if win.winfo_exists(): win.destroy()
+            logging.info("TRACE: win destroyed")
+            
             self._reset_ui()
+            logging.info("TRACE: UI reset")
 
             # Update State
             self.state.last_report_df = result
@@ -426,16 +443,31 @@ class BrainzMRIGUI:
             self.state.last_enriched = enriched
             self.state.original_df = result.copy()
             self.state.filtered_df = result.copy()
+            logging.info(f"TRACE: State updated. Result Rows: {len(result)}")
 
-            # Update UI
-            self.table_view.show_table(result)
+            # CLEANUP: Manually clear previous state and run GC to prevent Tcl access violations
+            # Force Tcl to process pending destruction events before we allocate new massive objects
+            gc.collect()
+
+            # This is the suspected crash definition
+            logging.info("TRACE: Calling standard show_table...")
+            try:
+                self.table_view.show_table(result)
+                logging.info("TRACE: show_table returned successfully")
+            except Exception as e:
+                logging.error(f"CRASH during show_table execution: {e}", exc_info=True)
+                # Re-raise to ensure visibility if needed, or let faulthandler catch it
+                raise
+            
             self.status_var.set(status)
+            logging.info("TRACE: status_var set")
 
             # Toggle Graph
             if mode in ["Favorite Artist Trend", "New Music By Year", "Genre Flavor"]:
                 self.btn_graph.config(state="normal", bg="#EF5350", fg="white")
             else:
                 self.btn_graph.config(state="disabled", bg="SystemButtonFace", fg="black")
+            logging.info("TRACE: Graph btn toggled")
 
             # Toggle Actions Panel
             has_tracks = "track_name" in result.columns
@@ -448,10 +480,14 @@ class BrainzMRIGUI:
                 if "recording_mbid" not in result.columns: has_missing = True
                 else: has_missing = result["recording_mbid"].isna().any()
 
+            logging.info(f"TRACE: Calling actions.update_state with mbids={has_mbids}, missing={has_missing}")
             self.actions.update_state(
                 has_mbids=has_mbids,
                 has_missing=has_missing
             )
+            
+            logging.info("TRACE: _on_report_done completed successfully")
+
         except Exception as e:
             logging.error(f"UI Update failed: {e}", exc_info=True)
             messagebox.showerror("UI Error", f"Failed to update display: {e}")

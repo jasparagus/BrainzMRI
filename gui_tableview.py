@@ -7,9 +7,48 @@ Handles rendering, regex filtering, and multi-column sorting.
 import tkinter as tk
 from tkinter import ttk, messagebox
 import re
-from typing import Any
+import logging  # Added for diagnostic logging
+from typing import Any, Optional
 import pandas as pd
 import parsing # Ensure parsing is imported to access normalize_sort_key
+
+def _clean_text_for_tk(text: Any) -> str:
+    """
+    Sanitize text for Tkinter/Tcl on Windows to prevent Access Violations.
+    1. Convert to string.
+    2. Remove non-BMP characters (> U+FFFF).
+    3. Remove Tcl/Tk incompatible control characters (keeps tab/newline).
+    4. Remove lone surrogates.
+    """
+    if text is None: return ""
+    text = str(text)
+    
+    # Fast path: if pure ASCII, usually safe (unless control chars)
+    if text.isascii() and text.isprintable():
+        return text
+
+    # Filter out:
+    # - Surrogates (0xD800 - 0xDFFF)
+    # - Non-BMP (> 0xFFFF)
+    # - Control characters (0x00-0x1F) EXCLUDING \t, \n, \r
+    # We use a generator for memory efficiency on long strings
+    
+    clean_chars = []
+    for c in text:
+        code = ord(c)
+        
+        # 1. Reject Non-BMP or Surrogates
+        if code > 0xFFFF or (0xD800 <= code <= 0xDFFF):
+            continue
+            
+        # 2. Reject Control Codes (except valid whitespace)
+        if code < 32 and c not in ("\t", "\n", "\r"):
+            continue
+            
+        clean_chars.append(c)
+        
+    return "".join(clean_chars)
+
 
 class ReportTableView:
     """
@@ -39,6 +78,9 @@ class ReportTableView:
 
         # Build initial filter bar
         self.build_filter_bar()
+        
+        # Build Table UI once (Reusable)
+        self._build_table_ui()
 
     # ------------------------------------------------------------
     # Filter Bar Construction
@@ -84,18 +126,55 @@ class ReportTableView:
     # Table Rendering
     # ------------------------------------------------------------
 
+    def _build_table_ui(self):
+        """Construct the reusable table container and widget."""
+        logging.info("TRACE: _build_table_ui started")
+        
+        self.table_container = tk.Frame(self.container)
+        self.table_container.pack(fill="both", expand=True)
+
+        # Initialize Scrollbars
+        vsb = ttk.Scrollbar(self.table_container, orient="vertical")
+        hsb = ttk.Scrollbar(self.table_container, orient="horizontal")
+
+        # Initialize Treeview
+        self.tree = ttk.Treeview(
+            self.table_container, 
+            show="headings",
+            yscrollcommand=vsb.set,
+            xscrollcommand=hsb.set
+        )
+        
+        # Link scrollbars
+        vsb.configure(command=self.tree.yview)
+        hsb.configure(command=self.tree.xview)
+
+        # Layout (Grid)
+        self.tree.grid(column=0, row=0, sticky='nsew')
+        vsb.grid(column=1, row=0, sticky='ns')
+        hsb.grid(column=0, row=1, sticky='ew')
+
+        # Weights
+        self.table_container.grid_columnconfigure(0, weight=1)
+        self.table_container.grid_rowconfigure(0, weight=1)
+
+        # Bindings
+        self.tree.bind("<Control-c>", self.copy_selection_to_clipboard)
+        self.tree.bind("<Control-C>", self.copy_selection_to_clipboard)
+        
+        logging.info("TRACE: _build_table_ui completed. Widget ID: " + str(self.tree.winfo_id()))
+
+    # ------------------------------------------------------------
+    # Table Rendering
+    # ------------------------------------------------------------
+
     def show_table(self, df):
         """
         Render the DataFrame into the Treeview.
         Applies current sort stack visuals.
         """
-        if not self.filter_entry or not self.filter_entry.winfo_exists():
-            self.build_filter_bar()
-
-        current_filter = ""
-        if self.filter_entry and self.filter_entry.winfo_exists():
-            current_filter = self.filter_entry.get()
-
+        logging.info(f"TRACE: show_table called with {len(df)} rows. Columns: {list(df.columns)}")
+        
         # Hide ID columns from display
         df = df.drop(columns=[c for c in df.columns if c.endswith("_mbid")], errors="ignore")
         cols = list(df.columns)
@@ -105,58 +184,17 @@ class ReportTableView:
         if self.filter_by_var.get() not in ["All"] + cols:
             self.filter_by_var.set("All")
 
-        # Restore filter text
-        self.filter_entry.delete(0, tk.END)
-        if current_filter:
-            self.filter_entry.insert(0, current_filter)
-
-        # Re-build container
-        if not self.table_container or not self.table_container.winfo_exists():
-            self.table_container = tk.Frame(self.container)
-            self.table_container.pack(fill="both", expand=True)
-        else:
-            for widget in self.table_container.winfo_children():
-                widget.destroy()
-
-        # --- SCROLLBARS & TABLE SETUP (Updated to Grid for 2D scrolling) ---
+        # SAFETY: Hide tree during column reconfiguration to prevent Tcl access violations
+        # from pending events (like hover) on columns that are about to vanish.
+        self.tree.grid_remove() 
         
-        # Initialize Scrollbars
-        vsb = ttk.Scrollbar(self.table_container, orient="vertical")
-        hsb = ttk.Scrollbar(self.table_container, orient="horizontal")
-
-        # Initialize Treeview with scroll commands linked
-        tree = ttk.Treeview(
-            self.table_container, 
-            show="headings",
-            yscrollcommand=vsb.set,
-            xscrollcommand=hsb.set
-        )
+        # Clear existing items
+        logging.info("TRACE: show_table: Clearing existing items...")
+        self.tree.delete(*self.tree.get_children())
         
-        # Link scrollbars back to tree
-        vsb.configure(command=tree.yview)
-        hsb.configure(command=tree.xview)
-
-        # Layout using Grid
-        tree.grid(column=0, row=0, sticky='nsew')
-        vsb.grid(column=1, row=0, sticky='ns')
-        hsb.grid(column=0, row=1, sticky='ew')
-
-        # Configure weights so tree expands to fill space
-        self.table_container.grid_columnconfigure(0, weight=1)
-        self.table_container.grid_rowconfigure(0, weight=1)
-
-        self.tree = tree
-
-        # Bindings
-        tree.bind("<Control-c>", self.copy_selection_to_clipboard)
-        tree.bind("<Control-C>", self.copy_selection_to_clipboard)
-
-        # Clean Sort Stack (remove columns that no longer exist in this report)
-        valid_cols = set(cols)
-        self.sort_stack = [s for s in self.sort_stack if s[0] in valid_cols]
-
-        # Setup Columns
-        tree["columns"] = cols
+        # Update Columns
+        logging.info("TRACE: show_table: Updating columns...")
+        self.tree["columns"] = cols
         for col in cols:
             # Determine header text (Add arrow if Primary sort)
             header_text = col
@@ -164,16 +202,41 @@ class ReportTableView:
                 is_asc = self.sort_stack[0][1]
                 header_text += " ▲" if is_asc else " ▼"
 
-            tree.heading(
+            self.tree.heading(
                 col, 
                 text=header_text, 
                 command=lambda c=col: self.sort_column(c)
             )
-            tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
+            self.tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
+        
+        # Clean Sort Stack
+        valid_cols = set(cols)
+        self.sort_stack = [s for s in self.sort_stack if s[0] in valid_cols]
 
         # Insert Data
-        for _, row in df.iterrows():
-            tree.insert("", "end", values=list(row))
+        logging.info("show_table: Inserting data rows...")
+        try:
+             # Fast Bulk Insert (or row-by-row with safety)
+             for i, (_, row) in enumerate(df.iterrows()):
+                 if i > 20000: break # Safety cap
+                 
+                 # Convert all values to string to prevent Tcl interpretation issues
+                 safe_values = [_clean_text_for_tk(v) for v in row]
+                 self.tree.insert("", "end", values=safe_values)
+                 if i % 100 == 0: logging.info(f"Inserted row {i}...")
+             
+             logging.info("show_table: Data insertion complete.")
+        except Exception as e:
+            messagebox.showerror("Display Error", f"Failed to render table rows: {e}")
+            logging.error(f"Treeview Insertion Failed: {e}", exc_info=True)
+
+        # Restore visibility
+        self.tree.grid()
+        logging.info("TRACE: Treeview visible again.")
+
+
+
+
 
     # ------------------------------------------------------------
     # Sorting (Multi-Column Stack)

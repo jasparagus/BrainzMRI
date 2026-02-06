@@ -156,6 +156,7 @@ class HeaderComponent:
     # ------------------------------------------------------------------
     def import_csv(self):
         logging.info("User Action: Clicked 'Import CSV'")
+        logging.info("TRACE: Header.import_csv started")
         # We allow CSV import even if no user is loaded, though enrichment might fail.
         # But generally a user context is preferred.
         
@@ -181,7 +182,8 @@ class HeaderComponent:
             self.lbl_source_status.config(text=f"Active Source: Playlist ({self.state.playlist_name})", fg="#E65100")
             self.btn_close_csv.pack(side="left", padx=5)
             
-            messagebox.showinfo("Import Successful", f"Loaded {len(df)} tracks.")
+            # Modal removed to prevent event loop interference with update_idletasks
+            logging.info(f"Import Successful. Loaded {len(df)} tracks.")
 
             # Signal main GUI to update state
             if self.on_import_callback:

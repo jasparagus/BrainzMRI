@@ -236,6 +236,11 @@ def parse_generic_csv(csv_path: str) -> pd.DataFrame:
     # Normalize headers
     df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
 
+    # CLEANUP: Drop unnamed/junk columns and empty columns
+    # This prevents UI crashes when 18+ junk columns are passed to Treeview
+    df = df.loc[:, ~df.columns.str.contains('^unnamed')]
+    df = df.dropna(axis=1, how='all')
+
     # Map to schema
     # Required
     if "artist" not in df.columns or "track_name" not in df.columns:
