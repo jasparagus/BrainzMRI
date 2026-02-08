@@ -40,9 +40,18 @@ def setup_logging(root=None):
     Configure logging to file and console.
     Hooks into Tkinter's exception handler if root is provided.
     """
-    # 0. Enable Fault Handler for Segfaults
+    # 1. Configure Standard Logging FIRST
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+             logging.FileHandler(config.log_file, mode='w', encoding='utf-8'),
+             logging.StreamHandler(sys.stdout)
+        ]
+    )
+
+    # 2. Enable Fault Handler for Segfaults & Check Previous Crashes
     try:
-        # Check for existing crash log
         fault_path = os.path.join(os.getcwd(), "fault_log.txt")
         if os.path.exists(fault_path):
              try:
@@ -50,26 +59,23 @@ def setup_logging(root=None):
                      crash_info = f.read()
                  if crash_info.strip():
                      logging.error(f"CRASH REPORT DETECTED FROM PREVIOUS SESSION:\n{crash_info}")
-                 os.remove(fault_path)
-             except Exception:
-                 pass
+                 try:
+                     os.remove(fault_path)
+                 except PermissionError:
+                     pass # Might be locked if instance is still running weirdly
+             except Exception as e:
+                 logging.warning(f"Could not process previous crash log: {e}")
 
-        f = open(fault_path, "w")
-        faulthandler.enable(file=f)
-    except Exception:
-        pass
+        # Open fresh for this session
+        # We must keep this file open for faulthandler to work
+        f_fault = open(fault_path, "w") 
+        faulthandler.enable(file=f_fault)
+    except Exception as e:
+        logging.warning(f"Could not enable faulthandler: {e}")
 
-    # 1. Capture Python Warnings (like SettingWithCopyWarning)
+
+    # 3. Capture Python Warnings
     logging.captureWarnings(True)
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.FileHandler(config.log_file, mode='w', encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
     
     # 2. Hook standard uncaught exceptions (Main Thread)
     def handle_exception(exc_type, exc_value, exc_traceback):
@@ -464,19 +470,15 @@ class BrainzMRIGUI:
             # CLEANUP: Manually clear previous state and run GC to prevent Tcl access violations
             # Force Tcl to process pending destruction events before we allocate new massive objects
             # CLEANUP: Manually clear previous state and run GC
-            logging.info("TRACE: Pre-update_idletasks")
-            try:
-                logging.info(f"TRACE: Active Widgets: {self.root.winfo_children()}")
-            except Exception as e:
-                logging.info(f"TRACE: Could not list widgets: {e}")
-            self.root.update_idletasks() # Maintain for stability during rapid clicks
-            logging.info("TRACE: Post-update_idletasks / Pre-gc.collect")
+            # logging.info("TRACE: Pre-update_idletasks")
+            # self.root.update_idletasks() -> REMOVED: Cause of crashes during rapid updates
+            # logging.info("TRACE: Post-update_idletasks / Pre-gc.collect")
             
             # Log Data Types to check for anomalies (Requested to keep debug logs)
-            logging.info(f"TRACE: Result Data Types:\n{result.dtypes}")
+            # logging.info(f"TRACE: Result Data Types:\n{result.dtypes}")
             
             gc.collect()
-            logging.info("TRACE: Post-gc.collect")
+            # logging.info("TRACE: Post-gc.collect")
 
             # This is the suspected crash definition
             logging.info("TRACE: Calling standard show_table...")
