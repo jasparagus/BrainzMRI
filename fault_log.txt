@@ -1,8 +1,0 @@
-Windows fatal exception: access violation
-
-Current thread 0x00006200 (most recent call first):
-  File "C:\Users\jaspe\AppData\Local\Python\pythoncore-3.14-64\Lib\tkinter\__init__.py", line 1613 in mainloop
-  File "C:\Users\jaspe\AppData\Local\Programs\BrainzMRI\gui_main.py", line 568 in <module>
-
-Current thread's C stack trace (most recent call first):
-  <cannot get C stack on this system>

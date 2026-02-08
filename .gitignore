@@ -13,3 +13,4 @@ brainzmri.log
 *.csv
 *.lnk
 # *Instantiation*.md
+fault_log.txt

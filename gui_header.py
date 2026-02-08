@@ -14,13 +14,15 @@ from user import get_cached_usernames, User
 from config import config
 
 class HeaderComponent:
-    def __init__(self, parent: tk.Frame, app_state, callback_refresh_data, on_import_callback=None, on_cleared_callback=None, on_import_lastfm_callback=None):
+    def __init__(self, parent: tk.Frame, app_state, callback_refresh_data, on_import_callback=None, on_cleared_callback=None, on_import_lastfm_callback=None, **kwargs):
         self.parent = parent
         self.state = app_state
         self.callback_refresh_data = callback_refresh_data # Function to call when source changes
         self.on_import_callback = on_import_callback       # New Callback for CSV import
         self.on_cleared_callback = on_cleared_callback     # Callback for CSV close
         self.on_import_lastfm_callback = on_import_lastfm_callback # Callback from Main -> Actions
+        self.lock_cb = kwargs.get("lock_cb", None)
+        self.unlock_cb = kwargs.get("unlock_cb", None)
 
         # Sub-frames
         self.frm_user = tk.Frame(parent)
@@ -162,11 +164,14 @@ class HeaderComponent:
         
         import parsing # Import locally to avoid circular dep risks
         
+        if self.lock_cb: self.lock_cb()
+
         path = filedialog.askopenfilename(
             title="Select CSV Playlist",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
         )
         if not path:
+            if self.unlock_cb: self.unlock_cb()
             return
 
         try:
@@ -191,6 +196,13 @@ class HeaderComponent:
 
         except Exception as e:
             messagebox.showerror("Import Failed", f"Could not parse CSV: {e}")
+            if self.unlock_cb: self.unlock_cb()
+            
+        # Success path unlocks main UI via the callback chain?
+        # No, import_csv is sync.
+        # But wait, main triggers run_report via after(0). 
+        # So we should unlock HERE.
+        if self.unlock_cb: self.unlock_cb()
 
     def close_csv(self, silent=False):
         if not silent:
@@ -203,3 +215,37 @@ class HeaderComponent:
 
         if self.on_cleared_callback:
             self.on_cleared_callback()
+
+    def lock(self):
+        self.user_dropdown.config(state="disabled")
+        self.btn_get_listens.config(state="disabled")
+        self.btn_import_lastfm.config(state="disabled")
+        self.btn_close_csv.config(state="disabled")
+        # Disable all buttons in frm_source / frm_user
+        for child in self.frm_user.winfo_children():
+            try: child.config(state="disabled")
+            except: pass
+        for child in self.frm_source.winfo_children():
+            try: child.config(state="disabled")
+            except: pass
+
+    def unlock(self):
+        self.user_dropdown.config(state="readonly")
+        # Logic to re-enable based on state
+        if self.state.user and self.state.user.get_listenbrainz_username():
+             self.btn_get_listens.config(state="normal")
+        if self.state.user and self.state.user.get_lastfm_username():
+             self.btn_import_lastfm.config(state="normal")
+        
+        if self.state.playlist_df is not None:
+             self.btn_close_csv.config(state="normal")
+             
+        # Re-enable other headers
+        for child in self.frm_user.winfo_children():
+             if isinstance(child, tk.Button): child.config(state="normal")
+        self.user_dropdown.config(state="readonly")
+        
+        # Primary "Import CSV" button always active
+        for child in self.frm_source.winfo_children():
+             if isinstance(child, tk.Button) and child != self.btn_get_listens and child != self.btn_import_lastfm and child != self.btn_close_csv:
+                 child.config(state="normal")

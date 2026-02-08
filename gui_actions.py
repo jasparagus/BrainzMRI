@@ -100,6 +100,8 @@ class ActionComponent:
         self.frame = tk.Frame(parent, bg="#ECEFF1", bd=1, relief="groove")
         self.frame.pack(fill="x", side="bottom", padx=5, pady=5) # Always Visible
         
+        logging.info("TRACE: ActionComponent initialized")
+
         # UI Elements
         tk.Label(self.frame, text="Actions:", bg="#ECEFF1", font=("Segoe UI", 9, "bold")).pack(side="left", padx=10, pady=5)
 
@@ -118,6 +120,7 @@ class ActionComponent:
 
     def update_state(self, has_mbids: bool, has_missing: bool):
         """Enable/Disable buttons based on available data."""
+        logging.info(f"TRACE: ActionComponent.update_state called. mbids={has_mbids}, missing={has_missing}")
         state = "normal" if has_mbids else "disabled"
         self.btn_like_all.config(state=state)
         self.btn_like_sel.config(state=state)

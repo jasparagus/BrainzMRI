@@ -42,7 +42,19 @@ def setup_logging(root=None):
     """
     # 0. Enable Fault Handler for Segfaults
     try:
-        f = open(os.path.join(os.getcwd(), "fault_log.txt"), "w")
+        # Check for existing crash log
+        fault_path = os.path.join(os.getcwd(), "fault_log.txt")
+        if os.path.exists(fault_path):
+             try:
+                 with open(fault_path, "r") as f:
+                     crash_info = f.read()
+                 if crash_info.strip():
+                     logging.error(f"CRASH REPORT DETECTED FROM PREVIOUS SESSION:\n{crash_info}")
+                 os.remove(fault_path)
+             except Exception:
+                 pass
+
+        f = open(fault_path, "w")
         faulthandler.enable(file=f)
     except Exception:
         pass
@@ -140,7 +152,9 @@ class BrainzMRIGUI:
             self.start_sync_engine, 
             on_import_callback=self.on_data_imported,
             on_cleared_callback=self.on_data_cleared,
-            on_import_lastfm_callback=self.trigger_import_lastfm
+            on_import_lastfm_callback=self.trigger_import_lastfm,
+            lock_cb=self.lock_interface,
+            unlock_cb=self.unlock_interface
         )
 
         # 2. Filters (Stripped of enrichment)
@@ -340,8 +354,10 @@ class BrainzMRIGUI:
     def run_report(self):
         logging.info("User Action: Clicked 'Generate Report'")
         if self.processing or (not self.state.user and not self.state.playlist_df): return
-        self.processing = True
-        self.btn_generate.config(state="disabled")
+        
+        # 0. Strict Locking
+        self.lock_interface()
+
 
         try:
             # 1. Get Params from Component
@@ -417,14 +433,14 @@ class BrainzMRIGUI:
                     self.root.after(0, lambda: [
                         win.destroy() if win.winfo_exists() else None,
                         messagebox.showerror("Error", err_msg),
-                        self._reset_ui()
+                        self._on_report_done(pd.DataFrame(), {}, "", False, "Failed.", params['mode'], win) # Unified Exit
                     ])
 
             threading.Thread(target=worker, daemon=True).start()
 
         except ValueError as e:
             messagebox.showerror("Input Error", str(e))
-            self._reset_ui()
+            self.unlock_interface() # Early unlock on error
 
     def _on_report_done(self, result, meta, key, enriched, status, mode, win):
         try:
@@ -432,8 +448,8 @@ class BrainzMRIGUI:
             if win.winfo_exists(): win.destroy()
             logging.info("TRACE: win destroyed")
             
-            self._reset_ui()
-            logging.info("TRACE: UI reset")
+            # self._reset_ui() -> MOVED TO END
+            logging.info("TRACE: UI reset skipped (Deferring unlock)")
 
             # Update State
             self.state.last_report_df = result
@@ -447,7 +463,20 @@ class BrainzMRIGUI:
 
             # CLEANUP: Manually clear previous state and run GC to prevent Tcl access violations
             # Force Tcl to process pending destruction events before we allocate new massive objects
+            # CLEANUP: Manually clear previous state and run GC
+            logging.info("TRACE: Pre-update_idletasks")
+            try:
+                logging.info(f"TRACE: Active Widgets: {self.root.winfo_children()}")
+            except Exception as e:
+                logging.info(f"TRACE: Could not list widgets: {e}")
+            self.root.update_idletasks() # Maintain for stability during rapid clicks
+            logging.info("TRACE: Post-update_idletasks / Pre-gc.collect")
+            
+            # Log Data Types to check for anomalies (Requested to keep debug logs)
+            logging.info(f"TRACE: Result Data Types:\n{result.dtypes}")
+            
             gc.collect()
+            logging.info("TRACE: Post-gc.collect")
 
             # This is the suspected crash definition
             logging.info("TRACE: Calling standard show_table...")
@@ -487,10 +516,14 @@ class BrainzMRIGUI:
             )
             
             logging.info("TRACE: _on_report_done completed successfully")
-
+            
         except Exception as e:
             logging.error(f"UI Update failed: {e}", exc_info=True)
             messagebox.showerror("UI Error", f"Failed to update display: {e}")
+        
+        finally:
+            self.unlock_interface()
+
 
     def _update_ui_state(self):
         """Enable/Disable checkboxes based on selection."""
@@ -560,6 +593,75 @@ class BrainzMRIGUI:
             
         elif mode == "Genre Flavor":
             show_genre_flavor_treemap(self.state.last_report_df)
+
+    def lock_interface(self):
+        """Disable all interactive elements to prevent race conditions."""
+        self.processing = True
+        self.status_var.set("Busy...")
+        self.root.config(cursor="watch")
+        
+        # Header
+        self.header.lock()
+        
+        # Filters (Inputs) & Settings
+        for child in self.root.winfo_children():
+             if isinstance(child, (tk.Button, ttk.Combobox, tk.Checkbutton, tk.Entry)):
+                 try: child.config(state="disabled")
+                 except: pass
+        
+        self.btn_generate.config(state="disabled")
+        self.btn_graph.config(state="disabled")
+        self.chk_force.config(state="disabled")
+        self.chk_deep.config(state="disabled")
+        self.cmb_report.config(state="disabled")
+        self.cmb_enrich.config(state="disabled")
+        
+        # Actions
+        if self.actions: self.actions.frame.pack_forget() # Hide or Disable? Disable is better but hiding is safer for now.
+        # Actually action frame has internal buttons. Let's disable them.
+        if self.actions:
+            for widget in self.actions.frame.winfo_children():
+                try: widget.config(state="disabled")
+                except: pass
+
+    def unlock_interface(self):
+        """Re-enable interactive elements based on current state."""
+        self.processing = False
+        self.root.config(cursor="")
+        
+        # Header
+        self.header.unlock()
+
+        # Settings
+        self.cmb_report.config(state="readonly")
+        self.cmb_enrich.config(state="readonly")
+        self.btn_generate.config(state="normal")
+        
+        # Restore Logic
+        self._update_ui_state() # Will parse logic to enable/disable specific checks
+        
+        # Graph Button
+        if self.btn_graph["text"] == "Show Graph" and self.state.last_report_df is not None:
+             # Logic from on_report_done to decide if enabled
+             mode = self.state.last_mode
+             if mode in ["Favorite Artist Trend", "New Music By Year", "Genre Flavor"]:
+                self.btn_graph.config(state="normal")
+        
+        # Actions
+        if self.actions:
+             # Restore frame and buttons
+             self.actions.frame.pack(fill="x", side="bottom", padx=5, pady=5)
+             for widget in self.actions.frame.winfo_children():
+                 try: widget.config(state="normal")
+                 except: pass
+            
+             # Re-eval action logic
+             self.actions.update_state(
+                 has_mbids=(self.state.last_report_df is not None and "recording_mbid" in self.state.last_report_df.columns),
+                 has_missing=(self.state.last_report_df is not None and "recording_mbid" in self.state.last_report_df.columns and self.state.last_report_df["recording_mbid"].isna().any())
+             )
+            
+        logging.info("TRACE: Interface Unlocked")
 
 if __name__ == "__main__":
     root = tk.Tk()
