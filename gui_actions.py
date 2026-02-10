@@ -18,6 +18,7 @@ from sync_engine import ProgressWindow
 from api_client import ListenBrainzClient
 # Import the new Sync Manager
 from likes_sync import LikeSyncManager
+from config import config
 
 # ... [Confirmation Dialog Class remains unchanged] ...
 class ActionConfirmDialog(tk.Toplevel):
@@ -214,7 +215,7 @@ class ActionComponent:
                         break
                 
                 if not dry_run: 
-                    time.sleep(0.3)
+                    time.sleep(config.network_delay)
                 else:
                     time.sleep(0.05)
 

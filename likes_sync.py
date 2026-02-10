@@ -10,6 +10,7 @@ from tkinter import messagebox
 
 import enrichment
 from sync_engine import ProgressWindow
+from config import config
 
 class LikeSyncManager:
     def __init__(self, user, app_state, parent_window):
@@ -128,7 +129,7 @@ class LikeSyncManager:
                     if i % 5 == 0:
                         win.after(0, lambda i=i: win.update_progress(i, count, f"Submitting {i}/{count}..."))
                     
-                    time.sleep(0.3) 
+                    time.sleep(config.network_delay) 
 
                 self.user._save_likes()
                 win.after(0, lambda: [win.destroy(), messagebox.showinfo("Success", f"Imported {success} new likes.")])

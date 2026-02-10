@@ -44,6 +44,7 @@ This document is the **immutable Source of Truth** for the project's architectur
 ### 3.2 Concurrency & Synchronization
 * **The "Barrier" Pattern:** Managed by `sync_engine.py`. Concurrent workers (Listens fetch + Likes sync) must both complete before the UI unlocks.
 * **Decoupled Workers:** Threaded logic (e.g., API calls) must exist in `sync_engine.py` or `gui_actions.py`. The Main Thread (`gui_main`) is reserved for UI updates and event routing.
+* **Strict Modal Flow ("BusyState"):** All background operations (Import, Report, Sync) **MUST** utilize a `BusyState` lock. The main controller `gui_main` must strictly disable **ALL** interactive elements (`lock_interface()`) before work begins and only re-enable them (`unlock_interface()`) exactly when the work is fully complete and the new state is rendered. Allowing user interaction during a background task is forbidden.
 
 ### 3.3 Observability & User Feedback
 * **Dual-Channel Progress UI:** The application uses a **"Primary + Secondary"** observability model. The modal progress window must support a secondary status label to report on background tasks (e.g., "Syncing Likes...") independently of the main progress bar.
