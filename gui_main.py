@@ -14,7 +14,7 @@ import time
 import os
 import subprocess
 import gc # Memory management for crash prevention
-import faulthandler # Diagnostic
+
 from idlelib.tooltip import Hovertip
 
 # Core Logic
@@ -40,39 +40,32 @@ def setup_logging(root=None):
     Configure logging to file and console.
     Hooks into Tkinter's exception handler if root is provided.
     """
-    # 1. Configure Standard Logging FIRST
+    level_str = config.log_level.lower()
+    
+    # 0. Level "none" -> Disable Logging
+    if level_str == "none":
+        logging.getLogger().handlers = []
+        return
+
+    # 1. Determine Log Level
+    # INFO -> INFO, DEBUG -> DEBUG
+    level_map = {
+        "INFO": logging.INFO,
+        "DEBUG": logging.DEBUG
+    }
+    target_level = level_map.get(level_str, logging.INFO)
+
+    # 2. Configure Logging
+    # mode='w' ensures we start fresh each run (Single File)
     logging.basicConfig(
-        level=logging.INFO,
+        level=target_level,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
              logging.FileHandler(config.log_file, mode='w', encoding='utf-8'),
              logging.StreamHandler(sys.stdout)
-        ]
+        ],
+        force=True
     )
-
-    # 2. Enable Fault Handler for Segfaults & Check Previous Crashes
-    try:
-        fault_path = os.path.join(os.getcwd(), "fault_log.txt")
-        if os.path.exists(fault_path):
-             try:
-                 with open(fault_path, "r") as f:
-                     crash_info = f.read()
-                 if crash_info.strip():
-                     logging.error(f"CRASH REPORT DETECTED FROM PREVIOUS SESSION:\n{crash_info}")
-                 try:
-                     os.remove(fault_path)
-                 except PermissionError:
-                     pass # Might be locked if instance is still running weirdly
-             except Exception as e:
-                 logging.warning(f"Could not process previous crash log: {e}")
-
-        # Open fresh for this session
-        # We must keep this file open for faulthandler to work
-        f_fault = open(fault_path, "w") 
-        faulthandler.enable(file=f_fault)
-    except Exception as e:
-        logging.warning(f"Could not enable faulthandler: {e}")
-
 
     # 3. Capture Python Warnings
     logging.captureWarnings(True)

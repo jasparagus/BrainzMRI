@@ -34,6 +34,7 @@ class AppConfig:
         self.network_delay = 1.1  # Default safe delay
         self.max_retries = 5
         self.lastfm_api_key = os.environ.get("BRAINZMRI_LASTFM_API_KEY", "")
+        self.log_level = "INFO" # none, INFO, DEBUG
 
         # Initialize directories
         os.makedirs(self.cache_dir, exist_ok=True)
@@ -54,6 +55,8 @@ class AppConfig:
                     # API Key priority: Env Var > Config File > Empty
                     if not self.lastfm_api_key:
                         self.lastfm_api_key = data.get("lastfm_api_key", "")
+                    
+                    self.log_level = data.get("log_level", "INFO")
         except Exception as e:
             logging.error(f"Failed to load config: {e}")
 
@@ -62,7 +65,8 @@ class AppConfig:
         data = {
             "last_user": self.last_user,
             "network_delay": self.network_delay,
-            "lastfm_api_key": self.lastfm_api_key
+            "lastfm_api_key": self.lastfm_api_key,
+            "log_level": self.log_level
         }
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
