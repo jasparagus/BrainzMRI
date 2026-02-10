@@ -8,9 +8,8 @@
 __pycache__/
 *.pyc
 config.json
-brainzmri.log
+*.log
 *.note.*
 *.csv
 *.lnk
 # *Instantiation*.md
-fault_log.txt

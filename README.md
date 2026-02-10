@@ -160,8 +160,25 @@ BrainzMRI/
 
 # Master Roadmap
 
-## Playlists
-Read JSPF and XSPF playlists, enabling much better Resolver behavior
+## Formal Playlist Ingestion
+**GOAL**:Read JSPF and XSPF playlists, enabling much better Resolver behavior
+
+Examine the contents of the "helpers" folder, which contains README_XSPF_JSPF.md and an example script that generates XSPF and JSPF files from a (low quality) text file which was copied from YouTube music. There are example playlists (GOAT-EstTest.jspf and GOAT-EstTest.xspf) inside the helpers folder.
+
+Use this information to replace "Import CSV" with a more powerful "Import Playlist File" functionality. This function should:
+
+1- check file type
+2a- for XSPF, parse it directly (which may include mbids)
+2b- for JSPF, parse it directly (which may include mbids)
+2c- for CSV, perform the current ingestion workflow for CSVs
+2d- for TXT, try a resonable parser for delimited text (commas, semicolons) and check for required headers. If an error is thrown, perform an implementation of the functionality from YouTubeMusicPlaylistParser.py
+3a- If the playlist content was ill-formed, generate an error popup and return to the main GUI
+3b- If the content was ingested, render it in the treeview as normal (accessible by the "Imported CSV" report type, which should be renamed to "Imported Playlist").
+
+Finally, add buttons for "Export Playlist as JSPF" and "Export Playlist as XSPF" for all track-level tables. This should be next to "Export Playlist" (which should be renamed to "Export Playlist to Listenbrainz". 
+
+
+
 
 ## Track Deduplication
 
