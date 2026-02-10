@@ -150,8 +150,8 @@ class BrainzMRIGUI:
 
 
         # Define Report Modes
-        self.REPORT_MODES_BASE = ["Raw Listens", "Top Artists", "Top Albums", "Top Tracks", "Favorite Artist Trend", "New Music By Year", "Genre Flavor"]
-        self.REPORT_MODES_CSV = ["Imported CSV"]
+        self.REPORT_MODES_STANDARD = ["Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Genre Flavor Treemap", "Favorite Artist Trend", "New Music by Year", "Raw Listens"]
+        self.REPORT_MODES_CSV = ["Imported Playlist"]
 
         # Initialize Variables for Enrichment (Moved from Filters)
         self.enrichment_mode_var = tk.StringVar(value="None (Data Only, No Genres)")
@@ -199,7 +199,7 @@ class BrainzMRIGUI:
     # ------------------------------------------------------------------
     def _update_report_modes(self):
         """Update report dropdown based on available data."""
-        modes = self.REPORT_MODES_BASE.copy()
+        modes = self.REPORT_MODES_STANDARD.copy()
         
         if self.state.playlist_df is not None:
              modes = self.REPORT_MODES_CSV + modes
@@ -209,16 +209,17 @@ class BrainzMRIGUI:
         # Auto-select if current is invalid
         current = self.cmb_report.get()
         if current not in modes:
-            if self.state.playlist_df is not None:
-                self.cmb_report.set("Imported CSV")
-            else:
-                self.cmb_report.set("Raw Listens")
+             self.cmb_report['values'] = self.REPORT_MODES_CSV
+             self.cmb_report.set("Imported Playlist")
+        else:
+            self.cmb_report['values'] = self.REPORT_MODES_STANDARD
+            self.cmb_report.set(modes[0])
 
     def on_data_imported(self):
         """Callback when CSV is imported successfully."""
         self._update_report_modes()
-        self.cmb_report.set("Imported CSV")
-        self.state.last_mode = "Imported CSV"
+        self.cmb_report.set("Imported Playlist")
+        self.state.last_mode = "Imported Playlist"
         self.status_var.set(f"Imported Data: {self.state.playlist_name}")
         logging.info(f"TRACE: Main.on_data_imported: {self.state.playlist_name}")
         self.btn_generate.config(state="normal")
@@ -255,7 +256,7 @@ class BrainzMRIGUI:
         frm_type.pack(side="left", padx=15, anchor="n")
         
         tk.Label(frm_type, text="Report Type").pack(anchor="w")
-        self.cmb_report = ttk.Combobox(frm_type, values=self.REPORT_MODES_BASE, state="readonly", width=18)
+        self.cmb_report = ttk.Combobox(frm_type, values=self.REPORT_MODES_STANDARD, state="readonly", width=18)
         self.cmb_report.current(0)
         self.cmb_report.pack(anchor="w")
         self.cmb_report.bind("<<ComboboxSelected>>", lambda e: self._update_ui_state())
@@ -389,8 +390,8 @@ class BrainzMRIGUI:
             # 2. Add Context
             selected_mode = self.cmb_report.get()
             
-            # Alias "Imported CSV" to "Raw Listens" logic
-            if selected_mode == "Imported CSV":
+            # Alias "Imported Playlist" to "Raw Listens" logic
+            if selected_mode == "Imported Playlist":
                 params["mode"] = "Raw Listens"
             else:
                 params["mode"] = selected_mode
@@ -418,9 +419,9 @@ class BrainzMRIGUI:
             self.state.last_params = params.copy()
 
             # 3. Select Data (Decoupled: Standard Reports ALWAYS use User History)
-            if selected_mode == "Imported CSV":
+            if selected_mode == "Imported Playlist":
                  if self.state.playlist_df is None:
-                     raise ValueError("No CSV loaded.")
+                     raise ValueError("No Playlist loaded.")
                  base_df = self.state.playlist_df.copy()
             else:
                  if not self.state.user:
@@ -554,11 +555,11 @@ class BrainzMRIGUI:
         enrich = self.enrichment_mode_var.get()
         
         # Force Cache: Enabled if ANY Enrichment is selected (to allow upgrading Cache Only -> Query)
-        # OR if using Imported CSV
+        # OR if using Imported Playlist
         can_enrich = not enrich.startswith("None")
-        is_csv = (mode == "Imported CSV")
+        is_playlist = (mode == "Imported Playlist")
         
-        if can_enrich or is_csv:
+        if can_enrich or is_playlist:
             self.chk_force.config(state="normal")
         else:
             self.chk_force.config(state="disabled")

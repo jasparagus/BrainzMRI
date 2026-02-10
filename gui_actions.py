@@ -5,7 +5,7 @@ Encapsulates API interaction logic.
 """
 
 import tkinter as tk
-from tkinter import simpledialog, messagebox, ttk
+from tkinter import simpledialog, messagebox, ttk, filedialog
 from idlelib.tooltip import Hovertip
 import threading
 import time
@@ -115,20 +115,41 @@ class ActionComponent:
         self.btn_resolve = tk.Button(self.frame, text="Resolve Metadata", bg="#4DD0E1", command=self.action_resolve, state="disabled")
         self.btn_resolve.pack(side="left", padx=5)
 
-        self.btn_playlist = tk.Button(self.frame, text="Export Playlist", bg="#9575CD", fg="white", command=self.action_export, state="disabled")
-        self.btn_playlist.pack(side="left", padx=5)
+        # Export Group
+        self.btn_export_lb = tk.Button(self.frame, text="Export to LB", bg="#9575CD", fg="white", command=self.action_export_lb, state="disabled")
+        self.btn_export_lb.pack(side="left", padx=5)
+
+        self.btn_export_jspf = tk.Button(self.frame, text="Export JSPF", bg="#B39DDB", fg="white", command=self.action_export_jspf, state="disabled")
+        self.btn_export_jspf.pack(side="left", padx=2)
+
+        self.btn_export_xspf = tk.Button(self.frame, text="Export XSPF", bg="#B39DDB", fg="white", command=self.action_export_xspf, state="disabled")
+        self.btn_export_xspf.pack(side="left", padx=2)
 
 
     def update_state(self, has_mbids: bool, has_missing: bool):
         """Enable/Disable buttons based on available data."""
         logging.info(f"TRACE: ActionComponent.update_state called. mbids={has_mbids}, missing={has_missing}")
-        state = "normal" if has_mbids else "disabled"
-        self.btn_like_all.config(state=state)
-        self.btn_like_sel.config(state=state)
-        self.btn_playlist.config(state=state)
+        if has_mbids:
+            self.btn_like_all.config(state="normal")
+            self.btn_like_sel.config(state="normal")
+            self.btn_export_lb.config(state="normal")
+        else:
+            self.btn_like_all.config(state="disabled")
+            self.btn_like_sel.config(state="disabled")
+            self.btn_export_lb.config(state="disabled")
+            
+        # Local exports don't strictly require MBIDs, just data
+        if self.state.filtered_df is not None and not self.state.filtered_df.empty:
+            self.btn_export_jspf.config(state="normal")
+            self.btn_export_xspf.config(state="normal")
+        else:
+            self.btn_export_jspf.config(state="disabled")
+            self.btn_export_xspf.config(state="disabled")
 
-        # Resolve available if missing mbids
-        self.btn_resolve.config(state="normal" if has_missing else "disabled")
+        if has_missing:
+            self.btn_resolve.config(state="normal")
+        else:
+            self.btn_resolve.config(state="disabled")
 
         # Import Likes is always available if a user is loaded (handled by main usually, 
         # but we can leave it enabled here as the handler checks for Last.fm user)
@@ -263,8 +284,11 @@ class ActionComponent:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def action_export(self):
-        logging.info("User Action: Clicked 'Export Playlist'")
+    # ------------------------------------------------------------------
+    # Export to ListenBrainz
+    # ------------------------------------------------------------------
+    def action_export_lb(self):
+        logging.info("User Action: Clicked 'Export to LB'")
         df = self.state.filtered_df
         if df is None: return
         
@@ -304,6 +328,108 @@ class ActionComponent:
                 win.after(0, lambda: [win.destroy(), messagebox.showerror("Error", err_msg)])
 
         threading.Thread(target=worker, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Local Exports (JSPF / XSPF)
+    # ------------------------------------------------------------------
+    def action_export_jspf(self):
+        self._export_local("jspf")
+
+    def action_export_xspf(self):
+        self._export_local("xspf")
+
+    def _export_local(self, fmt="jspf"):
+        logging.info(f"User Action: Clicked 'Export {fmt.upper()}'")
+        df = self.state.filtered_df
+        if df is None or df.empty: return
+
+        path = filedialog.asksaveasfilename(
+            title=f"Export {fmt.upper()}",
+            defaultextension=f".{fmt}",
+            filetypes=[(f"{fmt.upper()} Playlist", f"*.{fmt}")]
+        )
+        if not path: return
+
+        try:
+            # We need to construct track objects
+            tracks = []
+            for _, row in df.iterrows():
+                tracks.append(row)
+            
+            # Use helpers or manual construction?
+            # Let's implement simple writers here to avoid circular dependencies with helpers/parser modules if possible,
+            # OR better yet, let's use the logic from parsing.py if we put writers there?
+            # Actually, `parsing.py` is for ingestion. `reporting` is for analysis.
+            # Let's write small local helpers here or in `parsing.py`. 
+            # The helpers/YouTubeMusicPlaylistParser.py has good writers. Let's adapt them inline here for simplicity 
+            # OR move them to `parsing.py` as `write_jspf`.
+            
+            # Let's implement them here to keep Action logic together.
+            
+            if fmt == "jspf":
+                self._write_jspf(path, tracks)
+            else:
+                self._write_xspf(path, tracks)
+                
+            messagebox.showinfo("Success", f"Exported {len(tracks)} tracks to {os.path.basename(path)}")
+            
+        except Exception as e:
+             messagebox.showerror("Export Failed", str(e))
+             logging.error(f"Export failed: {e}", exc_info=True)
+
+    def _write_jspf(self, path, tracks):
+        import json
+        now_iso = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S+00:00')
+        playlist = {
+            "playlist": {
+                "title": "BrainzMRI Export",
+                "creator": "BrainzMRI",
+                "date": now_iso,
+                "track": []
+            }
+        }
+        
+        for t in tracks:
+            track_obj = {
+                "title": str(t.get("track_name", "Unknown")),
+                "creator": str(t.get("artist", "Unknown")),
+                "album": str(t.get("album", "Unknown")),
+                "duration": int(t.get("duration_ms", 0))
+            }
+            mbid = t.get("recording_mbid")
+            if mbid and str(mbid) not in ("None", "", "nan"):
+                track_obj["identifier"] = [f"https://musicbrainz.org/recording/{mbid}"]
+                
+            playlist["playlist"]["track"].append(track_obj)
+            
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(playlist, f, indent=4)
+
+    def _write_xspf(self, path, tracks):
+        import xml.etree.ElementTree as ET
+        from xml.dom import minidom
+        
+        root = ET.Element("playlist", version="1", xmlns="http://xspf.org/ns/0/")
+        track_list = ET.SubElement(root, "trackList")
+        
+        for t in tracks:
+            track = ET.SubElement(track_list, "track")
+            
+            ET.SubElement(track, "title").text = str(t.get("track_name", "Unknown"))
+            ET.SubElement(track, "creator").text = str(t.get("artist", "Unknown"))
+            ET.SubElement(track, "album").text = str(t.get("album", "Unknown"))
+            
+            ms = int(t.get("duration_ms", 0))
+            if ms > 0:
+                ET.SubElement(track, "duration").text = str(ms)
+                
+            mbid = t.get("recording_mbid")
+            if mbid and str(mbid) not in ("None", "", "nan"):
+                ET.SubElement(track, "identifier").text = f"https://musicbrainz.org/recording/{mbid}"
+
+        xml_str = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(xml_str)
 
     # NEW ACTION HANDLER
     def action_import_likes(self):

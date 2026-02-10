@@ -48,7 +48,8 @@ class HeaderComponent:
         tk.Button(self.frm_user, text="Edit User", command=self.edit_user).pack(side="left", padx=2)
 
         # --- Source Row ---
-        tk.Button(self.frm_source, text="Import CSV...", command=self.import_csv).pack(side="left", padx=(5, 5))
+        self.btn_import = tk.Button(self.frm_source, text="Import Playlist", bg="#FFCC80", command=self.import_playlist)
+        self.btn_import.pack(side="left", padx=(5, 5))
 
         self.btn_get_listens = tk.Button(
             self.frm_source,
@@ -156,10 +157,10 @@ class HeaderComponent:
     # ------------------------------------------------------------------
     # CSV Logic
     # ------------------------------------------------------------------
-    def import_csv(self):
-        logging.info("User Action: Clicked 'Import CSV'")
-        logging.info("TRACE: Header.import_csv started")
-        # We allow CSV import even if no user is loaded, though enrichment might fail.
+    def import_playlist(self):
+        logging.info("User Action: Clicked 'Import Playlist'")
+        logging.info("TRACE: Header.import_playlist started")
+        # We allow import even if no user is loaded, though enrichment might fail.
         # But generally a user context is preferred.
         
         import parsing # Import locally to avoid circular dep risks
@@ -167,15 +168,15 @@ class HeaderComponent:
         if self.lock_cb: self.lock_cb()
 
         path = filedialog.askopenfilename(
-            title="Select CSV Playlist",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title="Select Playlist",
+            filetypes=[("Playlist Files", "*.jspf *.xspf *.csv *.txt"), ("All files", "*.*")],
         )
         if not path:
             if self.unlock_cb: self.unlock_cb()
             return
 
         try:
-            df = parsing.parse_generic_csv(path)
+            df = parsing.parse_playlist(path)
             
             # Inject username so enrichment works (if user loaded)
             if self.state.user:
@@ -193,12 +194,12 @@ class HeaderComponent:
             # Signal main GUI to update state
             if self.on_import_callback:
                 self.on_import_callback()
-                logging.info("TRACE: Header.import_csv callback sent")
+                logging.info("TRACE: Header.import_playlist callback sent")
             else:
-                logging.info("TRACE: Header.import_csv callback NOT sent")
+                logging.info("TRACE: Header.import_playlist callback NOT sent")
 
         except Exception as e:
-            messagebox.showerror("Import Failed", f"Could not parse CSV: {e}")
+            messagebox.showerror("Import Failed", f"Could not parse playlist: {e}")
             if self.unlock_cb: self.unlock_cb()
 
         # NOTE: Success path does NOT unlock here. The callback chain
