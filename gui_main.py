@@ -444,7 +444,6 @@ class BrainzMRIGUI:
                     err_msg = str(e)
                     logging.error(f"Report generation failed: {e}", exc_info=True)
                     self.root.after(0, lambda: [
-                        win.destroy() if win.winfo_exists() else None,
                         messagebox.showerror("Error", err_msg),
                         self._on_report_done(pd.DataFrame(), {}, "", False, "Failed.", params['mode'], win) # Unified Exit
                     ])
@@ -455,10 +454,10 @@ class BrainzMRIGUI:
             messagebox.showerror("Input Error", str(e))
             self.unlock_interface() # Early unlock on error
 
-    def _on_report_done(self, result, meta, key, enriched, status, mode, win):
+    def _on_report_done(self, result, meta, key, enriched, status, mode, win=None):
         try:
             logging.info("TRACE: _on_report_done started")
-            if win.winfo_exists(): win.destroy()
+            if win and win.winfo_exists(): win.destroy()
             logging.info("TRACE: win destroyed")
             
             # self._reset_ui() -> MOVED TO END
@@ -568,10 +567,9 @@ class BrainzMRIGUI:
         """Callback from ActionComponent when data is resolved."""
         self.table_view.show_table(new_df)
         self.status_var.set(f"Resolved {resolved_count} items ({failed_count} failed).")
-        # Refresh visibility of buttons
+        # Refresh visibility of buttons (win=None, no progress window to close)
         self._on_report_done(new_df, self.state.last_meta, self.state.last_report_type_key, 
-                             True, self.status_var.get(), self.state.last_mode, 
-                             tk.Toplevel()) # Dummy win to satisfy sig
+                             True, self.status_var.get(), self.state.last_mode)
 
     def save_report(self):
         logging.info("User Action: Clicked 'Save Report'")

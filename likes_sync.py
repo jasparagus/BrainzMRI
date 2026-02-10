@@ -45,7 +45,7 @@ class LikeSyncManager:
                 loves = self.lfm_client.get_user_loved_tracks(lfm_user)
                 
                 if not loves:
-                    win.after(0, lambda: [win.destroy(), messagebox.showinfo("Info", "No loved tracks found on Last.fm.")])
+                    self.parent.after(0, lambda: [win.destroy(), messagebox.showinfo("Info", "No loved tracks found on Last.fm.")])
                     return
 
                 # 2. Prepare Data
@@ -60,7 +60,7 @@ class LikeSyncManager:
                 
                 df_resolved, ok, fail = enrichment.resolve_missing_mbids(
                     df_loves, 
-                    progress_callback=lambda c, t, m: win.after(0, lambda: win.update_progress(c, t, m)),
+                    progress_callback=lambda c, t, m: self.parent.after(0, lambda: win.update_progress(c, t, m)),
                     is_cancelled=lambda: win.cancelled
                 )
                 
@@ -79,7 +79,7 @@ class LikeSyncManager:
 
                 # 5. User Review / Confirmation
                 if not valid_new_mbids:
-                    win.after(0, lambda: [win.destroy(), messagebox.showinfo("Done", "All Last.fm likes are already synced!")])
+                    self.parent.after(0, lambda: [win.destroy(), messagebox.showinfo("Done", "All Last.fm likes are already synced!")])
                     return
 
                 count = len(valid_new_mbids)
@@ -106,15 +106,15 @@ class LikeSyncManager:
                     response_container["ok"] = messagebox.askyesno("Confirm Import", confirm_msg, parent=self.parent)
                     done_event.set()
 
-                win.after(0, ask_user)
+                self.parent.after(0, ask_user)
                 done_event.wait()
 
                 if not response_container["ok"]:
-                    win.after(0, lambda: [win.destroy(), messagebox.showinfo("Cancelled", "Import aborted.")])
+                    self.parent.after(0, lambda: [win.destroy(), messagebox.showinfo("Cancelled", "Import aborted.")])
                     return
 
                 # 6. Push to ListenBrainz
-                win.after(0, lambda: win.update_progress(0, count, "Submitting to ListenBrainz..."))
+                self.parent.after(0, lambda: win.update_progress(0, count, "Submitting to ListenBrainz..."))
                 
                 success = 0
                 for i, mbid in enumerate(valid_new_mbids):
@@ -127,15 +127,15 @@ class LikeSyncManager:
                         print(f"Failed to submit {mbid}: {e}")
                     
                     if i % 5 == 0:
-                        win.after(0, lambda i=i: win.update_progress(i, count, f"Submitting {i}/{count}..."))
+                        self.parent.after(0, lambda i=i: win.update_progress(i, count, f"Submitting {i}/{count}..."))
                     
                     time.sleep(config.network_delay) 
 
                 self.user._save_likes()
-                win.after(0, lambda: [win.destroy(), messagebox.showinfo("Success", f"Imported {success} new likes.")])
+                self.parent.after(0, lambda: [win.destroy(), messagebox.showinfo("Success", f"Imported {success} new likes.")])
 
             except Exception as e:
                 err = str(e)
-                win.after(0, lambda: [win.destroy(), messagebox.showerror("Error", err)])
+                self.parent.after(0, lambda: [win.destroy(), messagebox.showerror("Error", err)])
 
         threading.Thread(target=worker, daemon=True).start()
