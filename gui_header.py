@@ -193,16 +193,18 @@ class HeaderComponent:
             # Signal main GUI to update state
             if self.on_import_callback:
                 self.on_import_callback()
+                logging.info("TRACE: Header.import_csv callback sent")
+            else:
+                logging.info("TRACE: Header.import_csv callback NOT sent")
 
         except Exception as e:
             messagebox.showerror("Import Failed", f"Could not parse CSV: {e}")
             if self.unlock_cb: self.unlock_cb()
-            
-        # Success path unlocks main UI via the callback chain?
-        # No, import_csv is sync.
-        # But wait, main triggers run_report via after(0). 
-        # So we should unlock HERE.
-        if self.unlock_cb: self.unlock_cb()
+
+        # NOTE: Success path does NOT unlock here. The callback chain
+        # (on_data_imported → run_report → _on_report_done) manages
+        # its own lock lifecycle. Unlocking here would cause a
+        # double lock/unlock race that destabilizes Tkinter on Windows.
 
     def close_csv(self, silent=False):
         if not silent:

@@ -220,15 +220,20 @@ class BrainzMRIGUI:
         self.cmb_report.set("Imported CSV")
         self.state.last_mode = "Imported CSV"
         self.status_var.set(f"Imported Data: {self.state.playlist_name}")
+        logging.info(f"TRACE: Main.on_data_imported: {self.state.playlist_name}")
         self.btn_generate.config(state="normal")
         
         # Validate UI state immediately (Force Cache needs enabling)
         self._update_ui_state()
+        logging.info(f"TRACE: Main.on_data_imported: _update_ui_state")
         
         # Auto-run
         # NOTE: Reusing existing widget makes this safe to run immediately, but we keep a micro-delay 
-        # just to let the dialog close visually.
-        self.root.after(0, self.run_report) 
+        # just to let the dialog close visually. Later note: this seems to do nothing. Commenting out.
+        # self.root.after(0, self.run_report) 
+        logging.info(f"TRACE: Main.on_data_imported: calling run_report")
+        self.run_report()
+        logging.info(f"TRACE: Main.on_data_imported: run_report")
 
     def on_data_cleared(self):
         """Callback when CSV is closed (called by header via new callback)."""
@@ -365,12 +370,17 @@ class BrainzMRIGUI:
         manager.start(start_ts, local_ts)
 
     def run_report(self):
-        logging.info("User Action: Clicked 'Generate Report'")
-        if self.processing or (not self.state.user and not self.state.playlist_df): return
-        
+        logging.info("User Action: Clicked 'Generate Report' or Auto-run of 'Generate Report'")
+        if self.processing:
+            logging.info("TRACE: Main.run_report: returning early due to processing")
+            return
+        if not self.state.user and not self.state.playlist_df: 
+            logging.info("TRACE: Main.run_report: returning early due to no user/playlist")
+            # Note that this may also be the reason for the perceived "crash". Can this kill the main GUI?
+            return
+        logging.info("TRACE: Main.run_report: starting, locking interface and getting params")
         # 0. Strict Locking
         self.lock_interface()
-
 
         try:
             # 1. Get Params from Component
@@ -421,8 +431,10 @@ class BrainzMRIGUI:
                 base_df["_username"] = self.state.user.username
 
             # 4. Launch Thread
+            logging.info(f"TRACE: Main.run_report: launching thread with params: {params}")
             win = ProgressWindow(self.root, f"Generating {params['mode']}...")
-            
+            logging.info(f"TRACE: Main.run_report: created progress window")
+
             def worker():
                 try:
                     # FIX: Use self.root.after (permanent) instead of win.after (transient)
