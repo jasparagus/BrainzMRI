@@ -18,9 +18,11 @@ This document is the **immutable Source of Truth** for the project's architectur
     * *Bad:* `lambda: print(e)` (Causes `NameError` or variable leaking).
     * *Good:* `err_msg = str(e); lambda: print(err_msg)`.
 * **Logging:**
-    * Use `logging` module only. `print()` is forbidden.
-    * Must hook `sys.excepthook`, `sys.unraisablehook`, and `root.report_callback_exception` to ensure GUI crashes are captured in `brainzmri.log`.
-    * Must enable `logging.captureWarnings(True)` to catch Pandas warnings (e.g., `SettingWithCopyWarning`).
+    *   **Single Source of Truth:** `brainzmri.log` is the sole output file. The system must overwrite it (`mode='w'`) on every startup. Secondary logs (e.g., `fault_log.txt`) are forbidden.
+    *   **Configurable Levels:** The system must respect `config.log_level` ("INFO", "DEBUG", "NONE").
+    *   **Resilience:** The logger initialization must handle `PermissionError` (File Locked) gracefully by falling back to Console-Only logging, preventing startup crashes.
+    *   **Hooks:** Must hook `sys.excepthook`, `sys.unraisablehook`, and `root.report_callback_exception` to ensure GUI crashes are captured.
+    *   **Warnings:** Must enable `logging.captureWarnings(True)` to catch Pandas warnings (e.g., `SettingWithCopyWarning`).
 * **Networking:** All HTTP requests MUST use the `requests` library (not `urllib`).
 * **Session Management:** API Clients must use `requests.Session()` to enable connection pooling.
 ---
