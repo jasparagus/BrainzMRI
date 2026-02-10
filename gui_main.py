@@ -227,13 +227,13 @@ class BrainzMRIGUI:
         self._update_ui_state()
         logging.info(f"TRACE: Main.on_data_imported: _update_ui_state")
         
-        # Auto-run
-        # NOTE: Reusing existing widget makes this safe to run immediately, but we keep a micro-delay 
-        # just to let the dialog close visually. Later note: this seems to do nothing. Commenting out.
-        # self.root.after(0, self.run_report) 
+        # Auto-run: Clear the processing flag so run_report passes its guard.
+        # import_csv already locked the interface; run_report will re-lock (idempotent)
+        # and _on_report_done will properly unlock when finished.
+        self.processing = False
         logging.info(f"TRACE: Main.on_data_imported: calling run_report")
         self.run_report()
-        logging.info(f"TRACE: Main.on_data_imported: run_report")
+        logging.info(f"TRACE: Main.on_data_imported: run_report returned")
 
     def on_data_cleared(self):
         """Callback when CSV is closed (called by header via new callback)."""
@@ -431,7 +431,7 @@ class BrainzMRIGUI:
                 base_df["_username"] = self.state.user.username
 
             # 4. Launch Thread
-            logging.info(f"TRACE: Main.run_report: launching thread with params: {params}")
+            logging.info(f"TRACE: Main.run_report: launching thread with params: {params['mode']}")
             win = ProgressWindow(self.root, f"Generating {params['mode']}...")
             logging.info(f"TRACE: Main.run_report: created progress window")
 

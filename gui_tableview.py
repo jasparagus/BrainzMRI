@@ -188,9 +188,11 @@ class ReportTableView:
         # from pending events (like hover) on columns that are about to vanish.
         self.tree.grid_remove() 
         
-        # Clear existing items
+        # Clear existing items — delete one-at-a-time to avoid stressing
+        # Tcl's C allocator with a single massive deallocation batch.
         logging.info("TRACE: show_table: Clearing existing items...")
-        self.tree.delete(*self.tree.get_children())
+        for item in self.tree.get_children():
+            self.tree.delete(item)
         
         # Update Columns
         logging.info("TRACE: show_table: Updating columns...")
@@ -212,6 +214,11 @@ class ReportTableView:
         # Clean Sort Stack
         valid_cols = set(cols)
         self.sort_stack = [s for s in self.sort_stack if s[0] in valid_cols]
+
+        logging.info("TRACE: show_table: Flushing pending Tcl events...")
+        # Flush pending Tcl events between delete and insert to let the
+        # allocator settle before allocating new item storage.
+        self.tree.update_idletasks()
 
         # Insert Data
         logging.info("show_table: Inserting data rows...")

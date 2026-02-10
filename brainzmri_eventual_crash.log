@@ -1,0 +1,159 @@
+2026-02-09 21:25:59,765 [INFO] === BrainzMRI v7.0 Session Started ===
+2026-02-09 21:25:59,773 [INFO] TRACE: _build_table_ui started
+2026-02-09 21:25:59,775 [INFO] TRACE: _build_table_ui completed. Widget ID: 1836742
+2026-02-09 21:25:59,775 [INFO] TRACE: ActionComponent initialized
+2026-02-09 21:25:59,776 [INFO] Loaded user: jasparagus
+2026-02-09 21:26:02,658 [INFO] User Action: Clicked 'Generate Report' or Auto-run of 'Generate Report'
+2026-02-09 21:26:02,659 [INFO] TRACE: Main.run_report: starting, locking interface and getting params
+2026-02-09 21:26:03,009 [INFO] TRACE: Main.run_report: launching thread with params: Raw Listens
+2026-02-09 21:26:03,026 [INFO] TRACE: Main.run_report: created progress window
+2026-02-09 21:26:03,026 [INFO] Report Requested: Mode='Raw Listens' | Filters: Time=0-0, Recency=0-0, First=0-0, TopN=200 | Enrichment: False (None (Data Only, No Genres))
+2026-02-09 21:26:03,033 [INFO] Report generation complete. Rows: 200
+2026-02-09 21:26:03,048 [INFO] TRACE: _on_report_done started
+2026-02-09 21:26:03,050 [INFO] TRACE: win destroyed
+2026-02-09 21:26:03,050 [INFO] TRACE: UI reset skipped (Deferring unlock)
+2026-02-09 21:26:03,051 [INFO] TRACE: State updated. Result Rows: 200
+2026-02-09 21:26:03,070 [INFO] TRACE: Calling standard show_table...
+2026-02-09 21:26:03,070 [INFO] TRACE: show_table called with 200 rows. Columns: ['artist', 'artist_mbid', 'album', 'track_name', 'duration_ms', 'listened_at', 'recording_mbid', 'release_mbid', 'origin', '_username', 'Likes']
+2026-02-09 21:26:03,071 [INFO] TRACE: show_table: Clearing existing items...
+2026-02-09 21:26:03,071 [INFO] TRACE: show_table: Updating columns...
+2026-02-09 21:26:03,072 [INFO] show_table: Inserting data rows...
+2026-02-09 21:26:03,072 [INFO] Inserted row 0...
+2026-02-09 21:26:03,079 [INFO] Inserted row 100...
+2026-02-09 21:26:03,085 [INFO] show_table: Data insertion complete.
+2026-02-09 21:26:03,085 [INFO] TRACE: Treeview visible again.
+2026-02-09 21:26:03,086 [INFO] TRACE: show_table returned successfully
+2026-02-09 21:26:03,086 [INFO] TRACE: status_var set
+2026-02-09 21:26:03,086 [INFO] TRACE: Graph btn toggled
+2026-02-09 21:26:03,086 [INFO] TRACE: Calling actions.update_state with mbids=True, missing=True
+2026-02-09 21:26:03,087 [INFO] TRACE: ActionComponent.update_state called. mbids=True, missing=True
+2026-02-09 21:26:03,087 [INFO] TRACE: _on_report_done completed successfully
+2026-02-09 21:26:03,088 [INFO] TRACE: ActionComponent.update_state called. mbids=True, missing=True
+2026-02-09 21:26:03,088 [INFO] TRACE: Interface Unlocked
+2026-02-09 21:26:05,579 [INFO] User Action: Clicked 'Generate Report' or Auto-run of 'Generate Report'
+2026-02-09 21:26:05,579 [INFO] TRACE: Main.run_report: starting, locking interface and getting params
+2026-02-09 21:26:05,937 [INFO] TRACE: Main.run_report: launching thread with params: Top Artists
+2026-02-09 21:26:05,980 [INFO] TRACE: Main.run_report: created progress window
+2026-02-09 21:26:05,980 [INFO] Report Requested: Mode='Top Artists' | Filters: Time=0-0, Recency=0-0, First=0-0, TopN=200 | Enrichment: False (None (Data Only, No Genres))
+2026-02-09 21:26:06,022 [INFO] Report generation complete. Rows: 200
+2026-02-09 21:26:06,036 [INFO] TRACE: _on_report_done started
+2026-02-09 21:26:06,039 [INFO] TRACE: win destroyed
+2026-02-09 21:26:06,039 [INFO] TRACE: UI reset skipped (Deferring unlock)
+2026-02-09 21:26:06,040 [INFO] TRACE: State updated. Result Rows: 200
+2026-02-09 21:26:06,059 [INFO] TRACE: Calling standard show_table...
+2026-02-09 21:26:06,060 [INFO] TRACE: show_table called with 200 rows. Columns: ['artist', 'total_listens', 'Likes', 'last_listened', 'first_listened', 'total_hours_listened', 'artist_mbid']
+2026-02-09 21:26:06,061 [INFO] TRACE: show_table: Clearing existing items...
+2026-02-09 21:26:06,061 [INFO] TRACE: show_table: Updating columns...
+2026-02-09 21:26:06,061 [INFO] show_table: Inserting data rows...
+2026-02-09 21:26:06,062 [INFO] Inserted row 0...
+2026-02-09 21:26:06,068 [INFO] Inserted row 100...
+2026-02-09 21:26:06,074 [INFO] show_table: Data insertion complete.
+2026-02-09 21:26:06,075 [INFO] TRACE: Treeview visible again.
+2026-02-09 21:26:06,075 [INFO] TRACE: show_table returned successfully
+2026-02-09 21:26:06,075 [INFO] TRACE: status_var set
+2026-02-09 21:26:06,075 [INFO] TRACE: Graph btn toggled
+2026-02-09 21:26:06,076 [INFO] TRACE: Calling actions.update_state with mbids=False, missing=False
+2026-02-09 21:26:06,076 [INFO] TRACE: ActionComponent.update_state called. mbids=False, missing=False
+2026-02-09 21:26:06,076 [INFO] TRACE: _on_report_done completed successfully
+2026-02-09 21:26:06,077 [INFO] TRACE: ActionComponent.update_state called. mbids=False, missing=False
+2026-02-09 21:26:06,077 [INFO] TRACE: Interface Unlocked
+2026-02-09 21:26:07,099 [INFO] User Action: Clicked 'Generate Report' or Auto-run of 'Generate Report'
+2026-02-09 21:26:07,099 [INFO] TRACE: Main.run_report: starting, locking interface and getting params
+2026-02-09 21:26:07,446 [INFO] TRACE: Main.run_report: launching thread with params: Top Artists
+2026-02-09 21:26:07,482 [INFO] TRACE: Main.run_report: created progress window
+2026-02-09 21:26:07,483 [INFO] Report Requested: Mode='Top Artists' | Filters: Time=0-0, Recency=0-0, First=0-0, TopN=200 | Enrichment: False (None (Data Only, No Genres))
+2026-02-09 21:26:07,520 [INFO] Report generation complete. Rows: 200
+2026-02-09 21:26:07,534 [INFO] TRACE: _on_report_done started
+2026-02-09 21:26:07,536 [INFO] TRACE: win destroyed
+2026-02-09 21:26:07,537 [INFO] TRACE: UI reset skipped (Deferring unlock)
+2026-02-09 21:26:07,537 [INFO] TRACE: State updated. Result Rows: 200
+2026-02-09 21:26:07,557 [INFO] TRACE: Calling standard show_table...
+2026-02-09 21:26:07,558 [INFO] TRACE: show_table called with 200 rows. Columns: ['artist', 'total_listens', 'Likes', 'last_listened', 'first_listened', 'total_hours_listened', 'artist_mbid']
+2026-02-09 21:26:07,559 [INFO] TRACE: show_table: Clearing existing items...
+2026-02-09 21:26:07,559 [INFO] TRACE: show_table: Updating columns...
+2026-02-09 21:26:07,559 [INFO] show_table: Inserting data rows...
+2026-02-09 21:26:07,560 [INFO] Inserted row 0...
+2026-02-09 21:26:07,566 [INFO] Inserted row 100...
+2026-02-09 21:26:07,572 [INFO] show_table: Data insertion complete.
+2026-02-09 21:26:07,573 [INFO] TRACE: Treeview visible again.
+2026-02-09 21:26:07,573 [INFO] TRACE: show_table returned successfully
+2026-02-09 21:26:07,573 [INFO] TRACE: status_var set
+2026-02-09 21:26:07,573 [INFO] TRACE: Graph btn toggled
+2026-02-09 21:26:07,573 [INFO] TRACE: Calling actions.update_state with mbids=False, missing=False
+2026-02-09 21:26:07,574 [INFO] TRACE: ActionComponent.update_state called. mbids=False, missing=False
+2026-02-09 21:26:07,574 [INFO] TRACE: _on_report_done completed successfully
+2026-02-09 21:26:07,575 [INFO] TRACE: ActionComponent.update_state called. mbids=False, missing=False
+2026-02-09 21:26:07,575 [INFO] TRACE: Interface Unlocked
+2026-02-09 21:26:09,001 [INFO] User Action: Clicked 'Import CSV'
+2026-02-09 21:26:09,001 [INFO] TRACE: Header.import_csv started
+2026-02-09 21:26:10,874 [INFO] Import Successful. Loaded 86 tracks.
+2026-02-09 21:26:10,874 [INFO] TRACE: Main.on_data_imported: Mix - Goat-EST.csv
+2026-02-09 21:26:10,874 [INFO] TRACE: Main.on_data_imported: _update_ui_state
+2026-02-09 21:26:10,874 [INFO] TRACE: Main.on_data_imported: calling run_report
+2026-02-09 21:26:10,875 [INFO] User Action: Clicked 'Generate Report' or Auto-run of 'Generate Report'
+2026-02-09 21:26:10,875 [INFO] TRACE: Main.run_report: starting, locking interface and getting params
+2026-02-09 21:26:10,876 [INFO] TRACE: Main.run_report: launching thread with params: Raw Listens
+2026-02-09 21:26:10,891 [INFO] TRACE: Main.run_report: created progress window
+2026-02-09 21:26:10,891 [INFO] Report Requested: Mode='Raw Listens' | Filters: Time=0-0, Recency=0-0, First=0-0, TopN=200 | Enrichment: False (None (Data Only, No Genres))
+2026-02-09 21:26:10,891 [INFO] TRACE: Main.on_data_imported: run_report returned
+2026-02-09 21:26:10,892 [INFO] TRACE: Header.import_csv callback sent
+2026-02-09 21:26:10,893 [INFO] Report generation complete. Rows: 86
+2026-02-09 21:26:10,893 [INFO] TRACE: _on_report_done started
+2026-02-09 21:26:10,896 [INFO] TRACE: win destroyed
+2026-02-09 21:26:10,896 [INFO] TRACE: UI reset skipped (Deferring unlock)
+2026-02-09 21:26:10,900 [INFO] TRACE: State updated. Result Rows: 86
+2026-02-09 21:26:10,922 [INFO] TRACE: Calling standard show_table...
+2026-02-09 21:26:10,922 [INFO] TRACE: show_table called with 86 rows. Columns: ['artist', 'track_name', 'album', 'playlist_name', 'type', 'listened_at', 'duration_ms', 'recording_mbid', 'release_mbid', 'artist_mbid', 'origin', '_username', 'Likes']
+2026-02-09 21:26:10,924 [INFO] TRACE: show_table: Clearing existing items...
+2026-02-09 21:26:10,924 [INFO] TRACE: show_table: Updating columns...
+2026-02-09 21:26:10,924 [INFO] show_table: Inserting data rows...
+2026-02-09 21:26:10,925 [INFO] Inserted row 0...
+2026-02-09 21:26:10,930 [INFO] show_table: Data insertion complete.
+2026-02-09 21:26:10,930 [INFO] TRACE: Treeview visible again.
+2026-02-09 21:26:10,931 [INFO] TRACE: show_table returned successfully
+2026-02-09 21:26:10,931 [INFO] TRACE: status_var set
+2026-02-09 21:26:10,931 [INFO] TRACE: Graph btn toggled
+2026-02-09 21:26:10,931 [INFO] TRACE: Calling actions.update_state with mbids=False, missing=True
+2026-02-09 21:26:10,932 [INFO] TRACE: ActionComponent.update_state called. mbids=False, missing=True
+2026-02-09 21:26:10,932 [INFO] TRACE: _on_report_done completed successfully
+2026-02-09 21:26:10,933 [INFO] TRACE: ActionComponent.update_state called. mbids=True, missing=True
+2026-02-09 21:26:10,934 [INFO] TRACE: Interface Unlocked
+2026-02-09 21:26:14,443 [INFO] User Action: Clicked 'Generate Report' or Auto-run of 'Generate Report'
+2026-02-09 21:26:14,443 [INFO] TRACE: Main.run_report: starting, locking interface and getting params
+2026-02-09 21:26:14,445 [INFO] TRACE: Main.run_report: launching thread with params: Raw Listens
+2026-02-09 21:26:14,491 [INFO] TRACE: Main.run_report: created progress window
+2026-02-09 21:26:14,492 [INFO] Report Requested: Mode='Raw Listens' | Filters: Time=0-0, Recency=0-0, First=0-0, TopN=200 | Enrichment: False (None (Data Only, No Genres))
+2026-02-09 21:26:14,493 [INFO] Report generation complete. Rows: 86
+2026-02-09 21:26:14,494 [INFO] TRACE: _on_report_done started
+2026-02-09 21:26:14,497 [INFO] TRACE: win destroyed
+2026-02-09 21:26:14,497 [INFO] TRACE: UI reset skipped (Deferring unlock)
+2026-02-09 21:26:14,497 [INFO] TRACE: State updated. Result Rows: 86
+2026-02-09 21:26:14,520 [INFO] TRACE: Calling standard show_table...
+2026-02-09 21:26:14,521 [INFO] TRACE: show_table called with 86 rows. Columns: ['artist', 'track_name', 'album', 'playlist_name', 'type', 'listened_at', 'duration_ms', 'recording_mbid', 'release_mbid', 'artist_mbid', 'origin', '_username', 'Likes']
+2026-02-09 21:26:14,522 [INFO] TRACE: show_table: Clearing existing items...
+2026-02-09 21:26:14,522 [INFO] TRACE: show_table: Updating columns...
+2026-02-09 21:26:14,522 [INFO] show_table: Inserting data rows...
+2026-02-09 21:26:14,523 [INFO] Inserted row 0...
+2026-02-09 21:26:14,528 [INFO] show_table: Data insertion complete.
+2026-02-09 21:26:14,529 [INFO] TRACE: Treeview visible again.
+2026-02-09 21:26:14,529 [INFO] TRACE: show_table returned successfully
+2026-02-09 21:26:14,529 [INFO] TRACE: status_var set
+2026-02-09 21:26:14,529 [INFO] TRACE: Graph btn toggled
+2026-02-09 21:26:14,529 [INFO] TRACE: Calling actions.update_state with mbids=False, missing=True
+2026-02-09 21:26:14,530 [INFO] TRACE: ActionComponent.update_state called. mbids=False, missing=True
+2026-02-09 21:26:14,530 [INFO] TRACE: _on_report_done completed successfully
+2026-02-09 21:26:14,531 [INFO] TRACE: ActionComponent.update_state called. mbids=True, missing=True
+2026-02-09 21:26:14,531 [INFO] TRACE: Interface Unlocked
+2026-02-09 21:26:17,344 [INFO] User Action: Clicked 'Generate Report' or Auto-run of 'Generate Report'
+2026-02-09 21:26:17,344 [INFO] TRACE: Main.run_report: starting, locking interface and getting params
+2026-02-09 21:26:17,698 [INFO] TRACE: Main.run_report: launching thread with params: Raw Listens
+2026-02-09 21:26:17,744 [INFO] TRACE: Main.run_report: created progress window
+2026-02-09 21:26:17,745 [INFO] Report Requested: Mode='Raw Listens' | Filters: Time=0-0, Recency=0-0, First=0-0, TopN=200 | Enrichment: False (None (Data Only, No Genres))
+2026-02-09 21:26:17,746 [INFO] Report generation complete. Rows: 200
+2026-02-09 21:26:17,761 [INFO] TRACE: _on_report_done started
+2026-02-09 21:26:17,766 [INFO] TRACE: win destroyed
+2026-02-09 21:26:17,766 [INFO] TRACE: UI reset skipped (Deferring unlock)
+2026-02-09 21:26:17,766 [INFO] TRACE: State updated. Result Rows: 200
+2026-02-09 21:26:17,790 [INFO] TRACE: Calling standard show_table...
+2026-02-09 21:26:17,790 [INFO] TRACE: show_table called with 200 rows. Columns: ['artist', 'artist_mbid', 'album', 'track_name', 'duration_ms', 'listened_at', 'recording_mbid', 'release_mbid', 'origin', '_username', 'Likes']
+2026-02-09 21:26:17,791 [INFO] TRACE: show_table: Clearing existing items...
