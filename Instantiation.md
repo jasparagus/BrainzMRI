@@ -47,6 +47,7 @@ This document is the **immutable Source of Truth** for the project's architectur
 * **The "Barrier" Pattern:** Managed by `sync_engine.py`. Concurrent workers (Listens fetch + Likes sync) must both complete before the UI unlocks.
 * **Decoupled Workers:** Threaded logic (e.g., API calls) must exist in `sync_engine.py` or `gui_actions.py`. The Main Thread (`gui_main`) is reserved for UI updates and event routing.
 * **Strict Modal Flow ("BusyState"):** All background operations (Import, Report, Sync) **MUST** utilize a `BusyState` lock. The main controller `gui_main` must strictly disable **ALL** interactive elements (`lock_interface()`) before work begins and only re-enable them (`unlock_interface()`) exactly when the work is fully complete and the new state is rendered. Allowing user interaction during a background task is forbidden.
+* **Lock Lifecycle Ownership:** When one flow (e.g., CSV Import) triggers another (e.g., Auto-Report), the outer flow must **transfer** lock ownership to the inner flow, not attempt to independently unlock. Before calling `run_report()`, reset `self.processing = False` so the inner flow can acquire its own lock. Never call `unlock_interface()` from the outer flow after delegating to the inner flow — this causes double lock/unlock cycling that destabilizes Tkinter on Windows.
 
 ### 3.3 Observability & User Feedback
 * **Dual-Channel Progress UI:** The application uses a **"Primary + Secondary"** observability model. The modal progress window must support a secondary status label to report on background tasks (e.g., "Syncing Likes...") independently of the main progress bar.
@@ -65,6 +66,14 @@ This document is the **immutable Source of Truth** for the project's architectur
 * **Strict Data Isolation:** Analytical reports ("Top Artists", "Genre Flavor", etc.) **MUST ONLY** operate on the loaded User History. They must never silently fall back to an imported CSV.
 * **Dedicated CSV Mode:** Imported CSVs are treated as a transient "Playlist Review" state. They are accessible **ONLY** via the dedicated "Imported CSV" report mode. This prevents cross-contamination of metrics (e.g., your "Top Artists of 2024" should not include tracks from a CSV you just imported to check formatting).
 * **UI State Management:** The `gui_main.py` controller must dynamically update the available options in the Report Dropdown based on the current context (e.g., showing/hiding "Imported CSV" option).
+
+### 3.9 Tcl/Tk Safety (Windows)
+Tkinter is a thin wrapper around the Tcl/Tk C library. Certain patterns trigger C-level access violations or heap corruption that bypass Python's exception handling entirely, killing the process silently.
+* **No Bulk Treeview Deletion:** `tree.delete(*tree.get_children())` unpacks all item IDs into a single Tcl command, stressing the C allocator during rapid repopulation. **Always delete items individually** in a loop.
+* **Flush Between Phases:** Call `tree.update_idletasks()` between delete and insert phases to let Tcl's allocator settle.
+* **Hide During Reconfiguration:** Call `tree.grid_remove()` before modifying columns to prevent pending UI events (hover, scroll) from firing on widgets that are being reconfigured.
+* **Schedule on Permanent Widgets:** Background thread callbacks must use `root.after()` or `self.parent.after()`, never `win.after()` on a transient `Toplevel`/`ProgressWindow`. If the transient window is destroyed before the callback fires, the `after()` call causes a `TclError`.
+* **No Orphaned Toplevels:** Never create a `tk.Toplevel()` solely to satisfy a function signature. Creating and immediately destroying transient windows destabilizes Tkinter's internal focus/grab state on Windows.
 
 ### 3.5 Metadata & Enrichment Strategy
 * **The "Release Group Hop":** Resolve Album genres via `release-group`, never `release`.
@@ -133,8 +142,7 @@ Expect to receive the following files.
 | **`enrichment.py`** | **Model/Service** | Fetches Genre tags and resolves missing MBIDs using persistent caching. |
 | **`parsing.py`** | **Utility** | Data Normalization. |
 | **`config.py`** | **Utility** | Singleton Settings. |
-| **`sync_engine.py`** | **Controller** | Orchestrates background synchronization (Filter-First logic) and Progress UI. |
-| **`likes_sync.py`** | **Controller** | Manages cross-platform logic: Fetch Last.fm Likes  Resolve MBIDs  Diff  User Confirm  Push LB. |
+| **`likes_sync.py`** | **Controller** | Manages cross-platform logic: Fetch Last.fm Likes → Resolve MBIDs → Diff → User Confirm → Push LB. |
 
 
 ---

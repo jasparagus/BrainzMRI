@@ -142,6 +142,7 @@ BrainzMRI/
 │
 ├── report_engine.py              # Controller: Aggregation Pipeline & Data Routing
 ├── sync_engine.py                # Controller: Background Synchronization & Concurrency
+├── likes_sync.py                 # Controller: Cross-Platform Like Sync (Last.fm → LB)
 │
 ├── reporting.py                  # Model: Core Aggregation, Statistics, & Filtering Logic
 ├── enrichment.py                 # Model: Metadata Fetching, Caching, & Resolution
@@ -150,7 +151,6 @@ BrainzMRI/
 ├── parsing.py                    # Utility: File Parsing, Normalization, & Key Generation
 ├── config.py                     # Utility: Global Configuration & Constants
 │
-├── tests/                        # Unit tests
 ├── README.md
 ├── requirements.txt
 └── config.json                   # Auto-created settings
@@ -184,20 +184,13 @@ Add a toggle for "Group Similar Tracks and Albums" to enable grouping tracks/alb
 
 ## Cross-Platform Like Synchronization
 
-* Goal: Enable bidirectional synchronization of "Loved Tracks" between Last.fm and ListenBrainz, ensuring your favorites are consistent across both platforms and the local BrainzMRI cache.
-* **Workflow:**
+* **Current Status:** One-way **"Last.fm → ListenBrainz"** import is implemented via the **"Import Last.fm Likes"** button in the header bar. This fetches loved tracks from Last.fm, resolves MBIDs via the Resolver Engine, diffs against existing likes, and pushes new likes to ListenBrainz with user confirmation.
 
-1. User opens the "Sync Manager" dialog and selects a **Sync Mode**:
-* **"Full Sync (Additive)"**: Merges likes from both services. Any track liked on *either* service will be pushed to the other, resulting in identical libraries.
-* **"Last.fm to ListenBrainz"**: Scans Last.fm likes and pushes any missing tracks to ListenBrainz. (One-way).
-* **"ListenBrainz to Last.fm"**: Scans ListenBrainz likes and pushes any missing tracks to Last.fm. (One-way).
+* **Remaining Roadmap:**
 
-
-2. **Fetch & Diff:** The system queries both APIs to build a "State of the World" comparison, identifying exactly which MBIDs are missing from which service.
-3. **Execution:** BrainzMRI performs the batch API write operations to apply the necessary "Love" actions to the target service(s).
-4. **Local Update:** The local cache is immediately updated to reflect the new superset of liked tracks.
-
-* **Benefit:** Eliminates platform fragmentation, ensuring that a song you hearted on Last.fm years ago is properly recognized and recommended on your modern ListenBrainz profile.
+1. **"ListenBrainz to Last.fm"**: One-way push of LB likes to Last.fm.
+2. **"Full Sync (Additive)"**: Bidirectional merge — any track liked on *either* service is pushed to the other.
+3. **Sync Manager Dialog**: A dedicated UI for selecting sync mode and reviewing the diff before execution.
 
 
 ## Group Artists, Albums
