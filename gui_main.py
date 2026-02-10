@@ -40,32 +40,46 @@ def setup_logging(root=None):
     Configure logging to file and console.
     Hooks into Tkinter's exception handler if root is provided.
     """
-    level_str = config.log_level.lower()
+    # 1. Determine Log Level
+    # Normalize to Upper Case to match user's map keys
+    level_str = config.log_level.upper()
     
-    # 0. Level "none" -> Disable Logging
-    if level_str == "none":
+    # 0. Level "NONE" -> Disable Logging
+    if level_str == "NONE":
         logging.getLogger().handlers = []
         return
 
-    # 1. Determine Log Level
-    # INFO -> INFO, DEBUG -> DEBUG
+
     level_map = {
         "INFO": logging.INFO,
-        "DEBUG": logging.DEBUG
+        "DEBUG": logging.DEBUG,
     }
     target_level = level_map.get(level_str, logging.INFO)
 
     # 2. Configure Logging
-    # mode='w' ensures we start fresh each run (Single File)
-    logging.basicConfig(
-        level=target_level,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-             logging.FileHandler(config.log_file, mode='w', encoding='utf-8'),
-             logging.StreamHandler(sys.stdout)
-        ],
-        force=True
-    )
+    # Wrap in try/except to handle "File in Use" crashes
+    try:
+        logging.basicConfig(
+            level=target_level,
+            format="%(asctime)s [%(levelname)s] %(message)s",
+            handlers=[
+                 logging.FileHandler(config.log_file, mode='w', encoding='utf-8'),
+                 logging.StreamHandler(sys.stdout)
+            ],
+            force=True
+        )
+    except PermissionError:
+        # Fallback to Console Only if file is locked
+        logging.basicConfig(
+            level=target_level,
+            format="%(asctime)s [%(levelname)s] [FILE LOCKED] %(message)s",
+            handlers=[logging.StreamHandler(sys.stdout)],
+            force=True
+        )
+        logging.warning("Could not write to brainzmri.log (File Locked). Logging to console only.")
+    except Exception as e:
+        # Total fallback
+        print(f"CRITICAL: Logging setup failed: {e}")
 
     # 3. Capture Python Warnings
     logging.captureWarnings(True)
