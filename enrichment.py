@@ -8,6 +8,7 @@ to the api_client module.
 
 import json
 import os
+import logging
 from typing import Any, Optional, Callable
 
 import pandas as pd
@@ -174,8 +175,13 @@ def _process_enrichment_loop(
             msg = f"Enriching {entity_type} {i + 1}/{total}..."
             progress_callback(i, total, msg)
 
-        result_data = _enrich_single_entity(entity_type, item, mode, force_update)
-
+        try:
+            result_data = _enrich_single_entity(entity_type, item, mode, force_update)
+        except Exception as e:
+            logging.error(f"Enrichment ERROR for {key}: {e}")
+            result_data = None
+            stats["fallbacks"] += 1 # Count as fallback (or add separate error stat?)
+        
         if result_data and result_data.get("genres"):
             results_map[key] = result_data
             stats["newly_fetched"] += 1
@@ -443,8 +449,12 @@ def resolve_missing_mbids(
         if progress_callback:
             progress_callback(i, total, f"Resolving: {artist} - {track}...")
 
-        # API Call (Slow)
-        res = mb_client.search_recording_details(artist, track, album)
+        try:
+            # API Call (Slow)
+            res = mb_client.search_recording_details(artist, track, album)
+        except Exception as e:
+            logging.error(f"Resolution API ERROR for {artist} - {track}: {e}")
+            res = None
         
         results_map[key] = res # res is dict or None
         updates_since_save += 1

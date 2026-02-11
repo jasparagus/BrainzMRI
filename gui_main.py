@@ -14,6 +14,7 @@ import time
 import os
 import subprocess
 import gc # Memory management for crash prevention
+import pandas as pd
 
 from idlelib.tooltip import Hovertip
 

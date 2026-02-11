@@ -46,6 +46,18 @@ class BaseClient:
                 resp.raise_for_status()
                 return resp.json()
 
+            except requests.exceptions.HTTPError as e:
+                # Handle Server Errors (5xx) with Retry
+                status = e.response.status_code
+                if status in [500, 502, 503, 504]:
+                    logging.warning(f"API Server Error ({status}): {e}. Retrying in 5s...")
+                    time.sleep(5)
+                    attempts += 1
+                else:
+                    # Client Errors (400, 401, 403, etc) -> Fail Immediately
+                    logging.error(f"API Client Error: {e}")
+                    raise e
+
             except (requests.exceptions.ConnectionError, ConnectionResetError) as e:
                 logging.warning(f"Connection error: {e}. Retrying in 5s...")
                 time.sleep(5)
@@ -54,7 +66,7 @@ class BaseClient:
                 logging.error(f"API Request Failed: {e}")
                 raise e
         
-        logging.error(f"Max retries exceeded for {url}")
+        logging.error(f"Max retries exhausted for {url}")
         return None
 
 
