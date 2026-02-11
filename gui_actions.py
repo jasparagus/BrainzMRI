@@ -92,11 +92,12 @@ class ActionConfirmDialog(tk.Toplevel):
 
 
 class ActionComponent:
-    def __init__(self, parent: tk.Frame, app_state, table_view, on_update_callback):
+    def __init__(self, parent: tk.Frame, app_state, table_view, on_update_callback, force_var: tk.BooleanVar = None):
         self.parent = parent
         self.state = app_state
         self.table_view = table_view
         self.on_update_callback = on_update_callback
+        self.force_var = force_var
 
         self.frame = tk.Frame(parent, bg="#ECEFF1", bd=1, relief="groove")
         self.frame.pack(fill="x", side="bottom", padx=5, pady=5) # Always Visible
@@ -252,35 +253,47 @@ class ActionComponent:
         df_in = self.state.last_report_df.copy()
 
         def worker():
-            def cb(c, t, m):
-                win.after(0, lambda: win.update_progress(c, t, m))
-            
-            # Check for force update param
-            force = self.state.last_params.get("force_cache_update", False) if self.state.last_params else False
-            
-            df_res, ok, fail = enrichment.resolve_missing_mbids(
-                df_in, 
-                force_update=force,
-                progress_callback=cb, 
-                is_cancelled=lambda: win.cancelled
-            )
-
-            def _finish():
-                if win.winfo_exists(): win.destroy()
+            try:
+                def cb(c, t, m):
+                    if win.winfo_exists(): win.update_progress(c, t, m)
                 
-                # Re-apply Likes status to newly resolved MBIDs
-                liked_mbids = self.state.user.get_liked_mbids()
-                if "recording_mbid" in df_res.columns:
-                     df_res["Likes"] = df_res["recording_mbid"].apply(
-                         lambda x: 1 if x in liked_mbids else 0
-                     )
+                # Use live variable if available, fallback to last params
+                if self.force_var:
+                    force = self.force_var.get()
+                    logging.info(f"Resolution using LIVE force_update={force}")
+                else:
+                    force = self.state.last_params.get("force_cache_update", False) if self.state.last_params else False
+                    logging.info(f"Resolution using STALE force_update={force}")
+                
+                df_res, ok, fail = enrichment.resolve_missing_mbids(
+                    df_in, 
+                    force_update=force,
+                    progress_callback=cb, 
+                    is_cancelled=lambda: win.cancelled
+                )
 
-                self.state.last_report_df = df_res
-                self.state.original_df = df_res.copy()
-                self.state.filtered_df = df_res.copy()
-                self.on_update_callback(df_res, ok, fail)
+                def _finish():
+                    if win.winfo_exists(): win.destroy()
+                    
+                    # Re-apply Likes status to newly resolved MBIDs
+                    liked_mbids = self.state.user.get_liked_mbids()
+                    if "recording_mbid" in df_res.columns:
+                         df_res["Likes"] = df_res["recording_mbid"].apply(
+                             lambda x: 1 if x in liked_mbids else 0
+                         )
 
-            win.after(0, _finish)
+                    self.state.last_report_df = df_res
+                    self.state.original_df = df_res.copy()
+                    self.state.filtered_df = df_res.copy()
+                    self.on_update_callback(df_res, ok, fail)
+                    messagebox.showinfo("Resolution Complete", f"Resolved: {ok}\nFailed: {fail}")
+
+                win.after(0, _finish)
+            except Exception as e:
+                logging.error(f"Resolution crashed: {e}", exc_info=True)
+                win.after(0, lambda: [win.destroy(), messagebox.showerror("Resolution Error", str(e))])
+
+
 
         threading.Thread(target=worker, daemon=True).start()
 

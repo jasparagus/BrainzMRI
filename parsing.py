@@ -416,17 +416,35 @@ def parse_txt_playlist(file_path: str) -> pd.DataFrame:
     """
     Parse a TXT playlist, specifically targeting the YouTube Music copy-paste format.
     Format is blocks of: Title \n Artist \n Album \n Duration
+    Handles cases where Duration is missing (separated by empty lines).
     """
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # Ported logic from helpers/YouTubeMusicPlaylistParser.py
-    # Normalize newlines
-    content = content.replace('\r\n', '\n')
+    # Normalize: Ensure unified newlines and wrap in newlines to catch start/end tokens
+    content = '\n' + content.replace('\r\n', '\n') + '\n'
     
-    # Split by duration lines (digits:digits)
-    # Regex looks for a standalone duration like " 3:45 " or at start/end of line
-    parts = re.split(r'\n\s*(\d{1,2}:\d{2})\s*\n', content)
+    # Split by DELIMITER.
+    # A delimiter is EITHER:
+    # 1. A Duration Line (e.g. "4:00" or " 4:00 ")
+    # 2. A Significant Gap (2 or more empty lines, i.e., 3+ consecutive newlines)
+    #
+    # Regex Breakdown:
+    # \n\s*                  : Start with newline (and optional whitespace)
+    # (?:
+    #   (\d{1,2}:\d{2}(?::\d{2})?)  : Group 1: Duration (MM:SS or HH:MM:SS)
+    #   \s*\n                       : Must be followed by newline
+    # |
+    #   (?:\s*\n){2,}               : OR: 2 or more lines of just whitespace/newlines
+    # )
+    regex = r'\n\s*(?:(\d{1,2}:\d{2}(?::\d{2})?)\s*(?:\n)|(?:\s*\n){2,})'
+    
+    parts = re.split(regex, content)
+    
+    # parts[0] = Text before first delimiter
+    # parts[1] = Delimiter Capture Group 1 (Duration) OR None (if Gap)
+    # parts[2] = Text after first delimiter
+    # ...
     
     rows = []
     
@@ -434,52 +452,50 @@ def parse_txt_playlist(file_path: str) -> pd.DataFrame:
         current_block_text = parts[0]
         
         for i in range(1, len(parts), 2):
-            duration_str = parts[i]
+            duration_str = parts[i] # Can be None if it was a Gap match
             
             # Parse Duration
             duration_ms = 0
-            try:
-                d_parts = list(map(int, duration_str.split(':')))
-                if len(d_parts) == 2:
-                    duration_ms = ((d_parts[0] * 60) + d_parts[1]) * 1000
-                elif len(d_parts) == 3:
-                     duration_ms = ((d_parts[0] * 3600) + (d_parts[1] * 60) + d_parts[2]) * 1000
-            except ValueError:
-                pass
+            if duration_str:
+                try:
+                    d_parts = list(map(int, duration_str.split(':')))
+                    if len(d_parts) == 2:
+                        duration_ms = ((d_parts[0] * 60) + d_parts[1]) * 1000
+                    elif len(d_parts) == 3:
+                         duration_ms = ((d_parts[0] * 3600) + (d_parts[1] * 60) + d_parts[2]) * 1000
+                except ValueError:
+                    pass
 
-            # Parse Block
+            # Parse Block text collected in previous iteration (or start)
             text_block = current_block_text.strip()
-            lines = [line.strip() for line in text_block.split('\n') if line.strip()]
+            if text_block:
+                lines = [line.strip() for line in text_block.split('\n') if line.strip()]
+                
+                if len(lines) >= 2:
+                    title = lines[0]
+                    album = lines[-1]
+                    
+                    if len(lines) > 2:
+                        artist_lines = lines[1:-1]
+                        raw_artist = " ".join(artist_lines)
+                        # Cleaning logic from original script
+                        artist = re.sub(r'\s+([,&])\s+', r'\1 ', raw_artist)
+                        artist = artist.replace(" ,", ",").replace(" &", " &")
+                    else:
+                        artist = lines[1]
+                        album = "Unknown Album" # Fallback if only 2 lines (Title, Artist)
+                    
+                    rows.append({
+                        "track_name": title,
+                        "artist": artist,
+                        "album": album,
+                        "duration_ms": duration_ms
+                    })
             
-            if len(lines) >= 2:
-                title = lines[0]
-                album = lines[-1]
-                
-                if len(lines) > 2:
-                    artist_lines = lines[1:-1]
-                    raw_artist = " ".join(artist_lines)
-                    # Cleaning logic from original script
-                    artist = re.sub(r'\s+([,&])\s+', r'\1 ', raw_artist)
-                    artist = artist.replace(" ,", ",").replace(" &", " &")
-                else:
-                    artist = lines[1]
-                    album = "Unknown Album" # Fallback if only 2 lines (Title, Artist)
-                
-                rows.append({
-                    "track_name": title,
-                    "artist": artist,
-                    "album": album,
-                    "duration_ms": duration_ms
-                })
-
+            # Prepare for next loop
             if i + 1 < len(parts):
                 current_block_text = parts[i+1]
                 
-    if not rows:
-        # Fallback for simple "Artist - Title" lines?
-        # For now, return empty or what we found
-        pass
-        
     return pd.DataFrame(rows)
 
 

@@ -182,7 +182,7 @@ class BrainzMRIGUI:
         self.table_view = ReportTableView(root, self.frm_table, self.state)
 
         # 5. Actions (Now always visible)
-        self.actions = ActionComponent(root, self.state, self.table_view, self.on_data_updated)
+        self.actions = ActionComponent(root, self.state, self.table_view, self.on_data_updated, force_var=self.force_cache_var)
 
         # 6. Status Bar
         self.status_var = tk.StringVar(value="Ready.")
