@@ -339,8 +339,8 @@ class ListenBrainzClient(BaseClient):
 
     def create_playlist(self, name, tracks):
         """
-        Create a JSPF playlist.
-        tracks: list of dicts {'title', 'artist', 'release', 'recording_mbid'}
+        Create a JSPF playlist on ListenBrainz.
+        tracks: list of dicts {'title', 'artist', 'album', 'mbid'}
         """
         if self.dry_run:
             logging.info(f"[DRY RUN] Create Playlist '{name}' with {len(tracks)} tracks.")
@@ -360,7 +360,7 @@ class ListenBrainzClient(BaseClient):
                 "title": t.get("title"),
                 "creator": t.get("artist"),
                 "album": t.get("album"),
-                "identifier": f"https://musicbrainz.org/recording/{t.get('mbid')}"
+                "identifier": [f"https://musicbrainz.org/recording/{t.get('mbid')}"]
             }
             jspf["playlist"]["track"].append(entry)
             

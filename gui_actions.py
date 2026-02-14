@@ -310,9 +310,12 @@ class ActionComponent:
         if not name: return
 
         tracks = []
+        skipped = 0
         for _, row in df.iterrows():
             mbid = row.get("recording_mbid")
-            if not mbid or str(mbid) in ("None", "", "nan"): continue
+            if not mbid or str(mbid) in ("None", "", "nan"):
+                skipped += 1
+                continue
             
             tracks.append({
                 "title": str(row.get("track_name", "Unknown")),
@@ -322,10 +325,15 @@ class ActionComponent:
             })
 
         if not tracks:
-            messagebox.showwarning("Empty", "No valid tracks found to export.")
+            messagebox.showwarning("Empty", "No tracks with valid recording MBIDs found.\n\nUse 'Resolve Metadata' to resolve MBIDs before exporting.")
             return
 
-        dry_run = self._ask_execution_mode("Export Playlist", f"Create playlist '{name}' with {len(tracks)} tracks?")
+        # Warn user about skipped tracks
+        skip_msg = ""
+        if skipped > 0:
+            skip_msg = f"\n\n⚠ {skipped} track(s) lack recording MBIDs and will be excluded."
+
+        dry_run = self._ask_execution_mode("Export Playlist", f"Create playlist '{name}' with {len(tracks)} tracks?{skip_msg}")
         if dry_run is None: return
 
         client = self._get_client(dry_run)
@@ -336,9 +344,16 @@ class ActionComponent:
             try:
                 win.after(0, lambda: win.update_progress(50, 100, f"{mode_str}Sending..."))
                 client.create_playlist(name, tracks)
-                win.after(0, lambda: [win.destroy(), messagebox.showinfo("Success", f"{mode_str}Created playlist '{name}'.")])
+                win.after(0, lambda: [win.destroy(), messagebox.showinfo("Success", f"{mode_str}Created playlist '{name}' ({len(tracks)} tracks).")])
             except Exception as e:
                 err_msg = str(e)
+                # Log the full response body for API errors
+                if hasattr(e, 'response') and e.response is not None:
+                    try:
+                        logging.error(f"API Response Body: {e.response.text}")
+                    except Exception:
+                        pass
+                logging.error(f"Playlist export failed: {err_msg}")
                 win.after(0, lambda: [win.destroy(), messagebox.showerror("Error", err_msg)])
 
         threading.Thread(target=worker, daemon=True).start()
