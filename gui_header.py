@@ -48,12 +48,13 @@ class HeaderComponent:
         tk.Button(self.frm_user, text="Edit User", command=self.edit_user).pack(side="left", padx=2)
 
         # --- Source Row ---
-        self.btn_import = tk.Button(self.frm_source, text="Import Playlist", bg="#FFCC80", command=self.import_playlist)
+        self.btn_import = tk.Button(self.frm_source, text="Import Playlist File", 
+            bg="#FFCC80", command=self.import_playlist)  # use file explorer coloration
         self.btn_import.pack(side="left", padx=(5, 5))
 
         self.btn_get_listens = tk.Button(
             self.frm_source,
-            text="Get New Listens",
+            text="Get New Listenbrainz Data", bg="#353070", fg="white",
             command=self.callback_refresh_data, # Delegated to main controller
             state="disabled"
         )
@@ -63,9 +64,9 @@ class HeaderComponent:
         # Import Last.fm Likes (New Button)
         self.btn_import_lastfm = tk.Button(
             self.frm_source,
-            text="Import Last.fm Likes",
+            text="Get Last.fm Likes",
             command=self.on_import_lastfm_callback,
-            bg="#81C784",  # Matches Action button color
+            bg="#D51007", fg="white",  # Matches official Last.fm color scheme
             state="disabled"
         )
         self.btn_import_lastfm.pack(side="left", padx=(0, 10))
