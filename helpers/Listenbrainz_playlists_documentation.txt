@@ -1,0 +1,383 @@
+Playlists¶
+The playlists API allows for the creation and editing of lists of recordings
+
+GET /1/user/(playlist_user_name)/playlists¶
+Fetch playlist metadata in JSPF format without recordings for the given user. If a user token is provided in the Authorization header, return private playlists as well as public playlists for that user.
+
+Parameters
+:
+count (int) – The number of playlists to return (for pagination). Default DEFAULT_NUMBER_OF_PLAYLISTS_PER_CALL
+
+offset (int) – The offset of into the list of playlists to return (for pagination)
+
+Status Codes
+:
+200 OK – Yay, you have data!
+
+404 Not Found – User not found
+
+Response Headers
+:
+Content-Type – application/json
+
+GET /1/user/(playlist_user_name)/playlists/createdfor¶
+Fetch playlist metadata in JSPF format without recordings that have been created for the user. Createdfor playlists are all public, so no Authorization is needed for this call.
+
+Parameters
+:
+count (int) – The number of playlists to return (for pagination). Default DEFAULT_NUMBER_OF_PLAYLISTS_PER_CALL
+
+offset (int) – The offset of into the list of playlists to return (for pagination)
+
+Status Codes
+:
+200 OK – Yay, you have data!
+
+404 Not Found – User not found
+
+Response Headers
+:
+Content-Type – application/json
+
+GET /1/user/(playlist_user_name)/playlists/collaborator¶
+Fetch playlist metadata in JSPF format without recordings for which a user is a collaborator. If a playlist is private, it will only be returned if the caller is authorized to edit that playlist.
+
+Parameters
+:
+count (int) – The number of playlists to return (for pagination). Default DEFAULT_NUMBER_OF_PLAYLISTS_PER_CALL
+
+offset (int) – The offset of into the list of playlists to return (for pagination)
+
+Status Codes
+:
+200 OK – Yay, you have data!
+
+404 Not Found – User not found
+
+Response Headers
+:
+Content-Type – application/json
+
+POST /1/playlist/create¶
+Create a playlist. The playlist must be in JSPF format with MusicBrainz extensions, which is defined here: https://musicbrainz.org/doc/jspf . To create an empty playlist, you can send an empty playlist with only the title field filled out. If you would like to create a playlist populated with recordings, each of the track items in the playlist must have an identifier element that contains the MusicBrainz recording that includes the recording MBID.
+
+When creating a playlist, only the playlist title and the track identifier elements will be used – all other elements in the posted JSPF wil be ignored.
+
+If a created_for field is found and the user is not an approved playlist bot, then a 403 forbidden will be raised.
+
+Request Headers
+:
+Authorization – Token <user token>
+
+Status Codes
+:
+200 OK – playlist accepted.
+
+400 Bad Request – invalid JSON sent, see error message for details.
+
+401 Unauthorized – invalid authorization. See error message for details.
+
+403 Forbidden – forbidden. The submitting user is not allowed to create playlists for other users.
+
+Response Headers
+:
+Content-Type – application/json
+
+GET /1/playlist/search¶
+Search for playlists by name or description. The search query must be at least 3 characters long.
+
+Parameters
+:
+query (str) – The search query string.
+
+Status Codes
+:
+200 OK – Yay, you have data!
+
+400 Bad Request – invalid query string, see error message for details.
+
+401 Unauthorized – invalid authorization. See error message for details.
+
+Response Headers
+:
+Content-Type – application/json
+
+POST /1/playlist/edit/(playlist_mbid)¶
+Edit the private/public status, name, description or list of collaborators for an exising playlist. The Authorization header must be set and correspond to the owner of the playlist otherwise a 403 error will be returned. All fields will be overwritten with new values.
+
+Request Headers
+:
+Authorization – Token <user token>
+
+Status Codes
+:
+200 OK – playlist accepted.
+
+400 Bad Request – invalid JSON sent, see error message for details.
+
+401 Unauthorized – invalid authorization. See error message for details.
+
+403 Forbidden – forbidden. The subitting user is not allowed to edit playlists for other users.
+
+Response Headers
+:
+Content-Type – application/json
+
+GET /1/playlist/(playlist_mbid)¶
+Fetch the given playlist.
+
+Parameters
+:
+playlist_mbid (str) – The playlist mbid to fetch.
+
+fetch_metadata (bool) – Optional, pass value ‘false’ to skip lookup up recording metadata
+
+Status Codes
+:
+200 OK – Yay, you have data!
+
+404 Not Found – Playlist not found
+
+401 Unauthorized – Invalid authorization. See error message for details.
+
+Response Headers
+:
+Content-Type – application/json
+
+GET /1/playlist/(playlist_mbid)/xspf¶
+Fetch the given playlist as XSPF.
+
+Parameters
+:
+playlist_mbid (str) – The playlist mbid to fetch.
+
+fetch_metadata (bool) – Optional, pass value ‘false’ to skip lookup up recording metadata
+
+Status Codes
+:
+200 OK – Yay, you have data!
+
+404 Not Found – Playlist not found
+
+401 Unauthorized – Invalid authorization. See error message for details.
+
+Response Headers
+:
+Content-Type – application/xspf+xml
+
+POST /1/playlist/(playlist_mbid)/item/add¶
+POST /1/playlist/(playlist_mbid)/item/add/(int:offset)¶
+Append recordings to an existing playlist by posting a playlist with one of more recordings in it. The playlist must be in JSPF format with MusicBrainz extensions, which is defined here: https://musicbrainz.org/doc/jspf .
+
+If the offset is provided in the URL, then the recordings will be added at that offset, otherwise they will be added at the end of the playlist.
+
+You may only add MAX_RECORDINGS_PER_ADD recordings in one call to this endpoint.
+
+Request Headers
+:
+Authorization – Token <user token>
+
+Status Codes
+:
+200 OK – playlist accepted.
+
+400 Bad Request – invalid JSON sent, see error message for details.
+
+401 Unauthorized – invalid authorization. See error message for details.
+
+403 Forbidden – forbidden. the requesting user was not allowed to carry out this operation.
+
+Response Headers
+:
+Content-Type – application/json
+
+POST /1/playlist/(playlist_mbid)/item/move¶
+To move an item in a playlist, the POST data needs to specify the recording MBID and current index of the track to move (from), where to move it to (to) and how many tracks from that position should be moved (count). The format of the post data should look as follows:
+
+{
+    "mbid": "<mbid>",
+    "from": 3,
+    "to": 4,
+    "count": 2
+}
+Request Headers
+:
+Authorization – Token <user token>
+
+Status Codes
+:
+200 OK – move operation succeeded
+
+400 Bad Request – invalid JSON sent, see error message for details.
+
+401 Unauthorized – invalid authorization. See error message for details.
+
+403 Forbidden – forbidden. the requesting user was not allowed to carry out this operation.
+
+Response Headers
+:
+Content-Type – application/json
+
+POST /1/playlist/(playlist_mbid)/item/delete¶
+To delete an item in a playlist, the POST data needs to specify the recording MBID and current index of the track to delete, and how many tracks from that position should be moved deleted. The format of the post data should look as follows:
+
+{
+    "index": 3,
+    "count": 2
+}
+Request Headers
+:
+Authorization – Token <user token>
+
+Status Codes
+:
+200 OK – playlist accepted.
+
+400 Bad Request – invalid JSON sent, see error message for details.
+
+401 Unauthorized – invalid authorization. See error message for details.
+
+403 Forbidden – forbidden. the requesting user was not allowed to carry out this operation.
+
+Response Headers
+:
+Content-Type – application/json
+
+POST /1/playlist/(playlist_mbid)/delete¶
+Delete a playlist. POST body data does not need to contain anything.
+
+Request Headers
+:
+Authorization – Token <user token>
+
+Status Codes
+:
+200 OK – playlist deleted.
+
+401 Unauthorized – invalid authorization. See error message for details.
+
+403 Forbidden – forbidden. the requesting user was not allowed to carry out this operation.
+
+404 Not Found – Playlist not found
+
+Response Headers
+:
+Content-Type – application/json
+
+POST /1/playlist/(playlist_mbid)/copy¶
+Copy a playlist – the new playlist will be given the name “Copy of <playlist_name>”. POST body data does not need to contain anything.
+
+Request Headers
+:
+Authorization – Token <user token>
+
+Status Codes
+:
+200 OK – playlist copied.
+
+401 Unauthorized – invalid authorization. See error message for details.
+
+404 Not Found – Playlist not found
+
+Response Headers
+:
+Content-Type – application/json
+
+POST /1/playlist/(playlist_mbid)/export/(service)¶
+Export a playlist to an external service, given a playlist MBID.
+
+Request Headers
+:
+Authorization – Token <user token>
+
+Parameters
+:
+playlist_mbid – The playlist mbid to export.
+
+is_public – Should the exported playlist be public or not?
+
+Status Codes
+:
+200 OK – playlist copied.
+
+401 Unauthorized – invalid authorization. See error message for details.
+
+404 Not Found – Playlist not found
+
+Response Headers
+:
+Content-Type – application/json
+
+GET /1/playlist/import/(service)¶
+Get playlists from chosen Music Service. :reqheader Authorization: Token <user token> :statuscode 200: playlists are fetched. :statuscode 401: invalid authorization. See error message for details. :statuscode 404: Playlists not found :resheader Content-Type: application/json
+
+GET /1/playlist/spotify/(playlist_id)/tracks¶
+Import a playlist’s tracks from Spotify and convert them to JSPF.
+
+Request Headers
+:
+Authorization – Token <user token>
+
+Parameters
+:
+playlist_id – The Spotify playlist id to get the tracks from
+
+Status Codes
+:
+200 OK – tracks are fetched and converted.
+
+401 Unauthorized – invalid authorization. See error message for details.
+
+404 Not Found – Playlist not found
+
+Response Headers
+:
+Content-Type – application/json
+
+GET /1/playlist/apple_music/(playlist_id)/tracks¶
+Import a playlist’s tracks from Apple Music and convert them to JSPF.
+
+Request Headers
+:
+Authorization – Token <user token>
+
+Parameters
+:
+playlist_id – The Apple Music playlist id to get the tracks from
+
+Status Codes
+:
+200 OK – tracks are fetched and converted.
+
+401 Unauthorized – invalid authorization. See error message for details.
+
+404 Not Found – Playlist not found
+
+Response Headers
+:
+Content-Type – application/json
+
+GET /1/playlist/soundcloud/(playlist_id)/tracks¶
+Import a playlist tracks from a SoundCloud and convert them to JSPF. :reqheader Authorization: Token <user token> :param playlist_id: The SoundCloud playlist id to get the tracks from :statuscode 200: tracks are fetched and converted. :statuscode 401: invalid authorization. See error message for details. :statuscode 404: Playlist not found :resheader Content-Type: application/json
+
+POST /1/playlist/export-jspf/(service)¶
+Export a playlist to an external service from JSPF POSTed to this endpoint.
+
+Request Headers
+:
+Authorization – Token <user token>
+
+Parameters
+:
+is_public – Should the exported playlist be public or not?
+
+Status Codes
+:
+200 OK – playlist copied.
+
+401 Unauthorized – invalid authorization. See error message for details.
+
+Response Headers
+:
+Content-Type – application/json
+

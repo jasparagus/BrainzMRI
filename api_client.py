@@ -351,6 +351,11 @@ class ListenBrainzClient(BaseClient):
         jspf = {
             "playlist": {
                 "title": name,
+                "extension": {
+                    "https://musicbrainz.org/doc/jspf#playlist": {
+                        "public": True
+                    }
+                },
                 "track": []
             }
         }
