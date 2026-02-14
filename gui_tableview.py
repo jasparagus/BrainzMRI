@@ -187,12 +187,16 @@ class ReportTableView:
         # SAFETY: Hide tree during column reconfiguration to prevent Tcl access violations
         # from pending events (like hover) on columns that are about to vanish.
         self.tree.grid_remove() 
+        logging.info("TRACE: show_table: grid_remove() done.")
         
         # Clear existing items — delete one-at-a-time to avoid stressing
         # Tcl's C allocator with a single massive deallocation batch.
         logging.info("TRACE: show_table: Clearing existing items...")
-        for item in self.tree.get_children():
+        existing = self.tree.get_children()
+        logging.info(f"TRACE: show_table: {len(existing)} items to delete.")
+        for item in existing:
             self.tree.delete(item)
+        logging.info("TRACE: show_table: All items deleted.")
         
         # Update Columns
         logging.info("TRACE: show_table: Updating columns...")
@@ -210,15 +214,20 @@ class ReportTableView:
                 command=lambda c=col: self.sort_column(c)
             )
             self.tree.column(col, width=150, minwidth=100, stretch=True, anchor="w")
+        logging.info("TRACE: show_table: Columns configured.")
         
         # Clean Sort Stack
         valid_cols = set(cols)
         self.sort_stack = [s for s in self.sort_stack if s[0] in valid_cols]
 
-        logging.info("TRACE: show_table: Flushing pending Tcl events...")
-        # Flush pending Tcl events between delete and insert to let the
-        # allocator settle before allocating new item storage.
+        # Flush pending Tcl events between delete and insert
+        # DIAGNOSTIC: Flush Python log buffers BEFORE calling update_idletasks
+        # so if a C-level crash occurs, the trace above is guaranteed written.
+        logging.info("TRACE: show_table: About to call update_idletasks()...")
+        for handler in logging.getLogger().handlers:
+            handler.flush()
         self.tree.update_idletasks()
+        logging.info("TRACE: show_table: update_idletasks() survived.")
 
         # Insert Data
         logging.info("show_table: Inserting data rows...")

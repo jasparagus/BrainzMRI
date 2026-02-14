@@ -15,6 +15,7 @@ import os
 import subprocess
 import gc # Memory management for crash prevention
 import pandas as pd
+import faulthandler
 
 from idlelib.tooltip import Hovertip
 
@@ -36,6 +37,9 @@ import reporting
 # ======================================================================
 # Logging
 # ======================================================================
+# Module-level handle to keep faulthandler's file alive
+_faulthandler_file = None
+
 def setup_logging(root=None):
     """
     Configure logging to file and console.
@@ -110,6 +114,18 @@ def setup_logging(root=None):
             traceback.print_exception(exc, val, tb)
             
         root.report_callback_exception = tk_handler
+
+    # 5. Enable faulthandler for C-level crash diagnostics
+    # Writes to the same brainzmri.log file (append mode so it doesn't clobber logging output)
+    global _faulthandler_file
+    try:
+        _faulthandler_file = open(config.log_file, 'a', encoding='utf-8')
+        faulthandler.enable(file=_faulthandler_file)
+        logging.info("faulthandler enabled (writing to brainzmri.log)")
+    except Exception as e:
+        logging.warning(f"Could not enable faulthandler: {e}")
+        # Fallback: enable to stderr
+        faulthandler.enable()
 
     logging.info("=== BrainzMRI v7.0 Session Started ===")
 
