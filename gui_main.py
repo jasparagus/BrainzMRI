@@ -167,7 +167,7 @@ class BrainzMRIGUI:
 
 
         # Define Report Modes
-        self.REPORT_MODES_STANDARD = ["Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Genre Flavor Treemap", "Favorite Artist Trend", "New Music by Year", "Raw Listens"]
+        self.REPORT_MODES_STANDARD = ["Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Genre Flavor Treemap", "Favorite Artist Trend", "New Music By Year", "Raw Listens"]
         self.REPORT_MODES_CSV = ["Imported Playlist"]
 
         # Initialize Variables for Enrichment (Moved from Filters)

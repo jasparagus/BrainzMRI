@@ -220,14 +220,13 @@ class ReportTableView:
         valid_cols = set(cols)
         self.sort_stack = [s for s in self.sort_stack if s[0] in valid_cols]
 
-        # Flush pending Tcl events between delete and insert
-        # DIAGNOSTIC: Flush Python log buffers BEFORE calling update_idletasks
-        # so if a C-level crash occurs, the trace above is guaranteed written.
-        logging.info("TRACE: show_table: About to call update_idletasks()...")
-        for handler in logging.getLogger().handlers:
-            handler.flush()
-        self.tree.update_idletasks()
-        logging.info("TRACE: show_table: update_idletasks() survived.")
+        # NOTE: update_idletasks() was previously called here to flush pending Tcl
+        # events between delete and insert. It has been REMOVED because faulthandler
+        # tracing confirmed it causes C-level access violations (segfaults) when
+        # the column set changes between renders. The grid_remove()/grid() pattern
+        # above is sufficient to prevent visual glitches during reconfiguration.
+        # See: brainzmri.log crash trace "Windows fatal exception: access violation
+        # in update_idletasks" (2026-02-14).
 
         # Insert Data
         logging.info("show_table: Inserting data rows...")

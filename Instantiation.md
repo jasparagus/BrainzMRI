@@ -23,6 +23,9 @@ This document is the **immutable Source of Truth** for the project's architectur
     *   **Resilience:** The logger initialization must handle `PermissionError` (File Locked) gracefully by falling back to Console-Only logging, preventing startup crashes.
     *   **Hooks:** Must hook `sys.excepthook`, `sys.unraisablehook`, and `root.report_callback_exception` to ensure GUI crashes are captured.
     *   **Warnings:** Must enable `logging.captureWarnings(True)` to catch Pandas warnings (e.g., `SettingWithCopyWarning`).
+    *   **Faulthandler:** `faulthandler.enable(file=...)` must be activated at startup, directed to the same `brainzmri.log` file (opened in append mode). This captures C-level stack traces on segfaults/access violations that bypass Python's exception handling entirely. The file handle must be stored at module scope to prevent garbage collection.
+    *   **Diagnostic-First Debugging:** When investigating crashes, **always add tracing and reproduce first** before applying speculative fixes. Granular `TRACE:` log lines between each Tcl/Tk operation, combined with faulthandler output, pinpoint the exact crash site. Flush Python log buffers (`handler.flush()`) before any Tcl call suspected of crashing, to ensure the trace is written even if the process dies.
+    *   **Console Logging as Mitigation:** The `StreamHandler(sys.stdout)` console logger can provide a stabilizing effect by introducing micro-delays between Tcl operations (due to I/O). This is an observed side-effect, not a relied-upon fix.
 * **Networking:** All HTTP requests MUST use the `requests` library (not `urllib`).
 * **Session Management:** API Clients must use `requests.Session()` to enable connection pooling.
 ---
@@ -70,8 +73,8 @@ This document is the **immutable Source of Truth** for the project's architectur
 ### 3.9 Tcl/Tk Safety (Windows)
 Tkinter is a thin wrapper around the Tcl/Tk C library. Certain patterns trigger C-level access violations or heap corruption that bypass Python's exception handling entirely, killing the process silently.
 * **No Bulk Treeview Deletion:** `tree.delete(*tree.get_children())` unpacks all item IDs into a single Tcl command, stressing the C allocator during rapid repopulation. **Always delete items individually** in a loop.
-* **Flush Between Phases:** Call `tree.update_idletasks()` between delete and insert phases to let Tcl's allocator settle.
-* **Hide During Reconfiguration:** Call `tree.grid_remove()` before modifying columns to prevent pending UI events (hover, scroll) from firing on widgets that are being reconfigured.
+* **NEVER call `update_idletasks()` during Treeview mutation.** Faulthandler tracing (2026-02-14) confirmed that `update_idletasks()` causes C-level access violations when called between column reconfiguration and row insertion. It forces Tcl to process pending events (including destruction cascades from recently-destroyed `Toplevel` windows) while internal widget state is in flux. This is the **proven root cause** of the intermittent segfault crashes.
+* **Hide During Reconfiguration (The Safe Pattern):** The proven safe sequence for Treeview repopulation is: `grid_remove()` → delete items → reconfigure columns → insert rows → `grid()`. This prevents pending UI events (hover, scroll) from firing on widgets mid-reconfiguration, without triggering the `update_idletasks()` crash.
 * **Schedule on Permanent Widgets:** Background thread callbacks must use `root.after()` or `self.parent.after()`, never `win.after()` on a transient `Toplevel`/`ProgressWindow`. If the transient window is destroyed before the callback fires, the `after()` call causes a `TclError`.
 * **No Orphaned Toplevels:** Never create a `tk.Toplevel()` solely to satisfy a function signature. Creating and immediately destroying transient windows destabilizes Tkinter's internal focus/grab state on Windows.
 
