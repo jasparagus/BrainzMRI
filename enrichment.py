@@ -9,6 +9,7 @@ to the api_client module.
 import json
 import os
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional, Callable
 
 import pandas as pd
@@ -72,6 +73,59 @@ def _load_resolver_cache() -> dict[str, Any]:
 
 def _save_resolver_cache(data: dict[str, Any]) -> None:
     _save_cache("mbid_resolver_cache.json", data)
+
+
+# ------------------------------------------------------------
+# Enrichment Failure Logger
+# ------------------------------------------------------------
+
+_FAILURES_FILENAME = "enrichment_failures.jsonl"
+_FAILURES_MAX_LINES = 1000
+
+def _log_enrichment_failure(
+    entity_type: str,
+    lookup_key: str,
+    query_info: dict,
+    failure_reason: str
+) -> None:
+    """
+    Append a structured failure record to enrichment_failures.jsonl.
+    Caps at _FAILURES_MAX_LINES to prevent unbounded growth.
+    """
+    path = os.path.join(_get_global_dir(), _FAILURES_FILENAME)
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "entity_type": entity_type,
+        "lookup_key": lookup_key,
+        "query": query_info,
+        "failure_reason": failure_reason
+    }
+    try:
+        # Read existing lines (if any) for cap enforcement
+        existing_lines = []
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                existing_lines = f.readlines()
+
+        # Append new record, then trim to max
+        existing_lines.append(json.dumps(record, ensure_ascii=False) + "\n")
+        if len(existing_lines) > _FAILURES_MAX_LINES:
+            existing_lines = existing_lines[-_FAILURES_MAX_LINES:]
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(existing_lines)
+    except Exception as e:
+        logging.debug(f"Could not write enrichment failure log: {e}")
+
+
+# ------------------------------------------------------------
+# Genre Exclusion Filter (Display-Time Only)
+# ------------------------------------------------------------
+
+def _filter_excluded_genres(genres: set) -> set:
+    """Remove excluded genres (configured in config.json) from a set of genre strings."""
+    excluded = set(config.excluded_genres)  # Already lowercased at config load
+    return {g for g in genres if g.lower() not in excluded}
 
 
 # ------------------------------------------------------------
@@ -180,7 +234,13 @@ def _process_enrichment_loop(
         except Exception as e:
             logging.error(f"Enrichment ERROR for {key}: {e}")
             result_data = None
-            stats["fallbacks"] += 1 # Count as fallback (or add separate error stat?)
+            stats["fallbacks"] += 1
+            _log_enrichment_failure(
+                entity_type=entity_type,
+                lookup_key=key,
+                query_info={k: v for k, v in item.items() if k != "_key"},
+                failure_reason="api_error"
+            )
         
         if result_data and result_data.get("genres"):
             results_map[key] = result_data
@@ -190,6 +250,13 @@ def _process_enrichment_loop(
         else:
             results_map[key] = {"genres": []}
             stats["empty"] += 1
+            # Log failure for diagnostic purposes
+            _log_enrichment_failure(
+                entity_type=entity_type,
+                lookup_key=key,
+                query_info={k: v for k, v in item.items() if k != "_key"},
+                failure_reason="no_genres"
+            )
 
         updates_since_save += 1
 
@@ -331,7 +398,13 @@ def enrich_report(
 
     # Apply Results
     def get_genres(key_series, cache):
-        return key_series.map(lambda k: "|".join(cache.get(k, {}).get("genres", [])))
+        excluded = set(config.excluded_genres)  # Already lowercased at config load
+        def _build(k):
+            genres = cache.get(k, {}).get("genres", [])
+            if excluded:
+                genres = [g for g in genres if g.lower() not in excluded]
+            return "|".join(genres)
+        return key_series.map(_build)
 
     if "artist" in df.columns:
         def get_artist_key(row):
@@ -372,6 +445,7 @@ def enrich_report(
             if val:
                 g.update(val.split("|"))
         g.discard("")
+        g = _filter_excluded_genres(g)
         return "|".join(sorted(list(g)))
 
     df["Genres"] = df.apply(unify_genres, axis=1)
@@ -463,6 +537,12 @@ def resolve_missing_mbids(
             resolved_count += 1
         else:
             failed_count += 1
+            _log_enrichment_failure(
+                entity_type="resolver",
+                lookup_key=key,
+                query_info={"artist": artist, "track": track, "album": album},
+                failure_reason="unrecognized_entity"
+            )
         
         # Periodic Save
         if updates_since_save >= 10:

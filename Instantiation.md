@@ -85,6 +85,8 @@ Tkinter is a thin wrapper around the Tcl/Tk C library. Certain patterns trigger 
     2.  **Name-Based Search (Fallback):** If MBIDs are missing, fallback to Lucene-based search.
     3.  **Negative Caching:** Failed lookups must be cached to prevent repeated expensive API calls.
 * **Unified Genre Model:** Genre tags are fetched from multiple sources (MusicBrainz, Last.fm) and consolidated into a single, deduped `Genres` column for reporting.
+* **Genre Exclusion (Display-Time Only):** The `excluded_genres` list in `config.json` filters junk genres (e.g., "seen live") at display-time only. Raw cached data is preserved unfiltered so exclusion changes take effect without re-fetching.
+* **Enrichment Failure Logging:** Failed lookups (empty genres, unrecognized entities, API errors) are logged to `cache/global/enrichment_failures.jsonl` (append-only, capped at 1000 lines). This enables users to identify and improve missing MusicBrainz metadata.
 
 ### 3.6 Network Robustness
 * **Centralized Resilience:** All network interactions must occur via `api_client.py`.
@@ -113,7 +115,7 @@ Tkinter is a thin wrapper around the Tcl/Tk C library. Certain patterns trigger 
 
 ### 4.3 The Model (Data & Config)
 * **`user.py`:** User entity management, file I/O lock (`_io_lock`), cache directory management.
-* **`config.py`:** Singleton configuration (`AppConfig`). Centralizes paths and constants.
+* **`config.py`:** Singleton configuration (`AppConfig`). Centralizes paths, constants, and user-editable settings (e.g., `excluded_genres`).
 * **`parsing.py`:** Pure functions for parsing JSON/CSV, normalizing keys (`normalize_sort_key`), and handling messy input data.
 * **`enrichment.py`:** Caching layer for metadata. Handles API limits and local JSON caches.
 

@@ -35,6 +35,7 @@ class AppConfig:
         self.max_retries = 5
         self.lastfm_api_key = os.environ.get("BRAINZMRI_LASTFM_API_KEY", "")
         self.log_level = "INFO" # none, INFO, DEBUG
+        self.excluded_genres = []  # e.g. ["seen live", "spotify"] — lowercased at load
 
         # Initialize directories
         os.makedirs(self.cache_dir, exist_ok=True)
@@ -57,6 +58,7 @@ class AppConfig:
                         self.lastfm_api_key = data.get("lastfm_api_key", "")
                     
                     self.log_level = data.get("log_level", "INFO")
+                    self.excluded_genres = [g.lower().strip() for g in data.get("excluded_genres", [])]
         except Exception as e:
             logging.error(f"Failed to load config: {e}")
 
@@ -66,7 +68,8 @@ class AppConfig:
             "last_user": self.last_user,
             "network_delay": self.network_delay,
             "lastfm_api_key": self.lastfm_api_key,
-            "log_level": self.log_level
+            "log_level": self.log_level,
+            "excluded_genres": self.excluded_genres
         }
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
