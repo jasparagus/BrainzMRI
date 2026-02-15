@@ -221,7 +221,8 @@ def _process_enrichment_loop(
         stats["processed"] += 1
         key = item["_key"]
 
-        if not force_update and key in results_map:
+        cached = results_map.get(key)
+        if not force_update and cached and cached.get("genres"):
             stats["cache_hits"] += 1
             continue
 
