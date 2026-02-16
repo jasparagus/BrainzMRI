@@ -34,18 +34,20 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 ### Metadata Enrichment & Deep Query
 * **Smart Enrichment:** Automatically fetches metadata from MusicBrainz and Last.fm.
 * **Deep Query Mode:** An optional "Slow" mode that fetches detailed metadata for Albums and Tracks, not just Artists.
-* **Resolver Engine:** Can scan generic CSV imports (which lack IDs) and query MusicBrainz to resolve missing **Recording MBIDs**, upgrading "dumb" text lists into fully linkable, "Like"-able data.
+* **Resolver Engine:** Can scan generic playlist imports (which lack IDs) and query MusicBrainz to resolve missing **Recording MBIDs**, upgrading "dumb" text lists into fully linkable, "Like"-able data.
+* **Genre Exclusion:** Configurable `excluded_genres` list in `config.json` filters junk genres (e.g., "seen live") at display-time without modifying cached data.
+* **Enrichment Failure Diagnostics:** Failed lookups are logged to `enrichment_failures.jsonl` for identifying missing MusicBrainz metadata.
 * **"Æ" Sorting:** Custom sorting logic that handles special characters (e.g., normalizing "Æ" to "AE") so that artists sort intuitively rather than at the bottom of the list.
 
 ### Upstream Actions (Read/Write)
 * **Batch Likes:** Highlight rows and mark them as "Loved" on ListenBrainz in bulk.
-* **Playlist Creation:** Export any generated report or filtered view directly to a ListenBrainz JSPF playlist.
+* **Playlist Export:** Export any generated report or filtered view directly to a **ListenBrainz playlist**, or save locally as **JSPF** or **XSPF** files.
 * **Safety First:** Includes a **"Dry Run"** mode (on by default) to simulate API requests without modifying your account.
 
 ### Robust Data Ingestion
 * **Transactional Updates:** The "Get New Listens" feature uses a "Backwards Crawl" strategy with intermediate staging. This ensures that even if an update is aborted or crashes, your data remains consistent. It safely bridges the gap between your local history and the server without data corruption.
 * **Resume Capability:** Interrupted downloads automatically save their progress to an "Island" cache and resume exactly where they left off.
-* **CSV Import:** Load arbitrary CSV playlists (e.g., from Spotify exports) to analyze them using BrainzMRI's matching engine.
+* **Playlist Import:** Load playlists in **CSV**, **JSPF**, **XSPF**, or **TXT** formats (e.g., from Spotify or YouTube Music exports) to analyze them using BrainzMRI's matching engine.
 
 ---
 
@@ -101,8 +103,8 @@ python gui_main.py
 
 2. **Fetch Data:**
 * **Incremental Update:** Click **"Get New Listens"** to fetch recent tracks from the server. This process is safe to interrupt; it will resume from where it left off next time.
-* **Import CSV:** Click "Import CSV" to load an external playlist (e.g., Spotify export).
-    * *Note:* This enables a special **"Imported CSV"** report mode. It does *not* merge with your persistent history. You can switch between "Imported CSV" and your main "Top Artists" reports at any time.
+* **Import Playlist:** Click **"Import Playlist File"** to load an external playlist (CSV, JSPF, XSPF, or TXT).
+    * *Note:* This enables a special **"Imported Playlist"** report mode. It does *not* merge with your persistent history. You can switch between "Imported Playlist" and your main "Top Artists" reports at any time.
 
 
 3. **Generate Report:**
@@ -110,7 +112,7 @@ python gui_main.py
 * **Time Filters:** Enter "0, 365" to analyze the last year.
 * **Enrichment:** Select "Query MusicBrainz" to fetch genres. Check "Force Cache Update" to retry previously failed lookups. Check "Deep Query" if you need album- or track-level precision (slower).
 * Click **"Generate Report"**.
-    * *Note:* Standard reports (Top Artists, Trends) always utilize your full User History. To view your CSV data, explicitly select **"Imported CSV"** from the dropdown.
+    * *Note:* Standard reports (Top Artists, Trends) always utilize your full User History. To view your imported playlist data, explicitly select **"Imported Playlist"** from the dropdown.
 
 
 4. **Visualize:**
@@ -195,6 +197,15 @@ Add a toggle for "Group Similar Tracks and Albums" to enable grouping tracks/alb
 * Goal: Add a checkbox "Group by mbid" that will group each artist by mbid so that variants of the same artist are grouped together. 
 * Goal: Add checkbox "Group by parent release" that will allow for grouping all variants of the same album by their parent "release" mbid. Will only apply on by-album reports.
 
+## Album Art Matrix
+* Goal: A grid visualization of album covers for "By Album" reports.
+* Workflow: Takes the top N albums (up to 150), fetches cover art thumbnails from the **Cover Art Archive** (via `release_mbid`), caches them locally as low-res images in `cache/global/cover_art/`, and renders an N×M grid (up to 10×15) with album/artist labels.
+* Appears as a "Graph" type when generating a "Top Albums" report.
+
+## Listen Deletion
+* Goal: Allow users to delete individual listens from their **ListenBrainz** and/or **Last.fm** history directly from the "Raw Listens" view.
+* Workflow: User selects rows in the Raw Listens table, clicks a "Delete Selected" button, confirms via dialog, and the selected listens are removed from the remote service(s) via API.
+
 ## Heatmaps
 * Goal: Visualizations for listening density (Hour of Day vs Day of Week).
 
@@ -209,5 +220,4 @@ Add a toggle for "Group Similar Tracks and Albums" to enable grouping tracks/alb
  * Example: "All Time Greatest Albums" (`High Play Count` + `High Play Count` + `4+ Likes Per Album`).
 
 ## Minor Aesthetic Improvements
-* Rename track_name -> Track
-* Rename total_listens -> Listens
+* Rename track_name -> Track (in Raw Listens view)
