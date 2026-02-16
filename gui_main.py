@@ -651,7 +651,7 @@ class BrainzMRIGUI:
 
         mbids = df["release_mbid"].dropna().unique().tolist()
         if not mbids:
-            show_album_art_matrix(df, {})
+            show_album_art_matrix(df, {}, filter_params=self.state.last_params)
             return
 
         win = ProgressWindow(self.root, "Fetching cover art...")
@@ -667,16 +667,18 @@ class BrainzMRIGUI:
                     is_cancelled=lambda: win.cancelled,
                 )
 
+                params = self.state.last_params
+
                 def render():
                     if win.winfo_exists(): win.destroy()
-                    show_album_art_matrix(df, cover_map)
+                    show_album_art_matrix(df, cover_map, filter_params=params)
 
                 self.root.after(0, render)
             except Exception as e:
                 logging.error(f"Cover art fetch failed: {e}", exc_info=True)
                 self.root.after(0, lambda: [
                     win.destroy() if win.winfo_exists() else None,
-                    show_album_art_matrix(df, {}),
+                    show_album_art_matrix(df, {}, filter_params=self.state.last_params),
                 ])
 
         threading.Thread(target=worker, daemon=True).start()

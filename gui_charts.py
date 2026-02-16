@@ -212,13 +212,14 @@ def show_genre_flavor_treemap(df: pd.DataFrame):
     plt.show()
 
 
-def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]):
+def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None], filter_params: dict = None):
     """
     Render an N×M grid of album cover art thumbnails.
     
     Args:
         df: Album report DataFrame with artist, album, release_mbid, total_listens columns.
         cover_art_map: Dict mapping release_mbid -> local image filepath (or None).
+        filter_params: Optional dict with report filter context for the title.
     """
     if df.empty:
         return
@@ -250,13 +251,36 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
         ncols = min(15, math.ceil(math.sqrt(n * 1.5)))
         nrows = math.ceil(n / ncols)
 
-    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 1.5, nrows * 2), dpi=100)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 1.5, nrows * 2.4), dpi=100)
 
     # Set Window Title
     if fig.canvas.manager:
         fig.canvas.manager.set_window_title("Album Art Matrix")
 
-    fig.suptitle(f"Top {n} Albums", fontsize=14, weight="bold", y=0.99)
+    # Build title with filter context
+    title = f"Top {n} Albums"
+    subtitle_parts = []
+    if filter_params:
+        # Date range
+        t_start = filter_params.get("time_start_days", 0)
+        t_end = filter_params.get("time_end_days", 0)
+        if t_start > 0 or t_end > 0:
+            from datetime import datetime, timedelta, timezone
+            now = datetime.now(timezone.utc)
+            d_from = (now - timedelta(days=t_end)).strftime("%Y-%m-%d")
+            d_to = (now - timedelta(days=t_start)).strftime("%Y-%m-%d")
+            subtitle_parts.append(f"{d_from} to {d_to}")
+
+        # Thresholds
+        min_l = filter_params.get("min_listens", 0)
+        min_likes = filter_params.get("min_likes", 0)
+        if min_l > 0 or min_likes > 0:
+            subtitle_parts.append(f"{min_l}+ Listens")
+            subtitle_parts.append(f"{min_likes}+ Likes")
+
+    fig.suptitle(title, fontsize=14, weight="bold", y=0.99)
+    if subtitle_parts:
+        fig.text(0.5, 0.97, " | ".join(subtitle_parts), ha="center", fontsize=9, color="gray")
 
     # Flatten axes for easy indexing (handle single row/col edge cases)
     if nrows == 1 and ncols == 1:
@@ -282,6 +306,11 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
         album = (raw_album[:32] + "...") if len(raw_album) > 32 else raw_album
         artist = (raw_artist[:30] + "...") if len(raw_artist) > 30 else raw_artist
 
+        # Stats line
+        listens = int(row.get("total_listens", 0))
+        likes = int(row.get("Likes", 0))
+        stats = f"{listens} listens | {likes}❤️"
+
         # Try to load cover art
         img_path = cover_art_map.get(mbid) if mbid else None
 
@@ -305,13 +334,13 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
                 wrap=True,
             )
 
-        # Label below cell
-        ax.set_xlabel(f"{album}\n{artist}", fontsize=6, labelpad=2)
+        # Label below cell: Album / Artist / Stats
+        ax.set_xlabel(f"{album}\n{artist}\n{stats}", fontsize=6, labelpad=3)
         ax.xaxis.set_label_position("bottom")
 
         # Remove spines for cleaner look
         for spine in ax.spines.values():
             spine.set_visible(False)
 
-    plt.subplots_adjust(hspace=0.6, wspace=0.15, top=0.95, bottom=0.02)
+    plt.subplots_adjust(hspace=0.8, wspace=0.15, top=0.94, bottom=0.04)
     plt.show()
