@@ -31,8 +31,9 @@ from gui_header import HeaderComponent
 from gui_filters import FilterComponent
 from gui_actions import ActionComponent
 from gui_tableview import ReportTableView
-from gui_charts import show_artist_trend_chart, show_new_music_stacked_bar, show_genre_flavor_treemap
+from gui_charts import show_artist_trend_chart, show_new_music_stacked_bar, show_genre_flavor_treemap, show_album_art_matrix
 import reporting
+import enrichment
 
 # ======================================================================
 # Logging
@@ -530,7 +531,7 @@ class BrainzMRIGUI:
             logging.info("TRACE: status_var set")
 
             # Toggle Graph
-            if mode in ["Favorite Artist Trend", "New Music By Year", "Genre Flavor"]:
+            if mode in self.GRAPH_HANDLERS:
                 self.btn_graph.config(state="normal", bg="#EF5350", fg="white")
             else:
                 self.btn_graph.config(state="disabled", bg="SystemButtonFace", fg="black")
@@ -611,25 +612,74 @@ class BrainzMRIGUI:
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
+    # ----------------------------------------------------------
+    # Graph Dispatch Registry
+    # ----------------------------------------------------------
+    GRAPH_HANDLERS = {
+        "Favorite Artist Trend": "_show_artist_trend_chart",
+        "New Music By Year":     "_show_new_music_chart",
+        "Genre Flavor":          "_show_genre_treemap",
+        "Top Albums":            "_show_album_art_matrix",
+    }
+
     def show_graph(self):
         logging.info("User Action: Clicked 'Show Graph'")
         mode = self.state.last_mode
-        if mode == "Favorite Artist Trend":
-            # Recalculate trend data
-            df_src = self.state.playlist_df if self.state.playlist_df is not None else self.state.user.get_listens()
-            # Apply time filter again using correct keys
-            p = self.state.last_params
-            if p.get("time_start_days", 0) > 0 or p.get("time_end_days", 0) > 0:
-                df_src = reporting.filter_by_days(df_src, "listened_at", p["time_start_days"], p["time_end_days"])
-            
-            data = reporting.prepare_artist_trend_chart_data(df_src, topn=p.get("topn", 20))
-            if not data.empty: show_artist_trend_chart(data)
-            
-        elif mode == "New Music By Year":
-            show_new_music_stacked_bar(self.state.last_report_df)
-            
-        elif mode == "Genre Flavor":
-            show_genre_flavor_treemap(self.state.last_report_df)
+        handler_name = self.GRAPH_HANDLERS.get(mode)
+        if handler_name:
+            getattr(self, handler_name)()
+
+    def _show_artist_trend_chart(self):
+        df_src = self.state.playlist_df if self.state.playlist_df is not None else self.state.user.get_listens()
+        p = self.state.last_params
+        if p.get("time_start_days", 0) > 0 or p.get("time_end_days", 0) > 0:
+            df_src = reporting.filter_by_days(df_src, "listened_at", p["time_start_days"], p["time_end_days"])
+        data = reporting.prepare_artist_trend_chart_data(df_src, topn=p.get("topn", 20))
+        if not data.empty: show_artist_trend_chart(data)
+
+    def _show_new_music_chart(self):
+        show_new_music_stacked_bar(self.state.last_report_df)
+
+    def _show_genre_treemap(self):
+        show_genre_flavor_treemap(self.state.last_report_df)
+
+    def _show_album_art_matrix(self):
+        """Fetch cover art (with progress) and render the album art matrix."""
+        df = self.state.last_report_df
+        if df is None or df.empty or "release_mbid" not in df.columns:
+            return
+
+        mbids = df["release_mbid"].dropna().unique().tolist()
+        if not mbids:
+            show_album_art_matrix(df, {})
+            return
+
+        win = ProgressWindow(self.root, "Fetching cover art...")
+
+        def worker():
+            try:
+                def cb(c, t, m):
+                    self.root.after(0, lambda: win.update_progress(c, t, m))
+
+                cover_map = enrichment.fetch_cover_art(
+                    mbids,
+                    progress_callback=cb,
+                    is_cancelled=lambda: win.cancelled,
+                )
+
+                def render():
+                    if win.winfo_exists(): win.destroy()
+                    show_album_art_matrix(df, cover_map)
+
+                self.root.after(0, render)
+            except Exception as e:
+                logging.error(f"Cover art fetch failed: {e}", exc_info=True)
+                self.root.after(0, lambda: [
+                    win.destroy() if win.winfo_exists() else None,
+                    show_album_art_matrix(df, {}),
+                ])
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def lock_interface(self):
         """Disable all interactive elements to prevent race conditions."""
@@ -681,7 +731,7 @@ class BrainzMRIGUI:
         if self.btn_graph["text"] == "Show Graph" and self.state.last_report_df is not None:
              # Logic from on_report_done to decide if enabled
              mode = self.state.last_mode
-             if mode in ["Favorite Artist Trend", "New Music By Year", "Genre Flavor"]:
+             if mode in self.GRAPH_HANDLERS:
                 self.btn_graph.config(state="normal")
         
         # Actions

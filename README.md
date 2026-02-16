@@ -27,6 +27,7 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 * **Raw Listens:** A forensic view of your individual listen events, useful for verifying imports and data integrity.
 
 ### Rich Visualizations
+* **Album Art Matrix:** A grid visualization of album covers for "Top Albums" reports, fetching thumbnails from the **Cover Art Archive** and caching them locally.
 * **Genre Treemap:** A rectangular visualization of genre dominance .
 * **Stacked Area Chart:** Visualizes the "Favorite Artist Trend" report, showing how artist dominance shifts over periods. Now includes a subplot showing Relative Dominance (normalized percentage) alongside absolute listen counts.
 * **Stacked Bar Chart:** Visualizes the "New Music by Year" report, highlighting your discovery rates over time. Now includes a subplot comparing the ratio of New vs. Recurring tracks.
@@ -197,10 +198,6 @@ Add a toggle for "Group Similar Tracks and Albums" to enable grouping tracks/alb
 * Goal: Add a checkbox "Group by mbid" that will group each artist by mbid so that variants of the same artist are grouped together. 
 * Goal: Add checkbox "Group by parent release" that will allow for grouping all variants of the same album by their parent "release" mbid. Will only apply on by-album reports.
 
-## Album Art Matrix
-* Goal: A grid visualization of album covers for "By Album" reports.
-* Workflow: Takes the top N albums (up to 150), fetches cover art thumbnails from the **Cover Art Archive** (via `release_mbid`), caches them locally as low-res images in `cache/global/cover_art/`, and renders an N×M grid (up to 10×15) with album/artist labels.
-* Appears as a "Graph" type when generating a "Top Albums" report.
 
 ## Listen Deletion
 * Goal: Allow users to delete individual listens from their **ListenBrainz** and/or **Last.fm** history directly from the "Raw Listens" view.

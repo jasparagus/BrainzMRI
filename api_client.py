@@ -371,3 +371,32 @@ class ListenBrainzClient(BaseClient):
             
         headers = {"Authorization": f"Token {self.token}"}
         self._request("POST", "playlist/create", json_data=jspf, headers=headers)
+
+
+# ===========================================================================
+# Cover Art Archive Client
+# ===========================================================================
+
+class CoverArtClient:
+    """Fetch album cover thumbnails from the Cover Art Archive."""
+
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": config.user_agent})
+        self.delay = config.network_delay  # Respect global wait time
+
+    def download_cover(self, release_mbid: str, dest_path: str, size: int = 250) -> bool:
+        """Download front cover to dest_path. Returns True on success."""
+        url = f"https://coverartarchive.org/release/{release_mbid}/front-{size}"
+        try:
+            time.sleep(self.delay)
+            resp = self.session.get(url, allow_redirects=True, timeout=15)
+            if resp.status_code == 200:
+                with open(dest_path, "wb") as f:
+                    f.write(resp.content)
+                return True
+            logging.debug(f"Cover art not found for {release_mbid}: HTTP {resp.status_code}")
+            return False
+        except Exception as e:
+            logging.debug(f"Cover art download failed for {release_mbid}: {e}")
+            return False

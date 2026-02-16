@@ -4,8 +4,10 @@ Matplotlib visualization logic for BrainzMRI.
 """
 
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 import pandas as pd
 import numpy as np
+import math
 import squarify  # Requires: pip install squarify
 
 # Note: No Tkinter imports needed. We use native Matplotlib windows
@@ -207,4 +209,109 @@ def show_genre_flavor_treemap(df: pd.DataFrame):
     ax.set_title(f"Top {len(plot_df)} Genres (Treemap)", fontsize=14)
     
     plt.tight_layout()
+    plt.show()
+
+
+def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]):
+    """
+    Render an N×M grid of album cover art thumbnails.
+    
+    Args:
+        df: Album report DataFrame with artist, album, release_mbid, total_listens columns.
+        cover_art_map: Dict mapping release_mbid -> local image filepath (or None).
+    """
+    if df.empty:
+        return
+
+    # Limit to 150 albums max
+    plot_df = df.head(150).copy()
+    n = len(plot_df)
+
+    # Calculate grid dimensions:
+    #   - Landscape aspect ratio: ncols >= nrows, up to ncols <= 2*nrows
+    #   - Prefer even grids (n % ncols == 0) to avoid hanging partial rows
+    #   - Fallback: choose the layout with fewest empty cells in the last row
+    best = None  # (ncols, nrows, empty_cells)
+    for c in range(max(1, math.isqrt(n)), min(n + 1, 31)):  # reasonable col range
+        r = math.ceil(n / c)
+        if r < 1:
+            continue
+        ratio = c / r
+        if ratio < 1.0 or ratio > 2.0:
+            continue  # Outside the 1:1 to 2:1 window
+        empty = (r * c) - n
+        if best is None or empty < best[2] or (empty == best[2] and abs(ratio - 1.4) < abs(best[0] / best[1] - 1.4)):
+            best = (c, r, empty)
+
+    if best:
+        ncols, nrows = best[0], best[1]
+    else:
+        # Fallback for very small n
+        ncols = min(15, math.ceil(math.sqrt(n * 1.5)))
+        nrows = math.ceil(n / ncols)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 1.5, nrows * 2), dpi=100)
+
+    # Set Window Title
+    if fig.canvas.manager:
+        fig.canvas.manager.set_window_title("Album Art Matrix")
+
+    fig.suptitle(f"Top {n} Albums", fontsize=14, weight="bold", y=0.99)
+
+    # Flatten axes for easy indexing (handle single row/col edge cases)
+    if nrows == 1 and ncols == 1:
+        axes_flat = [axes]
+    elif nrows == 1 or ncols == 1:
+        axes_flat = list(axes)
+    else:
+        axes_flat = axes.flatten()
+
+    for idx, ax in enumerate(axes_flat):
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        if idx >= n:
+            # Empty cell — hide it
+            ax.axis("off")
+            continue
+
+        row = plot_df.iloc[idx]
+        mbid = row.get("release_mbid", None)
+        raw_album = str(row.get("album", ""))
+        raw_artist = str(row.get("artist", ""))
+        album = (raw_album[:32] + "...") if len(raw_album) > 32 else raw_album
+        artist = (raw_artist[:30] + "...") if len(raw_artist) > 30 else raw_artist
+
+        # Try to load cover art
+        img_path = cover_art_map.get(mbid) if mbid else None
+
+        if img_path:
+            try:
+                img = mpimg.imread(img_path)
+                ax.imshow(img, aspect="equal")
+            except Exception:
+                # Fallback to solid color on read error
+                img_path = None
+
+        if not img_path:
+            # Solid-color placeholder
+            ax.set_facecolor("#333333")
+            placeholder = (raw_album[:20] + "...") if len(raw_album) > 20 else (raw_album or "?")
+            ax.text(
+                0.5, 0.5, placeholder,
+                transform=ax.transAxes,
+                ha="center", va="center",
+                color="white", fontsize=8, weight="bold",
+                wrap=True,
+            )
+
+        # Label below cell
+        ax.set_xlabel(f"{album}\n{artist}", fontsize=6, labelpad=2)
+        ax.xaxis.set_label_position("bottom")
+
+        # Remove spines for cleaner look
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
+    plt.subplots_adjust(hspace=0.6, wspace=0.15, top=0.95, bottom=0.02)
     plt.show()

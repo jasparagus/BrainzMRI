@@ -16,7 +16,7 @@ import pandas as pd
 import numpy as np  # Needed for isnan checks
 
 from config import config 
-from api_client import MusicBrainzClient, LastFMClient
+from api_client import MusicBrainzClient, LastFMClient, CoverArtClient
 import parsing 
 
 # ------------------------------------------------------------
@@ -121,6 +121,62 @@ def _log_enrichment_failure(
 # ------------------------------------------------------------
 # Genre Exclusion Filter (Display-Time Only)
 # ------------------------------------------------------------
+
+# ------------------------------------------------------------
+# Cover Art Fetching & Caching
+# ------------------------------------------------------------
+
+def _get_cover_art_dir() -> str:
+    """Return (and create) the global cover art cache directory."""
+    d = os.path.join(_get_global_dir(), "cover_art")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def fetch_cover_art(
+    release_mbids: list[str],
+    progress_callback: Optional[Callable] = None,
+    is_cancelled: Optional[Callable] = None,
+) -> dict[str, str | None]:
+    """
+    Fetch cover art thumbnails for a list of release MBIDs.
+    
+    Returns a dict mapping each MBID to its local filepath (or None if unavailable).
+    Always returns partial results on cancellation — already-fetched covers are cached.
+    """
+    art_dir = _get_cover_art_dir()
+    client = CoverArtClient()
+    result = {}
+    total = len(release_mbids)
+
+    for i, mbid in enumerate(release_mbids):
+        if is_cancelled and is_cancelled():
+            logging.info(f"Cover art fetch cancelled after {i}/{total} items.")
+            break
+
+        if not mbid or (isinstance(mbid, float) and np.isnan(mbid)):
+            result[mbid] = None
+            continue
+
+        dest = os.path.join(art_dir, f"{mbid}.jpg")
+
+        # Cache hit
+        if os.path.exists(dest):
+            result[mbid] = dest
+        else:
+            # Download from CAA
+            success = client.download_cover(mbid, dest)
+            if success:
+                result[mbid] = dest
+            else:
+                result[mbid] = None
+                _log_enrichment_failure("release", mbid, {"release_mbid": mbid}, "no_cover_art")
+
+        if progress_callback:
+            progress_callback(i + 1, total, f"Fetching cover art ({i + 1}/{total})...")
+
+    return result
+
 
 def _filter_excluded_genres(genres: set) -> set:
     """Remove excluded genres (configured in config.json) from a set of genre strings."""
