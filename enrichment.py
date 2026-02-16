@@ -133,6 +133,16 @@ def _get_cover_art_dir() -> str:
     return d
 
 
+def _load_release_group_map() -> dict[str, str | None]:
+    """Load cached release_mbid -> release_group_mbid mapping."""
+    return _load_cache("release_group_map.json")
+
+
+def _save_release_group_map(data: dict[str, str | None]):
+    """Persist the release_mbid -> release_group_mbid mapping."""
+    _save_cache("release_group_map.json", data)
+
+
 def fetch_cover_art(
     release_mbids: list[str],
     progress_callback: Optional[Callable] = None,
@@ -140,12 +150,23 @@ def fetch_cover_art(
 ) -> dict[str, str | None]:
     """
     Fetch cover art thumbnails for a list of release MBIDs.
-    
+
+    Strategy per MBID:
+      1. Check local image cache (instant)
+      2. Try CAA /release/{mbid}/front  (specific pressing)
+      3. On failure: look up release-group MBID via MusicBrainz API
+      4. Try CAA /release-group/{rg_mbid}/front  (any pressing)
+
+    The release -> release-group mapping is cached persistently so step 3
+    only hits the network once per release across all sessions.
+
     Returns a dict mapping each MBID to its local filepath (or None if unavailable).
     Always returns partial results on cancellation — already-fetched covers are cached.
     """
     art_dir = _get_cover_art_dir()
     client = CoverArtClient()
+    rg_map = _load_release_group_map()
+    rg_map_dirty = False
     result = {}
     total = len(release_mbids)
 
@@ -160,12 +181,26 @@ def fetch_cover_art(
 
         dest = os.path.join(art_dir, f"{mbid}.jpg")
 
-        # Cache hit
+        # 1. Image cache hit
         if os.path.exists(dest):
             result[mbid] = dest
         else:
-            # Download from CAA
+            # 2. Try the specific release endpoint
             success = client.download_cover(mbid, dest)
+
+            # 3. Fallback: release-group endpoint
+            if not success:
+                # Look up release-group MBID (cached persistently)
+                if mbid not in rg_map:
+                    rg_id = mb_client.get_release_group_id(mbid)
+                    rg_map[mbid] = rg_id
+                    rg_map_dirty = True
+                else:
+                    rg_id = rg_map[mbid]
+
+                if rg_id:
+                    success = client.download_cover_by_release_group(rg_id, dest)
+
             if success:
                 result[mbid] = dest
             else:
@@ -174,6 +209,10 @@ def fetch_cover_art(
 
         if progress_callback:
             progress_callback(i + 1, total, f"Fetching cover art ({i + 1}/{total})...")
+
+    # Persist release-group mapping if we learned new entries
+    if rg_map_dirty:
+        _save_release_group_map(rg_map)
 
     return result
 

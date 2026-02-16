@@ -84,22 +84,26 @@ class MusicBrainzClient(BaseClient):
         time.sleep(self.delay)
         return tags
 
+    def get_release_group_id(self, release_mbid: str) -> str | None:
+        """Look up the release-group MBID for a given release MBID."""
+        rel_data = self._request("GET", f"release/{release_mbid}", params={"inc": "release-groups", "fmt": "json"})
+        if not rel_data:
+            return None
+        # MB returns "release-group" as a singular object, not a list
+        rg = rel_data.get("release-group")
+        return rg["id"] if rg else None
+
     def get_release_group_tags(self, release_mbid):
         """Hop from Release -> Release Group to get tags."""
-        # 1. Get Release to find Group ID
-        rel_data = self._request("GET", f"release/{release_mbid}", params={"inc": "release-groups", "fmt": "json"})
-        if not rel_data: return []
-        
-        rg_list = rel_data.get("release-groups", [])
-        if not rg_list: return []
-        
-        rg_id = rg_list[0]["id"]
-        
-        # 2. Get Tags for Group
+        rg_id = self.get_release_group_id(release_mbid)
+        if not rg_id:
+            return []
+
         rg_data = self._request("GET", f"release-group/{rg_id}", params={"inc": "tags", "fmt": "json"})
         time.sleep(self.delay)
-        if not rg_data: return []
-        
+        if not rg_data:
+            return []
+
         return [t["name"] for t in rg_data.get("tags", [])]
 
     def search_entity_tags(self, entity_type, query, result_key):
@@ -385,9 +389,8 @@ class CoverArtClient:
         self.session.headers.update({"User-Agent": config.user_agent})
         self.delay = config.network_delay  # Respect global wait time
 
-    def download_cover(self, release_mbid: str, dest_path: str, size: int = 250) -> bool:
-        """Download front cover to dest_path. Returns True on success."""
-        url = f"https://coverartarchive.org/release/{release_mbid}/front-{size}"
+    def _download(self, url: str, dest_path: str) -> bool:
+        """Download an image from url to dest_path. Returns True on success."""
         try:
             time.sleep(self.delay)
             resp = self.session.get(url, allow_redirects=True, timeout=15)
@@ -395,8 +398,16 @@ class CoverArtClient:
                 with open(dest_path, "wb") as f:
                     f.write(resp.content)
                 return True
-            logging.debug(f"Cover art not found for {release_mbid}: HTTP {resp.status_code}")
+            logging.debug(f"Cover art not found ({url}): HTTP {resp.status_code}")
             return False
         except Exception as e:
-            logging.debug(f"Cover art download failed for {release_mbid}: {e}")
+            logging.debug(f"Cover art download failed ({url}): {e}")
             return False
+
+    def download_cover(self, release_mbid: str, dest_path: str, size: int = 250) -> bool:
+        """Download front cover by release MBID."""
+        return self._download(f"https://coverartarchive.org/release/{release_mbid}/front-{size}", dest_path)
+
+    def download_cover_by_release_group(self, rg_mbid: str, dest_path: str, size: int = 250) -> bool:
+        """Download front cover by release-group MBID (covers any release in the group)."""
+        return self._download(f"https://coverartarchive.org/release-group/{rg_mbid}/front-{size}", dest_path)
