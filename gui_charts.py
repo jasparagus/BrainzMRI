@@ -67,7 +67,7 @@ def show_artist_trend_chart(df: pd.DataFrame):
     ax_norm.axhline(y=0.5, color='gray', linestyle='--', alpha=0.3, linewidth=1)
 
     plt.tight_layout()
-    plt.show()
+    plt.show(block=False)
 
 def show_new_music_stacked_bar(df: pd.DataFrame):
     """
@@ -159,7 +159,7 @@ def show_new_music_stacked_bar(df: pd.DataFrame):
     # Adjust layout to make room for the custom header
     plt.tight_layout(rect=[0, 0.03, 1, 0.91])
     
-    plt.show()
+    plt.show(block=False)
 
 def show_genre_flavor_treemap(df: pd.DataFrame):
     """
@@ -209,7 +209,7 @@ def show_genre_flavor_treemap(df: pd.DataFrame):
     ax.set_title(f"Top {len(plot_df)} Genres (Treemap)", fontsize=14)
     
     plt.tight_layout()
-    plt.show()
+    plt.show(block=False)
 
 
 def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None], filter_params: dict = None):
@@ -278,9 +278,9 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
             subtitle_parts.append(f"{min_l}+ Listens")
             subtitle_parts.append(f"{min_likes}+ Likes")
 
-    fig.suptitle(title, fontsize=14, weight="bold", y=0.99)
+    fig.suptitle(title, fontsize=16, weight="bold", y=0.99)
     if subtitle_parts:
-        fig.text(0.5, 0.97, " | ".join(subtitle_parts), ha="center", fontsize=9, color="gray")
+        fig.text(0.5, 0.97, " | ".join(subtitle_parts), ha="center", fontsize=11, color="gray")
 
     # Flatten axes for easy indexing (handle single row/col edge cases)
     if nrows == 1 and ncols == 1:
@@ -330,12 +330,12 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
                 0.5, 0.5, placeholder,
                 transform=ax.transAxes,
                 ha="center", va="center",
-                color="white", fontsize=8, weight="bold",
+                color="white", fontsize=10, weight="bold",
                 wrap=True,
             )
 
         # Label below cell: Album / Artist / Stats
-        ax.set_xlabel(f"{album}\n{artist}\n{stats}", fontsize=6, labelpad=3)
+        ax.set_xlabel(f"{album}\n{artist}\n{stats}", fontsize=8, labelpad=3)
         ax.xaxis.set_label_position("bottom")
 
         # Remove spines for cleaner look
@@ -343,4 +343,4 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
             spine.set_visible(False)
 
     plt.subplots_adjust(hspace=0.8, wspace=0.15, top=0.94, bottom=0.04)
-    plt.show()
+    plt.show(block=False)
