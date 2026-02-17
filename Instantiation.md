@@ -77,7 +77,8 @@ Tkinter is a thin wrapper around the Tcl/Tk C library. Certain patterns trigger 
 * **Hide During Reconfiguration (The Safe Pattern):** The proven safe sequence for Treeview repopulation is: `grid_remove()` → delete items → reconfigure columns → insert rows → `grid()`. This prevents pending UI events (hover, scroll) from firing on widgets mid-reconfiguration, without triggering the `update_idletasks()` crash.
 * **Schedule on Permanent Widgets:** Background thread callbacks must use `root.after()` or `self.parent.after()`, never `win.after()` on a transient `Toplevel`/`ProgressWindow`. If the transient window is destroyed before the callback fires, the `after()` call causes a `TclError`.
 * **No Orphaned Toplevels:** Never create a `tk.Toplevel()` solely to satisfy a function signature. Creating and immediately destroying transient windows destabilizes Tkinter's internal focus/grab state on Windows.
-* **Non-Blocking Matplotlib:** All `plt.show()` calls **MUST** use `plt.show(block=False)`. The blocking variant enters its own `tkinter.mainloop()`, which when called from a `root.after()` callback, creates a nested event loop that causes C-level access violations on Windows (confirmed via faulthandler, 2026-02-16).
+* **Embedded Matplotlib:** All plotting **MUST** use the Object-Oriented API (`Figure`, `FigureCanvasTkAgg`) embedded within a `tk.Toplevel` window. **NEVER** use `pyplot` state-machine functions (`plt.show()`, `plt.subplots()`) as they conflict with the Tkinter mainloop and cause C-level access violations on Windows (confirmed 2026-02-16).
+* **NavigationToolbar:** When embedding plots, explicitly add the `NavigationToolbar2Tk` to restore zooming and saving functionality that is lost when moving away from the default viewer.
 
 ### 3.5 Metadata & Enrichment Strategy
 * **The "Release Group Hop":** Resolve Album genres via `release-group`, never `release`. The shared `MusicBrainzClient.get_release_group_id(release_mbid)` method performs the release → release-group lookup and is reused by both genre enrichment (`get_release_group_tags`) and cover art fallback. Note: the MusicBrainz API returns `"release-group"` (singular object), not `"release-groups"` (plural list).
@@ -139,7 +140,7 @@ Expect to receive the following files.
 | **`gui_filters.py`** | **View** | Strictly input widgets for Time, Recency, and Thresholds. (No Enrichment logic). |
 | **`gui_actions.py`** | **View/Controller** | Persistent Actions Bar (Like, Resolve, Playlist, Import). Manages button states (`update_state`). |
 | **`gui_tableview.py`** | **View** | Treeview & Sort Logic. |
-| **`gui_charts.py`** | **View** | Matplotlib Visualizations. |
+| **`gui_charts.py`** | **View** | Matplotlib Visualization Logic (Embedded implementations). |
 | **`gui_user_editor.py`** | **View** | User Creation Dialog. |
 | **`report_engine.py`** | **Controller** | Pipeline Orchestration. |
 | **`sync_engine.py`** | **Controller** | Sync Threading & Barrier. |

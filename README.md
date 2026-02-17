@@ -117,7 +117,7 @@ python gui_main.py
 
 
 4. **Visualize:**
-* For supported reports (Artist Trend, Genre Flavor, New Music, Top Albums), click **"Show Graph"** to open a Matplotlib visualization window. For **Top Albums**, this displays an Album Art Matrix with cover art fetched from the Cover Art Archive.
+* For supported reports (Artist Trend, Genre Flavor, New Music, Top Albums), click **"Show Graph"** to open a stable, embedded matplotlibvisualization window. For **Top Albums**, this displays an Album Art Matrix with cover art fetched from the Cover Art Archive.
 
 
 5. **Refine & Act:**
