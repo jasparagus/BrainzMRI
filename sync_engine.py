@@ -30,14 +30,17 @@ class ProgressWindow(tk.Toplevel):
         self.parent = parent
         self.cancelled = False
 
-        # Center window
-        self.update_idletasks()
-        try:
-            x = parent.winfo_x() + (parent.winfo_width() // 2) - (400 // 2)
-            y = parent.winfo_y() + (parent.winfo_height() // 2) - (150 // 2)
-            self.geometry(f"+{x}+{y}")
-        except Exception:
-            self.geometry("400x175")
+        # Center window -- deferred to avoid update_idletasks() which causes
+        # C-level access violations by forcing Tcl to process pending events
+        # during transitional states (see Instantiation.md).
+        def _center():
+            try:
+                x = parent.winfo_x() + (parent.winfo_width() // 2) - (400 // 2)
+                y = parent.winfo_y() + (parent.winfo_height() // 2) - (150 // 2)
+                self.geometry(f"+{x}+{y}")
+            except Exception:
+                pass
+        self.after(10, _center)
 
         # UI
         self.lbl_status = tk.Label(self, text="Initializing...", anchor="w")
@@ -58,13 +61,15 @@ class ProgressWindow(tk.Toplevel):
 
     def update_progress(self, current, total, message):
         """Update the main progress bar."""
-        # GUARD: Prevent updates to destroyed widgets
-        if self.cancelled or not self.winfo_exists():
+        # GUARD: Check Python-level flag FIRST to avoid touching Tcl on destroyed widgets
+        if self.cancelled:
             return
-
         try:
+            if not self.winfo_exists():
+                return
             self.lbl_status.config(text=message)
             if total > 0:
+                self.progress.stop()  # Stop any indeterminate animation
                 self.progress.config(mode="determinate")
                 pct = (current / total) * 100
                 self.progress["value"] = pct
@@ -88,9 +93,29 @@ class ProgressWindow(tk.Toplevel):
     def cancel(self):
         self.cancelled = True
         try:
+            self.progress.stop()
+        except Exception:
+            pass
+        try:
             if self.winfo_exists():
                 self.lbl_status.config(text="Cancelling... please wait...")
                 self.btn_cancel.config(state="disabled")
+        except Exception:
+            pass
+
+    def close(self):
+        """Safely close the progress window, stopping all timers first."""
+        self.cancelled = True
+        try:
+            self.progress.stop()
+        except Exception:
+            pass
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        try:
+            self.destroy()
         except Exception:
             pass
 

@@ -34,8 +34,7 @@ class ActionConfirmDialog(tk.Toplevel):
         self.geometry("450x200")
         self.resizable(False, False)
         
-        # Center relative to parent
-        self.update_idletasks()
+        # Center relative to parent (no update_idletasks — causes access violations)
         try:
             x = parent.winfo_rootx() + 50
             y = parent.winfo_rooty() + 50

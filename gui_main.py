@@ -360,7 +360,7 @@ class BrainzMRIGUI:
             cb(res)
         
         def on_complete(barrier):
-            if win.winfo_exists(): win.destroy()
+            if win.winfo_exists(): win.close()
             self.header.btn_get_listens.config(state="normal")
             
             if barrier["gap_closed"]:
@@ -458,8 +458,9 @@ class BrainzMRIGUI:
                 try:
                     # FIX: Use self.root.after (permanent) instead of win.after (transient)
                     # This prevents TclError if 'win' is destroyed before callback runs.
-                    def cb(c, t, m): 
-                        self.root.after(0, lambda: win.update_progress(c, t, m))
+                    def cb(c, t, m):
+                        if not win.cancelled:
+                            self.root.after(0, lambda: win.update_progress(c, t, m))
                     
                     res, meta, key, enriched, status = self.report_engine.generate_report(
                         base_df,
@@ -488,7 +489,11 @@ class BrainzMRIGUI:
     def _on_report_done(self, result, meta, key, enriched, status, mode, win=None):
         try:
             logging.info("TRACE: _on_report_done started")
-            if win and win.winfo_exists(): win.destroy()
+            if win:
+                try:
+                    win.close()
+                except Exception:
+                    pass
             logging.info("TRACE: win destroyed")
             
             # self._reset_ui() -> MOVED TO END
@@ -660,7 +665,8 @@ class BrainzMRIGUI:
         def worker():
             try:
                 def cb(c, t, m):
-                    self.root.after(0, lambda: win.update_progress(c, t, m))
+                    if not win.cancelled:
+                        self.root.after(0, lambda: win.update_progress(c, t, m))
 
                 cover_map = enrichment.fetch_cover_art(
                     mbids,
@@ -671,14 +677,14 @@ class BrainzMRIGUI:
                 params = self.state.last_params
 
                 def render():
-                    if win.winfo_exists(): win.destroy()
+                    if win.winfo_exists(): win.close()
                     show_album_art_matrix(df, cover_map, filter_params=params, parent=self.root)
 
                 self.root.after(0, render)
             except Exception as e:
                 logging.error(f"Cover art fetch failed: {e}", exc_info=True)
                 self.root.after(0, lambda: [
-                    win.destroy() if win.winfo_exists() else None,
+                    win.close() if win.winfo_exists() else None,
                     show_album_art_matrix(df, {}, filter_params=self.state.last_params, parent=self.root),
                 ])
 

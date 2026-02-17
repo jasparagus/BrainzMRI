@@ -225,3 +225,5 @@ Add a toggle for "Group Similar Tracks and Albums" to enable grouping tracks/alb
 
 ## Minor Aesthetic Improvements
 * Rename track_name -> Track (in Raw Listens view)
+* Genre Flavor Report: ensure it auto-selects "Cache Only" to enable actual reporting
+* "Close CSV" button should restore all "Report Types" in the dropdown to the full list. Better yet, simply add "Imported Playlist" as a report type and have it always present. This avoids dynamically modifying it.
