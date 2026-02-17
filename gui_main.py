@@ -514,7 +514,8 @@ class BrainzMRIGUI:
             # Log Data Types to check for anomalies (Requested to keep debug logs)
             # logging.info(f"TRACE: Result Data Types:\n{result.dtypes}")
             
-            gc.collect()
+            # Test: removing gc.collect() to see if it fixes periodic crashes
+            # gc.collect()
             # logging.info("TRACE: Post-gc.collect")
 
             # This is the suspected crash definition
