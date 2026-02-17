@@ -168,7 +168,7 @@ class BrainzMRIGUI:
 
 
         # Define Report Modes
-        self.REPORT_MODES_STANDARD = ["Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Genre Flavor Treemap", "Favorite Artist Trend", "New Music By Year", "Raw Listens"]
+        self.REPORT_MODES_STANDARD = ["Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "New Music By Year", "Raw Listens"]
         self.REPORT_MODES_CSV = ["Imported Playlist"]
 
         # Initialize Variables for Enrichment (Moved from Filters)
@@ -636,13 +636,13 @@ class BrainzMRIGUI:
         if p.get("time_start_days", 0) > 0 or p.get("time_end_days", 0) > 0:
             df_src = reporting.filter_by_days(df_src, "listened_at", p["time_start_days"], p["time_end_days"])
         data = reporting.prepare_artist_trend_chart_data(df_src, topn=p.get("topn", 20))
-        if not data.empty: show_artist_trend_chart(data)
+        if not data.empty: show_artist_trend_chart(data, parent=self.root)
 
     def _show_new_music_chart(self):
-        show_new_music_stacked_bar(self.state.last_report_df)
+        show_new_music_stacked_bar(self.state.last_report_df, parent=self.root)
 
     def _show_genre_treemap(self):
-        show_genre_flavor_treemap(self.state.last_report_df)
+        show_genre_flavor_treemap(self.state.last_report_df, parent=self.root)
 
     def _show_album_art_matrix(self):
         """Fetch cover art (with progress) and render the album art matrix."""
@@ -652,7 +652,7 @@ class BrainzMRIGUI:
 
         mbids = df["release_mbid"].dropna().unique().tolist()
         if not mbids:
-            show_album_art_matrix(df, {}, filter_params=self.state.last_params)
+            show_album_art_matrix(df, {}, filter_params=self.state.last_params, parent=self.root)
             return
 
         win = ProgressWindow(self.root, "Fetching cover art...")
@@ -672,14 +672,14 @@ class BrainzMRIGUI:
 
                 def render():
                     if win.winfo_exists(): win.destroy()
-                    show_album_art_matrix(df, cover_map, filter_params=params)
+                    show_album_art_matrix(df, cover_map, filter_params=params, parent=self.root)
 
                 self.root.after(0, render)
             except Exception as e:
                 logging.error(f"Cover art fetch failed: {e}", exc_info=True)
                 self.root.after(0, lambda: [
                     win.destroy() if win.winfo_exists() else None,
-                    show_album_art_matrix(df, {}, filter_params=self.state.last_params),
+                    show_album_art_matrix(df, {}, filter_params=self.state.last_params, parent=self.root),
                 ])
 
         threading.Thread(target=worker, daemon=True).start()
