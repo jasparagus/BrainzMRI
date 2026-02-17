@@ -221,6 +221,9 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
         cover_art_map: Dict mapping release_mbid -> local image filepath (or None).
         filter_params: Optional dict with report filter context for the title.
     """
+    import matplotlib.patheffects as pe
+    import textwrap
+
     if df.empty:
         return
 
@@ -228,37 +231,50 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
     plot_df = df.head(150).copy()
     n = len(plot_df)
 
-    # Calculate grid dimensions:
-    #   - Landscape aspect ratio: ncols >= nrows, up to ncols <= 2*nrows
-    #   - Prefer even grids (n % ncols == 0) to avoid hanging partial rows
-    #   - Fallback: choose the layout with fewest empty cells in the last row
-    best = None  # (ncols, nrows, empty_cells)
-    for c in range(max(1, math.isqrt(n)), min(n + 1, 31)):  # reasonable col range
+    # Calculate grid dimensions to maximize square artwork area
+    # We enforce a stricter aspect ratio (cols/rows) to avoid very wide strips.
+    # User prefers 4x2 for N=7 (ratio 2.0) and 5x3 for N=15 (ratio 1.66).
+    best = None
+    
+    # Heuristic: iterate through possible column counts
+    # Start from approx sqrt(n) up to n
+    start_c = max(1, math.isqrt(n))
+    for c in range(start_c, n + 2):
         r = math.ceil(n / c)
-        if r < 1:
-            continue
+        if r == 0: continue
+        
         ratio = c / r
-        if ratio < 1.0 or ratio > 2.0:
-            continue  # Outside the 1:1 to 2:1 window
-        empty = (r * c) - n
-        if best is None or empty < best[2] or (empty == best[2] and abs(ratio - 1.4) < abs(best[0] / best[1] - 1.4)):
-            best = (c, r, empty)
+        
+        # Hard constraint: Ratio must be within reasonable landscape limits
+        # 4x2 = 2.0 is acceptable. 8x2 = 4.0 is not.
+        if ratio < 0.8 or ratio > 2.2:
+            continue
+            
+        empty_spots = (r * c) - n
+        
+        # Score: minimize empty spots first, then closeness to ideal ratio (1.6)
+        # We weigh empty spots heavily
+        score = (empty_spots * 10.0) + abs(ratio - 1.6)
+        
+        if best is None or score < best[2]:
+            best = (c, r, score)
 
     if best:
         ncols, nrows = best[0], best[1]
     else:
-        # Fallback for very small n
-        ncols = min(15, math.ceil(math.sqrt(n * 1.5)))
+        # Fallback if no valid ratio found
+        ncols = math.ceil(math.sqrt(n * 1.5))
         nrows = math.ceil(n / ncols)
 
-    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 1.5, nrows * 2.4), dpi=100)
+    # Create figure with very thin margins
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 2, nrows * 2), dpi=100)
 
     # Set Window Title
     if fig.canvas.manager:
         fig.canvas.manager.set_window_title("Album Art Matrix")
 
     # Build title with filter context
-    title = f"Top {n} Albums"
+    title_main = f"Top {n} Albums"
     subtitle_parts = []
     if filter_params:
         # Date range
@@ -274,15 +290,18 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
         # Thresholds
         min_l = filter_params.get("min_listens", 0)
         min_likes = filter_params.get("min_likes", 0)
-        if min_l > 0 or min_likes > 0:
+        if min_l > 0:
             subtitle_parts.append(f"{min_l}+ Listens")
+        if min_likes > 0:
             subtitle_parts.append(f"{min_likes}+ Likes")
 
-    fig.suptitle(title, fontsize=16, weight="bold", y=0.99)
+    full_title = title_main
     if subtitle_parts:
-        fig.text(0.5, 0.97, " | ".join(subtitle_parts), ha="center", fontsize=11, color="gray")
+        full_title += " - " + " | ".join(subtitle_parts)
 
-    # Flatten axes for easy indexing (handle single row/col edge cases)
+    fig.suptitle(full_title, fontsize=14, weight="bold", y=0.98)
+
+    # Flatten axes for easy indexing
     if nrows == 1 and ncols == 1:
         axes_flat = [axes]
     elif nrows == 1 or ncols == 1:
@@ -290,57 +309,97 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
     else:
         axes_flat = axes.flatten()
 
+    def format_text(text, max_chars=25, max_lines=2):
+        if not text: return ""
+        text = str(text)
+        # normalize spaces
+        text = " ".join(text.split())
+        lines = textwrap.wrap(text, width=max_chars)
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            if len(lines[-1]) > (max_chars - 3):
+                lines[-1] = lines[-1][:(max_chars-3)] + "..."
+            else:
+                lines[-1] += "..."
+        return "\n".join(lines)
+
     for idx, ax in enumerate(axes_flat):
         ax.set_xticks([])
         ax.set_yticks([])
+        # Remove spines
+        for spine in ax.spines.values():
+            spine.set_visible(False)
 
         if idx >= n:
-            # Empty cell — hide it
+            # Empty cell
             ax.axis("off")
             continue
 
         row = plot_df.iloc[idx]
         mbid = row.get("release_mbid", None)
-        raw_album = str(row.get("album", ""))
-        raw_artist = str(row.get("artist", ""))
-        album = (raw_album[:32] + "...") if len(raw_album) > 32 else raw_album
-        artist = (raw_artist[:30] + "...") if len(raw_artist) > 30 else raw_artist
-
-        # Stats line
-        listens = int(row.get("total_listens", 0))
-        likes = int(row.get("Likes", 0))
-        stats = f"{listens} listens | {likes}❤️"
-
-        # Try to load cover art
+        raw_album = str(row.get("album", "Unknown Album"))
+        raw_artist = str(row.get("artist", "Unknown Artist"))
+        
+        # 1. Image Handling
         img_path = cover_art_map.get(mbid) if mbid else None
-
+        img_display = None
+        
         if img_path:
             try:
                 img = mpimg.imread(img_path)
-                ax.imshow(img, aspect="equal")
+                
+                # Check dimensions and crop to square
+                h, w = img.shape[:2]
+                if h != w:
+                    min_dim = min(h, w)
+                    start_y = (h - min_dim) // 2
+                    start_x = (w - min_dim) // 2
+                    img = img[start_y:start_y+min_dim, start_x:start_x+min_dim]
+                
+                img_display = img
             except Exception:
-                # Fallback to solid color on read error
-                img_path = None
+                img_display = None
 
-        if not img_path:
-            # Solid-color placeholder
-            ax.set_facecolor("#333333")
-            placeholder = (raw_album[:20] + "...") if len(raw_album) > 20 else (raw_album or "?")
-            ax.text(
-                0.5, 0.5, placeholder,
-                transform=ax.transAxes,
-                ha="center", va="center",
-                color="white", fontsize=10, weight="bold",
-                wrap=True,
-            )
+        if img_display is not None:
+            ax.imshow(img_display, aspect="equal", extent=[0, 1, 0, 1])
+        else:
+            # Black/Dark Gray square background
+            rect = plt.Rectangle((0, 0), 1, 1, color="#111111")
+            ax.add_patch(rect)
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
 
-        # Label below cell: Album / Artist / Stats
-        ax.set_xlabel(f"{album}\n{artist}\n{stats}", fontsize=8, labelpad=3)
-        ax.xaxis.set_label_position("bottom")
+        # 2. Text Overlay
+        # Common style: White text, Black outline
+        text_style = dict(
+            ha='center', 
+            color='white', 
+            weight='bold', 
+            transform=ax.transAxes,
+            path_effects=[pe.withStroke(linewidth=2.5, foreground='black')]
+        )
 
-        # Remove spines for cleaner look
-        for spine in ax.spines.values():
-            spine.set_visible(False)
+        # Artist: Top, centered
+        artist_str = format_text(raw_artist, max_chars=25, max_lines=2)
+        ax.text(0.5, 0.96, artist_str, va='top', fontsize=9, **text_style)
 
-    plt.subplots_adjust(hspace=0.8, wspace=0.15, top=0.94, bottom=0.04)
+        # Stats: Very Bottom
+        listens = int(row.get("total_listens", 0))
+        likes = int(row.get("Likes", 0))
+        stats_str = f"{listens} Listens"
+        if likes > 0:
+            stats_str += f" | {likes} ❤️"
+        
+        # We place Stats at bottom (e.g. 0.03)
+        t_stats = ax.text(0.5, 0.03, stats_str, va='bottom', fontsize=8, **text_style)
+
+        # Album: Bottom, above stats
+        # We need to estimate where the stats text ends, or just place it at a fixed position like 0.12
+        # A 2-line wrapped text might take up more space.
+        album_str = format_text(raw_album, max_chars=25, max_lines=2)
+        ax.text(0.5, 0.14, album_str, va='bottom', fontsize=9, **text_style)
+
+    # Tight layout: minimize gaps
+    # Leave room at top for title
+    plt.subplots_adjust(left=0.01, right=0.99, bottom=0.01, top=0.92, wspace=0.02, hspace=0.02)
     plt.show(block=False)
