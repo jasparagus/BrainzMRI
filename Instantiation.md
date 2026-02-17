@@ -1,6 +1,6 @@
 # Project Instantiation Document: BrainzMRI
-**Version:** 7.3 (Cross-Platform Sync & UI Refactor)
-**Date:** 2026-01-30
+**Version:** 7.4 (Cover Art Fallback & Graph Safety)
+**Date:** 2026-02-16
 
 ## 1. Meta-Instructions for the LLM
 **Role:** You are the Lead Python Developer and Architect for **BrainzMRI**.
@@ -77,9 +77,11 @@ Tkinter is a thin wrapper around the Tcl/Tk C library. Certain patterns trigger 
 * **Hide During Reconfiguration (The Safe Pattern):** The proven safe sequence for Treeview repopulation is: `grid_remove()` → delete items → reconfigure columns → insert rows → `grid()`. This prevents pending UI events (hover, scroll) from firing on widgets mid-reconfiguration, without triggering the `update_idletasks()` crash.
 * **Schedule on Permanent Widgets:** Background thread callbacks must use `root.after()` or `self.parent.after()`, never `win.after()` on a transient `Toplevel`/`ProgressWindow`. If the transient window is destroyed before the callback fires, the `after()` call causes a `TclError`.
 * **No Orphaned Toplevels:** Never create a `tk.Toplevel()` solely to satisfy a function signature. Creating and immediately destroying transient windows destabilizes Tkinter's internal focus/grab state on Windows.
+* **Non-Blocking Matplotlib:** All `plt.show()` calls **MUST** use `plt.show(block=False)`. The blocking variant enters its own `tkinter.mainloop()`, which when called from a `root.after()` callback, creates a nested event loop that causes C-level access violations on Windows (confirmed via faulthandler, 2026-02-16).
 
 ### 3.5 Metadata & Enrichment Strategy
-* **The "Release Group Hop":** Resolve Album genres via `release-group`, never `release`.
+* **The "Release Group Hop":** Resolve Album genres via `release-group`, never `release`. The shared `MusicBrainzClient.get_release_group_id(release_mbid)` method performs the release → release-group lookup and is reused by both genre enrichment (`get_release_group_tags`) and cover art fallback. Note: the MusicBrainz API returns `"release-group"` (singular object), not `"release-groups"` (plural list).
+* **Cover Art Fallback:** When fetching album art, the system tries the specific `/release/{mbid}` endpoint first. On failure, it looks up the release-group MBID and tries `/release-group/{rg_mbid}`. The release → release-group mapping is cached persistently in `release_group_map.json` so subsequent sessions skip the MB API call.
 * **Enrichment Hierarchy:** The system MUST adhere to this lookup priority:
     1.  **MBID Lookup:** Precision lookup using MusicBrainz IDs.
     2.  **Name-Based Search (Fallback):** If MBIDs are missing, fallback to Lucene-based search.
@@ -107,7 +109,7 @@ Tkinter is a thin wrapper around the Tcl/Tk C library. Certain patterns trigger 
 * **`gui_filters.py`:** Middle section. Input validation, Tooltip management, Parameter extraction (`get_values`).
 * **`gui_actions.py`:** Bottom bar. Upstream actions (Like, Resolve, Export). Owns the worker threads for these actions.
 * **`gui_tableview.py`:** `ttk.Treeview` wrapper. Handles sorting (`mergesort`), regex filtering, and column rendering.
-* **`gui_charts.py`:** Native Matplotlib window generation.
+* **`gui_charts.py`:** Native Matplotlib window generation (Artist Trends, New Music, Genre Treemap, Album Art Matrix).
 
 ### 4.2 The Controller (Logic Engines)
 * **`report_engine.py`:** Bridges GUI inputs to Data outputs. Handles "No Data" states, orchestration of aggregation + enrichment pipelines.
@@ -141,7 +143,7 @@ Expect to receive the following files.
 | **`gui_user_editor.py`** | **View** | User Creation Dialog. |
 | **`report_engine.py`** | **Controller** | Pipeline Orchestration. |
 | **`sync_engine.py`** | **Controller** | Sync Threading & Barrier. |
-| **`api_client.py`** | **Service** | `requests`-based client for MusicBrainz, ListenBrainz, and Last.fm. |
+| **`api_client.py`** | **Service** | `requests`-based client for MusicBrainz, ListenBrainz, Last.fm, and Cover Art Archive. |
 | **`user.py`** | **Model** | Persistence, File I/O. |
 | **`reporting.py`** | **Model** | Pandas Aggregation Logic. |
 | **`enrichment.py`** | **Model/Service** | Fetches Genre tags and resolves missing MBIDs using persistent caching. |
@@ -174,7 +176,10 @@ Columns: `listened_at` (datetime64[ns, UTC]), `track_name`, `artist`, `album`, `
 
 ### 6.4 Global Caches (`cache/global/`)
 * **`artist_enrichment.json`**: Caches genre tags for artists.
-* **`mbid_resolver_cache.json`**: **[NEW]** Caches `(Artist, Track, Album)` $\to$ `MBID` resolutions. Critical for "Import Likes" performance.
+* **`mbid_resolver_cache.json`**: Caches `(Artist, Track, Album)` → `MBID` resolutions. Critical for "Import Likes" performance.
+* **`release_group_map.json`**: Caches `release_mbid` → `release_group_mbid` mappings. Used by both genre enrichment and cover art fallback.
+* **`enrichment_failures.jsonl`**: Append-only log of failed lookups (capped at 1000 lines).
+* **`cover_art/`**: Cached album cover art thumbnails (JPEG, 250px). Keyed by `release_mbid`.
 * **`genres_excluded.json`**: User-defined list of tags to ignore.
 
 ---

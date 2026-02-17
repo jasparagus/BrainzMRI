@@ -27,7 +27,7 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 * **Raw Listens:** A forensic view of your individual listen events, useful for verifying imports and data integrity.
 
 ### Rich Visualizations
-* **Album Art Matrix:** A grid visualization of album covers for "Top Albums" reports, fetching thumbnails from the **Cover Art Archive** and caching them locally.
+* **Album Art Matrix:** A grid visualization of album covers for "Top Albums" reports, fetching thumbnails from the **Cover Art Archive** and caching them locally. Uses a **release-group fallback** — if a specific release has no artwork, it automatically looks up the parent release group to find art from any pressing of the same album.
 * **Genre Treemap:** A rectangular visualization of genre dominance .
 * **Stacked Area Chart:** Visualizes the "Favorite Artist Trend" report, showing how artist dominance shifts over periods. Now includes a subplot showing Relative Dominance (normalized percentage) alongside absolute listen counts.
 * **Stacked Bar Chart:** Visualizes the "New Music by Year" report, highlighting your discovery rates over time. Now includes a subplot comparing the ratio of New vs. Recurring tracks.
@@ -117,7 +117,7 @@ python gui_main.py
 
 
 4. **Visualize:**
-* For supported reports (Artist Trend, Genre Flavor, New Music), click **"Show Graph"** to open a Matplotlib visualization window.
+* For supported reports (Artist Trend, Genre Flavor, New Music, Top Albums), click **"Show Graph"** to open a Matplotlib visualization window. For **Top Albums**, this displays an Album Art Matrix with cover art fetched from the Cover Art Archive.
 
 
 5. **Refine & Act:**
@@ -150,13 +150,20 @@ BrainzMRI/
 ├── reporting.py                  # Model: Core Aggregation, Statistics, & Filtering Logic
 ├── enrichment.py                 # Model: Metadata Fetching, Caching, & Resolution
 ├── user.py                       # Model: Data Persistence, File I/O, & Thread Locking
-├── api_client.py                 # Network: HTTP Client, Retries, & Rate Limiting
+├── api_client.py                 # Network: HTTP Client, Retries, Rate Limiting, & Cover Art Archive
 ├── parsing.py                    # Utility: File Parsing, Normalization, & Key Generation
 ├── config.py                     # Utility: Global Configuration & Constants
 │
 ├── README.md
 ├── requirements.txt
-└── config.json                   # Auto-created settings
+├── config.json                   # Auto-created settings
+│
+└── cache/global/                   # Persistent caches
+    ├── artist_enrichment.json      # Genre tags per artist
+    ├── mbid_resolver_cache.json    # (Artist, Track, Album) → MBID mappings
+    ├── release_group_map.json      # release_mbid → release_group_mbid mappings
+    ├── enrichment_failures.jsonl   # Failed lookup diagnostics
+    └── cover_art/                  # Cached album cover thumbnails (.jpg)
 ```
 
 ---
