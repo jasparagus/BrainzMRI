@@ -380,7 +380,7 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
         )
 
         # Artist: Top, centered
-        artist_str = format_text(raw_artist, max_chars=25, max_lines=2)
+        artist_str = format_text(raw_artist, max_chars=20, max_lines=3)
         ax.text(0.5, 0.96, artist_str, va='top', fontsize=9, **text_style)
 
         # Stats: Very Bottom
@@ -396,8 +396,8 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
         # Album: Bottom, above stats
         # We need to estimate where the stats text ends, or just place it at a fixed position like 0.12
         # A 2-line wrapped text might take up more space.
-        album_str = format_text(raw_album, max_chars=25, max_lines=2)
-        ax.text(0.5, 0.14, album_str, va='bottom', fontsize=9, **text_style)
+        album_str = format_text(raw_album, max_chars=20, max_lines=3)
+        ax.text(0.5, 0.15, album_str, va='bottom', fontsize=9, **text_style)
 
     # Tight layout: minimize gaps
     # Leave room at top for title
