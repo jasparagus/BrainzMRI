@@ -548,6 +548,11 @@ def prepare_artist_trend_chart_data(df: pd.DataFrame, bins: int = 15, topn: int 
     if df_filtered.empty:
         return pd.DataFrame()
 
+    # Drop rows with missing timestamps — NaT causes pd.cut to produce NaN bin edges
+    df_filtered = df_filtered.dropna(subset=['listened_at'])
+    if df_filtered.empty:
+        return pd.DataFrame()
+
     df_filtered['period'] = pd.cut(df_filtered['listened_at'], bins=bins)
     
     grouped = df_filtered.groupby(['period', 'artist'], observed=True).size().reset_index(name='count')

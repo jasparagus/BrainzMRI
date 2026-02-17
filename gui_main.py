@@ -167,9 +167,7 @@ class BrainzMRIGUI:
 
 
 
-        # Define Report Modes
-        self.REPORT_MODES_STANDARD = ["Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "New Music By Year", "Raw Listens"]
-        self.REPORT_MODES_CSV = ["Imported Playlist"]
+        self.REPORT_MODES = ["Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "New Music By Year", "Raw Listens", "Imported Playlist"]
 
         # Initialize Variables for Enrichment (Moved from Filters)
         self.enrichment_mode_var = tk.StringVar(value="None (Data Only, No Genres)")
@@ -217,21 +215,10 @@ class BrainzMRIGUI:
     # ------------------------------------------------------------------
     def _update_report_modes(self):
         """Update report dropdown based on available data."""
-        modes = self.REPORT_MODES_STANDARD.copy()
-        
-        if self.state.playlist_df is not None:
-             modes = self.REPORT_MODES_CSV + modes
-             
-        self.cmb_report["values"] = modes
-        
-        # Auto-select if current is invalid
+        self.cmb_report["values"] = self.REPORT_MODES
         current = self.cmb_report.get()
-        if current not in modes:
-             self.cmb_report['values'] = self.REPORT_MODES_CSV
-             self.cmb_report.set("Imported Playlist")
-        else:
-            self.cmb_report['values'] = self.REPORT_MODES_STANDARD
-            self.cmb_report.set(modes[0])
+        if current not in self.REPORT_MODES:
+            self.cmb_report.set(self.REPORT_MODES[0])
 
     def on_data_imported(self):
         """Callback when CSV is imported successfully."""
@@ -274,7 +261,7 @@ class BrainzMRIGUI:
         frm_type.pack(side="left", padx=15, anchor="n")
         
         tk.Label(frm_type, text="Report Type").pack(anchor="w")
-        self.cmb_report = ttk.Combobox(frm_type, values=self.REPORT_MODES_STANDARD, state="readonly", width=18)
+        self.cmb_report = ttk.Combobox(frm_type, values=self.REPORT_MODES, state="readonly", width=18)
         self.cmb_report.current(0)
         self.cmb_report.pack(anchor="w")
         self.cmb_report.bind("<<ComboboxSelected>>", lambda e: self._update_ui_state())

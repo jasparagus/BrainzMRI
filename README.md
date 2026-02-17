@@ -233,4 +233,3 @@ ValueError: Bin edges must be unique: Index([nan, nan, nan, nan, nan, nan, nan, 
        nan, nan],
       dtype='float64').
 ```
-* Restore the album art matrix plot; it disappeared in the recent refactor
