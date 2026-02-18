@@ -17,6 +17,9 @@ class BaseClient:
         self.delay = rate_limit_delay
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": config.user_agent})
+        # Dynamic rate-limit state (populated from response headers)
+        self._rl_remaining = None   # X-RateLimit-Remaining
+        self._rl_reset_in = None    # X-RateLimit-Reset-In (seconds)
 
     def _request(self, method, endpoint, params=None, json_data=None, headers=None):
         url = f"{self.base_url}{endpoint}"
@@ -32,9 +35,18 @@ class BaseClient:
             try:
                 resp = self.session.request(method, url, params=params, json=json_data, headers=headers)
                 
+                # Parse rate-limit headers (ListenBrainz)
+                try:
+                    if "X-RateLimit-Remaining" in resp.headers:
+                        self._rl_remaining = int(resp.headers["X-RateLimit-Remaining"])
+                    if "X-RateLimit-Reset-In" in resp.headers:
+                        self._rl_reset_in = float(resp.headers["X-RateLimit-Reset-In"])
+                except (ValueError, TypeError):
+                    pass
+
                 # Handle 429 Rate Limit
                 if resp.status_code == 429:
-                    wait = int(resp.headers.get("Retry-After", 5))
+                    wait = int(resp.headers.get("X-RateLimit-Reset-In", resp.headers.get("Retry-After", 5)))
                     logging.warning(f"Rate limited. Waiting {wait}s...")
                     time.sleep(wait)
                     attempts += 1
@@ -68,6 +80,19 @@ class BaseClient:
         
         logging.error(f"Max retries exhausted for {url}")
         return None
+
+    def wait_for_rate_limit(self):
+        """Intelligent sleep based on API rate-limit response headers.
+        Spreads remaining request budget evenly across the reset window.
+        Falls back to self.delay (config.network_delay) if headers are absent."""
+        if (self._rl_remaining is not None and self._rl_remaining >= 0
+                and self._rl_reset_in is not None and self._rl_reset_in > 0):
+            delay = self._rl_reset_in / max(self._rl_remaining, 1)
+            # Clamp: min 0.05s (avoid hammering), max = self.delay (fallback ceiling)
+            delay = max(0.05, min(delay, self.delay))
+        else:
+            delay = self.delay
+        time.sleep(delay)
 
 
 class MusicBrainzClient(BaseClient):

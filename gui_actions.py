@@ -237,7 +237,7 @@ class ActionComponent:
                         break
                 
                 if not dry_run: 
-                    time.sleep(config.network_delay)
+                    client.wait_for_rate_limit()
                 else:
                     time.sleep(0.05)
 

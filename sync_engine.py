@@ -206,7 +206,7 @@ class SyncManager:
                 if len(likes_page) < count: 
                     break
 
-                time.sleep(config.network_delay)
+                self.client.wait_for_rate_limit()
 
             if not self.cancel_flag:
                 try:
@@ -305,7 +305,7 @@ class SyncManager:
                         logging.info("Listens Sync: User cancelled at safety pause.")
                         break
 
-                time.sleep(config.network_delay)
+                self.client.wait_for_rate_limit()
 
             self.barrier["gap_closed"] = gap_closed
             self.barrier["listens_count"] = fetched_total

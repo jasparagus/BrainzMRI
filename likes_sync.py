@@ -129,7 +129,7 @@ class LikeSyncManager:
                     if i % 5 == 0:
                         self.parent.after(0, lambda i=i: win.update_progress(i, count, f"Submitting {i}/{count}..."))
                     
-                    time.sleep(config.network_delay) 
+                    self.lb_client.wait_for_rate_limit()
 
                 self.user._save_likes()
                 self.parent.after(0, lambda: [win.destroy(), messagebox.showinfo("Success", f"Imported {success} new likes.")])
