@@ -7,7 +7,9 @@ import json
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 import webbrowser
+import logging
 from user import User
+from config import config
 
 # ======================================================================
 # User Editor Window (New User / Edit User)
@@ -27,6 +29,8 @@ class UserEditorWindow(tk.Toplevel):
         self.on_save_callback = on_save_callback
 
         self.pending_zips = []
+        self._auth_token = None  # Temporary token during Last.fm auth flow
+        self._obtained_session_key = None  # Session key obtained during this editor session
 
         self._build_ui()
 
@@ -57,10 +61,47 @@ class UserEditorWindow(tk.Toplevel):
         self.ent_lastfm = tk.Entry(frm, width=40)
         self.ent_lastfm.grid(row=1, column=1, pady=3)
 
-        # Last.fm API Key
-        tk.Label(frm, text="Last.fm API Key:").grid(row=2, column=0, sticky="w")
-        self.ent_lastfm_key = tk.Entry(frm, width=40, show="*")
-        self.ent_lastfm_key.grid(row=2, column=1, pady=3)
+        # Last.fm Connection Status (replaces old API Key field)
+        tk.Label(frm, text="Last.fm Auth:").grid(row=2, column=0, sticky="w")
+        self.frm_lastfm_auth = tk.Frame(frm)
+        self.frm_lastfm_auth.grid(row=2, column=1, sticky="w", pady=3)
+
+        # Status label (updated dynamically)
+        self.lbl_lastfm_status = tk.Label(self.frm_lastfm_auth, text="Not connected", fg="gray")
+        self.lbl_lastfm_status.pack(side="left")
+
+        # Connect button
+        self.btn_lastfm_connect = tk.Button(
+            self.frm_lastfm_auth,
+            text="\U0001F517 Connect Last.fm",
+            command=self._start_lastfm_auth,
+            bg="#D51007", fg="white",
+            font=("TkDefaultFont", 9, "bold"),
+        )
+        self.btn_lastfm_connect.pack(side="left", padx=(8, 0))
+
+        # Complete Connection button (hidden initially)
+        self.btn_lastfm_complete = tk.Button(
+            self.frm_lastfm_auth,
+            text="Complete Connection",
+            command=self._complete_lastfm_auth,
+            bg="#4CAF50", fg="white",
+        )
+        # Not packed yet - shown after browser auth starts
+
+        # Disconnect button (hidden initially)
+        self.btn_lastfm_disconnect = tk.Button(
+            self.frm_lastfm_auth,
+            text="Disconnect",
+            command=self._disconnect_lastfm,
+            fg="#D51007",
+        )
+        # Not packed yet - shown when connected
+
+        # Check if shared secret is configured
+        if not config.lastfm_shared_secret:
+            self.btn_lastfm_connect.config(state="disabled")
+            self.lbl_lastfm_status.config(text="Setup needed (see config.json)", fg="orange")
 
         # ListenBrainz Username
         tk.Label(frm, text="ListenBrainz Username:").grid(row=3, column=0, sticky="w")
@@ -83,7 +124,6 @@ class UserEditorWindow(tk.Toplevel):
         ttk.Separator(frm, orient="horizontal").grid(row=6, column=0, columnspan=2, sticky="ew", pady=10)
 
         # ZIP selection (New ZIPs only)
-        # Note: We no longer display "Previous ZIPs" as they are fully merged into the database.
         tk.Label(frm, text="Import New ListenBrainz Data (ZIP):").grid(
             row=7, column=0, sticky="nw", pady=(0, 0)
         )
@@ -129,16 +169,96 @@ class UserEditorWindow(tk.Toplevel):
         self.ent_app_username.insert(0, user.username)
         self.ent_app_username.config(state="readonly")
 
-        # Now using the methods added to user.py
         self.ent_lastfm.insert(0, user.get_lastfm_username() or "")
         
-        if hasattr(user, "lastfm_api_key") and user.lastfm_api_key:
-             self.ent_lastfm_key.insert(0, user.lastfm_api_key)
+        # Show Last.fm connection status
+        if user.lastfm_session_key:
+            self._show_connected_state()
         
         self.ent_listenbrainz.insert(0, user.get_listenbrainz_username() or "")
         
         if user.listenbrainz_token:
             self.ent_token.insert(0, user.listenbrainz_token)
+
+    # ------------------------------------------------------------
+    # Last.fm Auth Flow
+    # ------------------------------------------------------------
+
+    def _start_lastfm_auth(self):
+        """Step 1: Get token, open browser for user approval."""
+        try:
+            from api_client import LastFMClient
+            client = LastFMClient()
+            result = client.start_auth()
+            self._auth_token = result["token"]
+            
+            # Open browser for user to approve
+            webbrowser.open(result["auth_url"])
+            
+            # Update UI: hide connect, show complete
+            self.btn_lastfm_connect.pack_forget()
+            self.btn_lastfm_complete.pack(side="left", padx=(8, 0))
+            self.lbl_lastfm_status.config(
+                text="Approve in browser, then click \u2192",
+                fg="#D51007"
+            )
+            
+        except Exception as e:
+            logging.error(f"Last.fm auth start failed: {e}")
+            messagebox.showerror("Auth Error", f"Failed to start Last.fm auth:\n{e}", parent=self)
+
+    def _complete_lastfm_auth(self):
+        """Step 2: Exchange approved token for permanent session key."""
+        if not self._auth_token:
+            messagebox.showerror("Error", "No auth token. Please start the connection first.", parent=self)
+            return
+            
+        try:
+            from api_client import LastFMClient
+            client = LastFMClient()
+            session_key = client.complete_auth(self._auth_token)
+            self._auth_token = None  # Consumed
+            
+            # Store on the user (will be saved when Save User is clicked)
+            if self.existing_user:
+                self.existing_user.lastfm_session_key = session_key
+            
+            # Store for new user creation
+            self._obtained_session_key = session_key
+            
+            self._show_connected_state()
+            messagebox.showinfo("Connected!", "Last.fm account connected successfully.", parent=self)
+            
+        except Exception as e:
+            logging.error(f"Last.fm auth completion failed: {e}")
+            # Reset UI
+            self.btn_lastfm_complete.pack_forget()
+            self.btn_lastfm_connect.pack(side="left", padx=(8, 0))
+            self.lbl_lastfm_status.config(text="Auth failed \u2014 try again", fg="#D51007")
+            self._auth_token = None
+            messagebox.showerror("Auth Error", f"Failed to complete Last.fm auth:\n{e}", parent=self)
+
+    def _disconnect_lastfm(self):
+        """Clear the session key."""
+        if self.existing_user:
+            self.existing_user.lastfm_session_key = ""
+        self._obtained_session_key = None
+        self._show_disconnected_state()
+
+    def _show_connected_state(self):
+        """Update UI to show connected status."""
+        self.btn_lastfm_connect.pack_forget()
+        self.btn_lastfm_complete.pack_forget()
+        self.lbl_lastfm_status.config(text="\u2713 Connected", fg="#4CAF50")
+        self.btn_lastfm_disconnect.pack(side="left", padx=(8, 0))
+
+    def _show_disconnected_state(self):
+        """Update UI to show disconnected status."""
+        self.btn_lastfm_disconnect.pack_forget()
+        self.btn_lastfm_complete.pack_forget()
+        self.lbl_lastfm_status.config(text="Not connected", fg="gray")
+        if config.lastfm_shared_secret:
+            self.btn_lastfm_connect.pack(side="left", padx=(8, 0))
 
     # ------------------------------------------------------------
     # ZIP selection
@@ -162,9 +282,15 @@ class UserEditorWindow(tk.Toplevel):
     def _save_user(self):
         app_username = self.ent_app_username.get().strip()
         lastfm_username = self.ent_lastfm.get().strip() or None
-        lastfm_api_key = self.ent_lastfm_key.get().strip() or None
         listenbrainz_username = self.ent_listenbrainz.get().strip() or None
         token = self.ent_token.get().strip() or None
+
+        # Determine session key: existing user's value, or obtained during this session
+        lastfm_session_key = None
+        if self.existing_user:
+            lastfm_session_key = self.existing_user.lastfm_session_key or None
+        elif self._obtained_session_key:
+            lastfm_session_key = self._obtained_session_key
 
         if not app_username:
             messagebox.showerror("Error", "App Username is required.")
@@ -178,8 +304,7 @@ class UserEditorWindow(tk.Toplevel):
         # If editing, update existing user
         if self.existing_user:
             user = self.existing_user
-            # Now using the method added to user.py
-            user.update_sources(lastfm_username, lastfm_api_key, listenbrainz_username, token)
+            user.update_sources(lastfm_username, lastfm_session_key, listenbrainz_username, token)
 
             for zip_path in self.pending_zips:
                 try:
@@ -200,7 +325,7 @@ class UserEditorWindow(tk.Toplevel):
             user = User.from_sources(
                 username=app_username,
                 lastfm_username=lastfm_username,
-                lastfm_api_key=lastfm_api_key,
+                lastfm_session_key=lastfm_session_key or "",
                 listenbrainz_username=listenbrainz_username,
                 listenbrainz_token=token,
                 listenbrainz_zips=[],

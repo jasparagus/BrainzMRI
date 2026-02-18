@@ -173,13 +173,16 @@ BrainzMRI/
 ## Cross-Platform Like Synchronization and Auditing
 
 ### Current Status
-One-way **"Last.fm → ListenBrainz"** import is implemented via the **"Import Last.fm Likes"** button in the header bar. This fetches loved tracks from Last.fm, resolves MBIDs via the Resolver Engine, diffs against existing likes, and pushes new likes to ListenBrainz with user confirmation.
+**Bidirectional** like sync is implemented between Last.fm and ListenBrainz:
+
+- **Last.fm → ListenBrainz**: "Get Last.fm Likes" button fetches loved tracks, resolves MBIDs via the Resolver Engine, diffs against existing likes, and pushes new likes to ListenBrainz with user confirmation.
+- **ListenBrainz → Last.fm**: "Push Likes to Last.fm" button pushes locally-liked tracks to Last.fm as loved tracks. Requires Last.fm Desktop Auth session key (per-user, obtained via "Connect Last.fm" in User Editor).
+
+**Last.fm Authentication** uses the Desktop Auth protocol. The developer registers one API account (API Key + Shared Secret in `config.json`). End users simply click "Connect Last.fm" in the User Editor, approve in their browser, and click "Complete Connection". Session keys are permanent and stored per-user.
 
 ### Remaining
-* Add OAuth for Last.fm
 * Auditing: enable a "master view" to view a list of likes from both services and compare them, with columns: Track Name, Artist, Album, Last.fm Liked, ListenBrainz Liked, Do Both Match (Boolean), MBID
-* ListenBrainz to Last.fm: One-way push of LB likes to Last.fm.
-* Full Sync (Additive): Bidirectional merge — any track liked on *either* service is pushed to the other.
+* Full Sync (Additive): Bidirectional merge — any track liked on *either* service is pushed to the other (single button).
 * Sync Manager Dialog: A dedicated UI for selecting sync mode and reviewing the diff before execution.
 
 ## Relative Time for Filter

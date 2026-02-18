@@ -167,7 +167,7 @@ class BrainzMRIGUI:
 
 
 
-        self.REPORT_MODES = ["Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "Favorite Track Trend", "Favorite Album Trend", "New Music By Year", "Raw Listens", "Imported Playlist"]
+        self.REPORT_MODES = ["Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "Favorite Track Trend", "Favorite Album Trend", "New Music By Year", "Raw Listens", "Likes", "Imported Playlist"]
 
         # Initialize Variables for Enrichment (Moved from Filters)
         self.enrichment_mode_var = tk.StringVar(value="None (Data Only, No Genres)")
@@ -181,7 +181,7 @@ class BrainzMRIGUI:
             self.start_sync_engine, 
             on_import_callback=self.on_data_imported,
             on_cleared_callback=self.on_data_cleared,
-            on_import_lastfm_callback=self.trigger_import_lastfm,
+            on_import_lastfm_callback=self.trigger_fetch_lastfm_loves,
             lock_cb=self.lock_interface,
             unlock_cb=self.unlock_interface
         )
@@ -316,10 +316,55 @@ class BrainzMRIGUI:
     # ------------------------------------------------------------------
     # Core Actions
     # ------------------------------------------------------------------
-    def trigger_import_lastfm(self):
-        """Proxy to trigger Last.fm import from Header."""
-        if hasattr(self, 'actions') and self.actions:
-            self.actions.action_import_likes()
+    def trigger_fetch_lastfm_loves(self):
+        """Fetch Last.fm loves, cache them, then auto-select and run the Likes report."""
+        if not self.state.user:
+            return
+        if self.processing:
+            return
+        
+        import likes_sync
+        from api_client import LastFMClient
+        
+        lfm_user = self.state.user.lastfm_username
+        if not lfm_user:
+            messagebox.showwarning("Setup", "Please configure your Last.fm username in 'Edit User' first.")
+            return
+        if not LastFMClient().api_key:
+            messagebox.showerror("Setup Error", "Last.fm API Key is missing.\nPlease add 'lastfm_api_key' to your config.json.")
+            return
+        
+        self.lock_interface()
+        
+        win = ProgressWindow(self.root, "Fetching Last.fm Loves...")
+        
+        def worker():
+            try:
+                loves = likes_sync.fetch_and_cache_lastfm_loves(self.state.user)
+                count = len(loves)
+                
+                def on_done():
+                    win.close()
+                    self.header.lbl_source_status.config(
+                        text=f"Active Source: Likes ({count} Last.fm loves)", fg="#D51007")
+                    self.cmb_report.set("Likes")
+                    self.state.last_mode = "Likes"
+                    self.status_var.set(f"Fetched {count} Last.fm loves.")
+                    self.processing = False
+                    self.run_report()
+                
+                self.root.after(0, on_done)
+                
+            except Exception as e:
+                err_msg = str(e)
+                logging.error(f"Last.fm fetch failed: {e}", exc_info=True)
+                self.root.after(0, lambda: [
+                    win.close(),
+                    messagebox.showerror("Error", err_msg),
+                    self.unlock_interface()
+                ])
+        
+        threading.Thread(target=worker, daemon=True).start()
 
     def start_sync_engine(self):
         logging.info("User Action: Clicked 'Get New Listens'")
@@ -407,6 +452,13 @@ class BrainzMRIGUI:
             else:
                 params["liked_mbids"] = set()
             
+            # Load Last.fm loves for Likes report
+            if selected_mode == "Likes" and self.state.user:
+                import likes_sync
+                params["lastfm_loves"] = likes_sync.load_cached_lastfm_loves(self.state.user.username)
+            else:
+                params["lastfm_loves"] = None
+            
             # Determine Enrichment
             enrich_str = self.enrichment_mode_var.get()
             force_update = self.force_cache_var.get()
@@ -428,6 +480,11 @@ class BrainzMRIGUI:
                  if self.state.playlist_df is None:
                      raise ValueError("No Playlist loaded.")
                  base_df = self.state.playlist_df.copy()
+            elif selected_mode == "Likes":
+                 # Likes report can work with just the likes cache (no listening history required)
+                 if not self.state.user:
+                     raise ValueError("No User loaded.")
+                 base_df = self.state.user.get_listens().copy()
             else:
                  if not self.state.user:
                      raise ValueError("No User loaded. Please load a user to view history reports.")

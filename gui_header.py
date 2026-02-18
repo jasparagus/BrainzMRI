@@ -20,7 +20,7 @@ class HeaderComponent:
         self.callback_refresh_data = callback_refresh_data # Function to call when source changes
         self.on_import_callback = on_import_callback       # New Callback for CSV import
         self.on_cleared_callback = on_cleared_callback     # Callback for CSV close
-        self.on_import_lastfm_callback = on_import_lastfm_callback # Callback from Main -> Actions
+        self.on_import_lastfm_callback = on_import_lastfm_callback # Callback: fetch Last.fm loves + show Likes report
         self.lock_cb = kwargs.get("lock_cb", None)
         self.unlock_cb = kwargs.get("unlock_cb", None)
 
@@ -61,16 +61,16 @@ class HeaderComponent:
         self.btn_get_listens.pack(side="left", padx=(0, 10))
         Hovertip(self.btn_get_listens, "Fetch recent listens from ListenBrainz API.\nRequires username in profile.", hover_delay=500)
 
-        # Import Last.fm Likes (New Button)
+        # Fetch Last.fm Loves
         self.btn_import_lastfm = tk.Button(
             self.frm_source,
-            text="Get Last.fm Likes",
+            text="Get Last.fm \u2665",
             command=self.on_import_lastfm_callback,
-            bg="#D51007", fg="white",  # Matches official Last.fm color scheme
+            bg="#D51007", fg="white",
             state="disabled"
         )
         self.btn_import_lastfm.pack(side="left", padx=(0, 10))
-        Hovertip(self.btn_import_lastfm, "Sync 'Loved Tracks' from Last.fm.\nRequires Last.fm connection.", hover_delay=500)
+        Hovertip(self.btn_import_lastfm, "Fetch 'Loved Tracks' from Last.fm and show Likes audit.\nRequires Last.fm username.", hover_delay=500)
 
         self.lbl_source_status = tk.Label(
             self.frm_source,

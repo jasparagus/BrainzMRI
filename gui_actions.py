@@ -18,9 +18,7 @@ from urllib.parse import quote_plus
 import enrichment
 import parsing
 from sync_engine import ProgressWindow
-from api_client import ListenBrainzClient
-# Import the new Sync Manager
-from likes_sync import LikeSyncManager
+from api_client import ListenBrainzClient, LastFMClient
 from config import config
 
 # ... [Confirmation Dialog Class remains unchanged] ...
@@ -113,11 +111,17 @@ class ActionComponent:
         self.btn_open_mb.pack(side="left", padx=5)
         Hovertip(self.btn_open_mb, "Open the selected item's MusicBrainz page\nin your default browser.")
 
-        self.btn_like_all = tk.Button(self.frame, text="Like All", bg="#FFB74D", command=self.action_like_all, state="disabled")
+        self.btn_like_all = tk.Button(self.frame, text="Like All\nEverywhere", bg="#FFB74D", command=self.action_like_all, state="disabled")
         self.btn_like_all.pack(side="left", padx=5)
+        Hovertip(self.btn_like_all, "Like all tracks in the current view\non both ListenBrainz and Last.fm.", hover_delay=500)
 
-        self.btn_like_sel = tk.Button(self.frame, text="Like Selected", bg="#FFCC80", command=self.action_like_selected, state="disabled")
+        self.btn_like_sel = tk.Button(self.frame, text="Like Selected\nListenBrainz", bg="#FFCC80", command=self.action_like_selected, state="disabled")
         self.btn_like_sel.pack(side="left", padx=5)
+        Hovertip(self.btn_like_sel, "Like selected tracks on ListenBrainz.", hover_delay=500)
+
+        self.btn_like_lfm = tk.Button(self.frame, text="Like Selected\nLast.fm", bg="#FF6659", fg="white", command=self.action_like_selected_lastfm, state="disabled")
+        self.btn_like_lfm.pack(side="left", padx=5)
+        Hovertip(self.btn_like_lfm, "Love selected tracks on Last.fm.\nRequires Last.fm authentication.", hover_delay=500)
 
         self.btn_resolve = tk.Button(self.frame, text="Resolve Metadata", bg="#4DD0E1", command=self.action_resolve, state="disabled")
         self.btn_resolve.pack(side="left", padx=5)
@@ -140,9 +144,15 @@ class ActionComponent:
             self.btn_like_all.config(state="normal")
             self.btn_like_sel.config(state="normal")
             self.btn_export_lb.config(state="normal")
+            # Last.fm like button requires session key
+            if self.state.user and self.state.user.lastfm_session_key:
+                self.btn_like_lfm.config(state="normal")
+            else:
+                self.btn_like_lfm.config(state="disabled")
         else:
             self.btn_like_all.config(state="disabled")
             self.btn_like_sel.config(state="disabled")
+            self.btn_like_lfm.config(state="disabled")
             self.btn_export_lb.config(state="disabled")
             
         # Local exports don't strictly require MBIDs, just data
@@ -234,14 +244,26 @@ class ActionComponent:
         messagebox.showwarning("No Data", "Selected row has no identifiable entity.")
 
     def action_like_all(self):
-        logging.info("User Action: Clicked 'Like All'")
+        logging.info("User Action: Clicked 'Like All Everywhere'")
         df = self.state.filtered_df
         if df is None or "recording_mbid" not in df.columns: return
         valid = df[df["recording_mbid"].notna() & (df["recording_mbid"] != "") & (df["recording_mbid"] != "None")]
-        self._run_like_worker(list(valid["recording_mbid"].unique()))
+        mbids = list(valid["recording_mbid"].unique())
+        
+        # Also collect artist/track names for Last.fm
+        tracks_for_lastfm = []
+        if self.state.user and self.state.user.lastfm_session_key:
+            for _, row in valid.drop_duplicates(subset=["recording_mbid"]).iterrows():
+                artist = str(row.get("artist", "")).strip()
+                track = str(row.get("track_name", "")).strip()
+                if artist and track:
+                    tracks_for_lastfm.append({"artist": artist, "track": track})
+        
+        # Run LB likes first
+        self._run_like_worker(mbids, also_lastfm=tracks_for_lastfm if tracks_for_lastfm else None)
 
     def action_like_selected(self):
-        logging.info("User Action: Clicked 'Like Selected'")
+        logging.info("User Action: Clicked 'Like Selected ListenBrainz'")
         tree = self.table_view.tree
         if not tree: return
         selected = tree.selection()
@@ -268,7 +290,42 @@ class ActionComponent:
         
         self._run_like_worker(list(mbids))
 
-    def _run_like_worker(self, mbids):
+    def action_like_selected_lastfm(self):
+        """Love selected tracks on Last.fm."""
+        logging.info("User Action: Clicked 'Like Selected Last.fm'")
+        if not self.state.user or not self.state.user.lastfm_session_key:
+            messagebox.showwarning("Setup", "Last.fm not authenticated.\nGo to Edit User → 'Connect Last.fm' first.")
+            return
+        
+        tree = self.table_view.tree
+        if not tree: return
+        selected = tree.selection()
+        if not selected:
+            messagebox.showinfo("Info", "Select rows first.")
+            return
+        
+        df = self.state.filtered_df
+        children = tree.get_children()
+        tracks = []
+        
+        for item in selected:
+            try:
+                idx = children.index(item)
+                if idx < len(df):
+                    row = df.iloc[idx]
+                    artist = str(row.get("artist", "")).strip()
+                    track = str(row.get("track_name", "")).strip()
+                    if artist and track:
+                        tracks.append({"artist": artist, "track": track})
+            except: pass
+        
+        if not tracks:
+            messagebox.showinfo("Info", "No valid artist/track names in selection.")
+            return
+        
+        self._run_lastfm_love_worker(tracks)
+
+    def _run_like_worker(self, mbids, also_lastfm=None):
         count = len(mbids)
         if count == 0: return
         
@@ -317,10 +374,66 @@ class ActionComponent:
                             df["Likes"] = df["recording_mbid"].apply(lambda x: 1 if x in all_liked else 0)
                     if self.state.filtered_df is not None:
                         self.table_view.show_table(self.state.filtered_df)
-                messagebox.showinfo("Done", f"{mode_str}Liked {success} tracks.")
+                messagebox.showinfo("Done", f"{mode_str}Liked {success} tracks on ListenBrainz.")
+                
+                # Chain Last.fm love if requested ("Like All Everywhere")
+                if also_lastfm and not dry_run and not win.cancelled:
+                    if self.state.user and self.state.user.lastfm_session_key:
+                        self._run_lastfm_love_worker(also_lastfm)
+                    else:
+                        messagebox.showwarning("Last.fm Skipped",
+                            "Last.fm account not connected — only ListenBrainz likes were sent.\n"
+                            "Connect Last.fm in Edit User to sync likes to both services.")
 
             win.after(0, _finish)
 
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_lastfm_love_worker(self, tracks):
+        """Push tracks as loved on Last.fm via track.love API."""
+        count = len(tracks)
+        if count == 0: return
+        
+        if not self.state.user or not self.state.user.lastfm_session_key:
+            messagebox.showwarning("Setup", "Last.fm not authenticated.")
+            return
+        
+        dry_run = self._ask_execution_mode("Love on Last.fm", f"You are about to love {count} tracks on Last.fm.")
+        if dry_run is None: return
+        
+        lfm_client = LastFMClient()
+        session_key = self.state.user.lastfm_session_key
+        mode_str = "[DRY RUN] " if dry_run else ""
+        
+        win = ProgressWindow(self.frame, f"{mode_str}Loving on Last.fm...")
+        
+        def worker():
+            success = 0
+            for i, t in enumerate(tracks):
+                if win.cancelled: break
+                
+                def _upd(i=i):
+                    if win.winfo_exists(): win.update_progress(i, count, f"{mode_str}Loving {i+1}/{count}...")
+                win.after(0, _upd)
+                
+                try:
+                    if not dry_run:
+                        lfm_client.love_track(t["artist"], t["track"], session_key)
+                    success += 1
+                except Exception as e:
+                    logging.error(f"Last.fm love failed: {t['artist']} - {t['track']}: {e}")
+                
+                if not dry_run:
+                    lfm_client.wait_for_rate_limit()
+                else:
+                    time.sleep(0.05)
+            
+            def _finish():
+                win.destroy()
+                messagebox.showinfo("Done", f"{mode_str}Loved {success} tracks on Last.fm.")
+            
+            win.after(0, _finish)
+        
         threading.Thread(target=worker, daemon=True).start()
 
     def action_resolve(self):
@@ -537,12 +650,3 @@ class ActionComponent:
         with open(path, "w", encoding="utf-8") as f:
             f.write(xml_str)
 
-    # NEW ACTION HANDLER
-    def action_import_likes(self):
-        logging.info("User Action: Clicked 'Import Last.fm Likes'")
-        if not self.state.user.lastfm_username:
-            messagebox.showwarning("Setup", "Please configure your Last.fm username in 'Edit User' first.")
-            return
-            
-        manager = LikeSyncManager(self.state.user, self.state, self.parent)
-        manager.import_lastfm_likes()

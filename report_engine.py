@@ -76,6 +76,13 @@ class ReportEngine:
                 "kwargs": {},
                 "report_type_key": "raw",
                 "status": "Raw history loaded.",
+            },
+            "Likes": {
+                # Specialized pipeline: loads resolver cache + Last.fm loves
+                "func": None,
+                "kwargs": {},
+                "report_type_key": "likes",
+                "status": "Likes audit generated.",
             }
         }
 
@@ -103,6 +110,7 @@ class ReportEngine:
         deep_query: bool = False,
         progress_callback: Optional[Callable] = None,
         is_cancelled: Optional[Callable] = None,
+        lastfm_loves: list = None,
     ) -> Tuple[pd.DataFrame, Dict[str, Any], str, bool, str]:
         """
         Master orchestration method.
@@ -114,7 +122,8 @@ class ReportEngine:
             raise ValueError(f"Unknown report mode: {mode}")
 
         # --- GUARD CLAUSE: EMPTY DATA ---
-        if df.empty:
+        # Likes report can work with empty df (likes from cache only)
+        if df.empty and mode != "Likes":
             logging.warning(f"Report '{mode}' aborted: Source DataFrame is empty.")
             return pd.DataFrame(), {}, handler["report_type_key"], False, "No data available."
 
@@ -149,8 +158,27 @@ class ReportEngine:
         if progress_callback:
             progress_callback(10, 100, "Initializing report...")
 
+        # --- SPECIALIZED PIPELINE: LIKES AUDIT ---
+        if mode == "Likes":
+            if progress_callback: progress_callback(20, 100, "Building likes audit...")
+            
+            # Load resolver cache for MBID lookups
+            resolver_cache = enrichment.get_resolver_cache()
+            
+            raw_result = reporting.report_likes(
+                df=df,
+                liked_mbids=liked_mbids,
+                lastfm_loves=lastfm_loves,
+                resolver_cache=resolver_cache,
+            )
+            
+            if isinstance(raw_result, tuple):
+                result, result_meta = raw_result
+            else:
+                result, result_meta = raw_result, {}
+
         # --- SPECIALIZED PIPELINE: GENRE FLAVOR ---
-        if mode == "Genre Flavor":
+        elif mode == "Genre Flavor":
             # Step A: Aggregate by Artist (Proxy Step)
             if progress_callback: progress_callback(20, 100, "Aggregating artists...")
             

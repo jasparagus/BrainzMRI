@@ -250,6 +250,66 @@ class LastFMClient(BaseClient):
     def __init__(self):
         super().__init__(config.lastfm_api_root, rate_limit_delay=0.5)
         self.api_key = config.lastfm_api_key
+        self.shared_secret = config.lastfm_shared_secret
+
+    # ------------------------------------------------------------------
+    # Request Signing (Last.fm API Signature)
+    # ------------------------------------------------------------------
+
+    def _sign_params(self, params: dict) -> str:
+        """Generate Last.fm API signature per spec:
+        md5(alphabetically sorted <name><value> pairs + shared_secret)."""
+        import hashlib
+        ordered = "".join(f"{k}{v}" for k, v in sorted(params.items()))
+        return hashlib.md5((ordered + self.shared_secret).encode("utf-8")).hexdigest()
+
+    # ------------------------------------------------------------------
+    # Authentication Flow (Desktop Auth)
+    # ------------------------------------------------------------------
+
+    def start_auth(self) -> dict:
+        """Step 1 of Desktop Auth: fetch a temporary token.
+        Returns {'token': str, 'auth_url': str} or raises on failure."""
+        if not self.api_key or not self.shared_secret:
+            raise ValueError("Last.fm API Key and Shared Secret must be configured.")
+
+        params = {
+            "method": "auth.getToken",
+            "api_key": self.api_key,
+        }
+        params["api_sig"] = self._sign_params(params)
+        params["format"] = "json"  # format must NOT be included in signature
+
+        data = self._request("GET", "", params=params)
+        if not data or "token" not in data:
+            raise RuntimeError("Failed to obtain Last.fm auth token.")
+
+        token = data["token"]
+        auth_url = f"https://www.last.fm/api/auth/?api_key={self.api_key}&token={token}"
+        return {"token": token, "auth_url": auth_url}
+
+    def complete_auth(self, token: str) -> str:
+        """Step 2 of Desktop Auth: exchange approved token for a permanent session key.
+        Returns the session key string, or raises on failure."""
+        params = {
+            "method": "auth.getSession",
+            "api_key": self.api_key,
+            "token": token,
+        }
+        params["api_sig"] = self._sign_params(params)
+        params["format"] = "json"
+
+        data = self._request("GET", "", params=params)
+        if not data or "session" not in data:
+            error = data.get("error", "Unknown") if data else "No response"
+            message = data.get("message", "") if data else ""
+            raise RuntimeError(f"Last.fm auth failed (error {error}): {message}")
+
+        return data["session"]["key"]
+
+    # ------------------------------------------------------------------
+    # Read-Only Methods (unchanged, API-key only)
+    # ------------------------------------------------------------------
 
     def get_tags(self, method, key, **kwargs):
         if not self.api_key: return []
@@ -331,6 +391,43 @@ class LastFMClient(BaseClient):
             time.sleep(self.delay)
             
         return all_loves
+
+    # ------------------------------------------------------------------
+    # Write Methods (require session key)
+    # ------------------------------------------------------------------
+
+    def love_track(self, artist: str, track: str, session_key: str):
+        """Love a track on Last.fm. Requires an authenticated session key."""
+        self._write_track_action("track.love", artist, track, session_key)
+
+    def unlove_track(self, artist: str, track: str, session_key: str):
+        """Unlove a track on Last.fm. Requires an authenticated session key."""
+        self._write_track_action("track.unlove", artist, track, session_key)
+
+    def _write_track_action(self, method: str, artist: str, track: str, session_key: str):
+        """Signed POST for track.love / track.unlove."""
+        if not session_key:
+            raise ValueError("No Last.fm session key. Please connect your Last.fm account first.")
+
+        params = {
+            "method": method,
+            "api_key": self.api_key,
+            "artist": artist,
+            "track": track,
+            "sk": session_key,
+        }
+        params["api_sig"] = self._sign_params(params)
+
+        # Write calls must be POST with params in the body (per Last.fm spec).
+        # format=json is added as a query param so the response is JSON.
+        url = f"{self.base_url}?format=json"
+        try:
+            resp = self.session.post(url, data=params, timeout=15)
+            resp.raise_for_status()
+            logging.info(f"Last.fm {method}: {artist} - {track} -> OK")
+        except Exception as e:
+            logging.error(f"Last.fm {method} failed for '{artist} - {track}': {e}")
+            raise
 
 
 class ListenBrainzClient(BaseClient):

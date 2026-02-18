@@ -639,6 +639,189 @@ prepare_artist_trend_chart_data = prepare_entity_trend_chart_data
 
 
 # ------------------------------------------------------------
+# Cross-Service Likes Audit Report
+# ------------------------------------------------------------
+
+def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list = None,
+                 resolver_cache: dict = None, **kwargs):
+    """
+    Generate a cross-service Likes audit report.
+    
+    Args:
+        df: User's listening history (used to resolve MBID → artist/track/album).
+        liked_mbids: Set of recording MBIDs liked on ListenBrainz.
+        lastfm_loves: List of dicts {'artist': str, 'track': str, 'mbid': str|None} from Last.fm.
+        resolver_cache: Dict mapping track keys → resolution results (from enrichment.get_resolver_cache).
+    
+    Returns:
+        DataFrame with columns: track_name, artist, album, Last.fm Liked, ListenBrainz Liked, 
+        Both Liked, recording_mbid
+    """
+    import parsing  # For make_track_key (case-insensitive resolver lookup)
+    
+    if liked_mbids is None:
+        liked_mbids = set()
+    if resolver_cache is None:
+        resolver_cache = {}
+    
+    rows = []  # Will hold the final audit rows
+    matched_lfm_indices = set()  # Track which Last.fm loves have been matched
+    
+    # ------------------------------------------------------------------
+    # Step 1: Build LB Likes base from listening history
+    # ------------------------------------------------------------------
+    # For each liked MBID, find the best entry in listening history
+    # "Best" = most complete (prioritize entries without "Unknown" fields)
+    
+    if liked_mbids and not df.empty and "recording_mbid" in df.columns:
+        for mbid in liked_mbids:
+            matches = df[df["recording_mbid"] == mbid]
+            if matches.empty:
+                # MBID not found in listening history — include with empty fields
+                rows.append({
+                    "track_name": "",
+                    "artist": "",
+                    "album": "",
+                    "ListenBrainz Liked": 1,
+                    "Last.fm Liked": 0,
+                    "recording_mbid": mbid,
+                })
+                continue
+            
+            # Pick the most complete row: prefer non-"Unknown", non-empty fields
+            best = matches.iloc[0]
+            best_score = 0
+            for _, row in matches.iterrows():
+                score = 0
+                for col in ["artist", "track_name", "album"]:
+                    val = str(row.get(col, "")).strip()
+                    if val and val.lower() not in ("unknown", "nan", "none", ""):
+                        score += 1
+                if score > best_score:
+                    best_score = score
+                    best = row
+            
+            rows.append({
+                "track_name": str(best.get("track_name", "")).strip(),
+                "artist": str(best.get("artist", "")).strip(),
+                "album": str(best.get("album", "")).strip(),
+                "ListenBrainz Liked": 1,
+                "Last.fm Liked": 0,
+                "recording_mbid": mbid,
+            })
+    elif liked_mbids:
+        # No listening history but have MBIDs — include with empty fields
+        for mbid in liked_mbids:
+            rows.append({
+                "track_name": "",
+                "artist": "",
+                "album": "",
+                "ListenBrainz Liked": 1,
+                "Last.fm Liked": 0,
+                "recording_mbid": mbid,
+            })
+    
+    # ------------------------------------------------------------------
+    # Step 2: Join Last.fm loves (if available)
+    # ------------------------------------------------------------------
+    if lastfm_loves:
+        # Step 2a: Resolve Last.fm loves via resolver cache (case-insensitive lookup)
+        lfm_resolved = []  # (index, mbid_or_None, artist, track)
+        for i, love in enumerate(lastfm_loves):
+            artist = love.get("artist", "").strip()
+            track = love.get("track", "").strip()
+            # Check if Last.fm already provided an MBID
+            mbid = love.get("mbid", "")
+            if mbid and str(mbid).strip() and str(mbid) != "None":
+                lfm_resolved.append((i, str(mbid).strip(), artist, track))
+                continue
+            # Try resolver cache
+            key = parsing.make_track_key(artist, track, "")
+            cached = resolver_cache.get(key)
+            if cached and isinstance(cached, dict) and cached.get("mbid"):
+                lfm_resolved.append((i, cached["mbid"], artist, track))
+            else:
+                lfm_resolved.append((i, None, artist, track))
+        
+        # Step 2b: MBID-based join against existing LB rows
+        lb_mbid_to_row = {}
+        for j, row in enumerate(rows):
+            mbid = row.get("recording_mbid", "")
+            if mbid:
+                lb_mbid_to_row[mbid] = j
+        
+        for (lfm_idx, mbid, artist, track) in lfm_resolved:
+            if mbid and mbid in lb_mbid_to_row:
+                # Mark as also liked on Last.fm
+                rows[lb_mbid_to_row[mbid]]["Last.fm Liked"] = 1
+                matched_lfm_indices.add(lfm_idx)
+        
+        # Step 2c: Exact name match for unresolved Last.fm loves
+        # Build lookup: (artist, track_name) → row index (case-sensitive, exact)
+        lb_name_to_row = {}
+        for j, row in enumerate(rows):
+            name_key = (row["artist"], row["track_name"])
+            if name_key[0] and name_key[1]:  # Skip empty entries
+                lb_name_to_row[name_key] = j
+        
+        for (lfm_idx, mbid, artist, track) in lfm_resolved:
+            if lfm_idx in matched_lfm_indices:
+                continue
+            # Exact case-sensitive match
+            name_key = (artist, track)
+            if name_key in lb_name_to_row:
+                rows[lb_name_to_row[name_key]]["Last.fm Liked"] = 1
+                matched_lfm_indices.add(lfm_idx)
+        
+        # Step 2d: Append unmatched Last.fm loves as new rows
+        for (lfm_idx, mbid, artist, track) in lfm_resolved:
+            if lfm_idx in matched_lfm_indices:
+                continue
+            rows.append({
+                "track_name": track,
+                "artist": artist,
+                "album": "",
+                "ListenBrainz Liked": 0,
+                "Last.fm Liked": 1,
+                "recording_mbid": mbid or "",
+            })
+    
+    # ------------------------------------------------------------------
+    # Step 3: Build result DataFrame
+    # ------------------------------------------------------------------
+    if not rows:
+        result = pd.DataFrame(columns=[
+            "track_name", "artist", "album", 
+            "Last.fm Liked", "ListenBrainz Liked", "Both Liked", 
+            "recording_mbid"
+        ])
+    else:
+        result = pd.DataFrame(rows)
+        result["Both Liked"] = (
+            (result["ListenBrainz Liked"] == 1) & (result["Last.fm Liked"] == 1)
+        ).astype(int)
+        
+        # Ensure integer types
+        for col in ["ListenBrainz Liked", "Last.fm Liked", "Both Liked"]:
+            result[col] = result[col].fillna(0).astype(int)
+        
+        # Column order
+        col_order = ["track_name", "artist", "album", 
+                     "Last.fm Liked", "ListenBrainz Liked", "Both Liked", 
+                     "recording_mbid"]
+        result = result[[c for c in col_order if c in result.columns]]
+    
+    meta = {
+        "entity": "Likes",
+        "topn": None,
+        "days": None,
+        "metric": "audit",
+    }
+    
+    return result, meta
+
+
+# ------------------------------------------------------------
 # Saving Reports
 # ------------------------------------------------------------
 

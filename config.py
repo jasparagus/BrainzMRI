@@ -34,6 +34,7 @@ class AppConfig:
         self.network_delay = 1.1  # Default safe delay
         self.max_retries = 5
         self.lastfm_api_key = os.environ.get("BRAINZMRI_LASTFM_API_KEY", "")
+        self.lastfm_shared_secret = os.environ.get("BRAINZMRI_LASTFM_SECRET", "")
         self.log_level = "INFO" # none, INFO, DEBUG
         self.excluded_genres = []  # e.g. ["seen live", "spotify"] — lowercased at load
 
@@ -53,9 +54,11 @@ class AppConfig:
                     self.last_user = data.get("last_user", "")
                     self.network_delay = data.get("network_delay", 1.1)
                     
-                    # API Key priority: Env Var > Config File > Empty
+                    # API Key/Secret priority: Env Var > Config File > Empty
                     if not self.lastfm_api_key:
                         self.lastfm_api_key = data.get("lastfm_api_key", "")
+                    if not self.lastfm_shared_secret:
+                        self.lastfm_shared_secret = data.get("lastfm_shared_secret", "")
                     
                     self.log_level = data.get("log_level", "INFO")
                     self.excluded_genres = [g.lower().strip() for g in data.get("excluded_genres", [])]
@@ -68,6 +71,7 @@ class AppConfig:
             "last_user": self.last_user,
             "network_delay": self.network_delay,
             "lastfm_api_key": self.lastfm_api_key,
+            "lastfm_shared_secret": self.lastfm_shared_secret,
             "log_level": self.log_level,
             "excluded_genres": self.excluded_genres
         }

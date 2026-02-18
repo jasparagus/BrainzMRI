@@ -109,7 +109,7 @@ def _load_listens_jsonl_gz(path: str) -> pd.DataFrame:
 class User:
     username: str
     lastfm_username: str = ""
-    lastfm_api_key: str = ""  # New Field
+    lastfm_session_key: str = ""  # Per-user session key from Last.fm Desktop Auth
     listenbrainz_username: str = ""
     listenbrainz_token: str = ""
     
@@ -120,11 +120,11 @@ class User:
     _io_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     @classmethod
-    def from_sources(cls, username: str, lastfm_username: str = "", lastfm_api_key: str = "", listenbrainz_username: str = "", listenbrainz_token: str = "", listenbrainz_zips: list = None) -> "User":
+    def from_sources(cls, username: str, lastfm_username: str = "", lastfm_session_key: str = "", listenbrainz_username: str = "", listenbrainz_token: str = "", listenbrainz_zips: list = None) -> "User":
         """
         Create a new User, initialize cache, and optionally ingest ZIPs.
         """
-        user = cls(username, lastfm_username, lastfm_api_key, listenbrainz_username, listenbrainz_token)
+        user = cls(username, lastfm_username, lastfm_session_key, listenbrainz_username, listenbrainz_token)
         user.save_cache()  # Initialize structure
         
         if listenbrainz_zips:
@@ -149,7 +149,7 @@ class User:
         user = cls(
             username=data["username"],
             lastfm_username=data.get("lastfm_username", ""),
-            lastfm_api_key=data.get("lastfm_api_key", ""),
+            lastfm_session_key=data.get("lastfm_session_key", ""),
             listenbrainz_username=data.get("listenbrainz_username", ""),
             listenbrainz_token=data.get("listenbrainz_token", "")
         )
@@ -174,7 +174,7 @@ class User:
             data = {
                 "username": self.username,
                 "lastfm_username": self.lastfm_username,
-                "lastfm_api_key": self.lastfm_api_key,
+                "lastfm_session_key": self.lastfm_session_key,
                 "listenbrainz_username": self.listenbrainz_username,
                 "listenbrainz_token": self.listenbrainz_token,
                 "last_updated": datetime.now(timezone.utc).isoformat()
@@ -202,10 +202,10 @@ class User:
     def get_listenbrainz_username(self) -> str:
         return self.listenbrainz_username
 
-    def update_sources(self, lastfm_username: str, lastfm_api_key: str, listenbrainz_username: str, listenbrainz_token: str):
+    def update_sources(self, lastfm_username: str, lastfm_session_key: str, listenbrainz_username: str, listenbrainz_token: str):
         """Update user credentials and save."""
         self.lastfm_username = lastfm_username or ""
-        self.lastfm_api_key = lastfm_api_key or ""
+        self.lastfm_session_key = lastfm_session_key or ""
         self.listenbrainz_username = listenbrainz_username or ""
         self.listenbrainz_token = listenbrainz_token or ""
         self.save_cache()

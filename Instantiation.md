@@ -98,6 +98,7 @@ Tkinter is a thin wrapper around the Tcl/Tk C library. Certain patterns trigger 
 * **Centralized Resilience:** All network interactions must occur via `api_client.py`.
 * **Connection Resilience:** The client must specifically handle `ConnectionResetError` (and Windows Error 10054) by catching the exception, logging a warning, and triggering a thread sleep (`5.0s`) before retrying.
 * **Strict Encoding:** All user-supplied parameters must be strictly URL encoded (`urllib.parse.quote`) to prevent malformed requests.
+* **Last.fm Desktop Auth:** Session-key-based authentication using Last.fm's Desktop Auth protocol. App-level credentials (API Key + Shared Secret) are stored in `config.json`. Per-user session keys are obtained via a browser-based approval flow (user clicks "Connect" → approves in browser → app calls `auth.getSession`). Session keys are permanent and stored in the user's cache directory. All authenticated requests use MD5 signed parameters per the Last.fm API spec.
 
 ### 3.7 Interface Robustness
 * **Flexible Contracts (`**kwargs`):** Logic engines (specifically `reporting.py` functions) **MUST** accept `**kwargs`. This acts as a "sink" for unused arguments passed by the `ReportEngine`, preventing `TypeError` when a specific report type (e.g., "Raw Listens") does not utilize a global filter parameter (e.g., `min_listens`).
@@ -153,7 +154,7 @@ Expect to receive the following files.
 | **`enrichment.py`** | **Model/Service** | Fetches Genre tags and resolves missing MBIDs using persistent caching. |
 | **`parsing.py`** | **Utility** | Data Normalization. |
 | **`config.py`** | **Utility** | Singleton Settings. |
-| **`likes_sync.py`** | **Controller** | Manages cross-platform logic: Fetch Last.fm Likes → Resolve MBIDs → Diff → User Confirm → Push LB. |
+| **`likes_sync.py`** | **Controller** | Manages bidirectional cross-platform sync: Last.fm→LB (import) and LB→Last.fm (export/love). |
 
 
 ---

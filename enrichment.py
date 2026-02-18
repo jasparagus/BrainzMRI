@@ -74,6 +74,11 @@ def _load_resolver_cache() -> dict[str, Any]:
 def _save_resolver_cache(data: dict[str, Any]) -> None:
     _save_cache("mbid_resolver_cache.json", data)
 
+def get_resolver_cache() -> dict[str, Any]:
+    """Public read-only access to the resolver cache.
+    Returns dict mapping track keys to resolution results (dict with 'mbid' or None)."""
+    return _load_resolver_cache()
+
 
 # ------------------------------------------------------------
 # Enrichment Failure Logger
