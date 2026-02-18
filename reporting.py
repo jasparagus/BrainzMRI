@@ -524,6 +524,16 @@ def report_entity_trend(df: pd.DataFrame, entity: str = "artist", bins: int = 15
         df[group_col] = df["_canonical"]
         df = df.drop(columns=["_canonical"])
 
+    # 3. For album/track, also canonicalize artist and build composite display name
+    if entity != "artist" and "artist_mbid" in df.columns:
+        artist_canonical = df.groupby("artist_mbid")["artist"].agg(
+            lambda x: x.mode().iloc[0]
+        ).rename("_artist_canonical")
+        df = df.merge(artist_canonical, left_on="artist_mbid", right_index=True, how="left")
+        df["artist"] = df["_artist_canonical"].fillna(df["artist"])
+        df = df.drop(columns=["_artist_canonical"])
+        df[group_col] = df[group_col] + " \u2014 " + df["artist"]
+
     df["period"] = pd.cut(df["listened_at"], bins=bins)
     
     grouped = df.groupby(["period", group_col], observed=True).size().reset_index(name="listens")
@@ -592,6 +602,16 @@ def prepare_entity_trend_chart_data(df: pd.DataFrame, entity: str = "artist", bi
         df = df.merge(canonical, left_on=mbid_col, right_index=True, how="left")
         df[group_col] = df["_canonical"]
         df = df.drop(columns=["_canonical"])
+
+    # 3. For album/track, also canonicalize artist and build composite display name
+    if entity != "artist" and "artist_mbid" in df.columns:
+        artist_canonical = df.groupby("artist_mbid")["artist"].agg(
+            lambda x: x.mode().iloc[0]
+        ).rename("_artist_canonical")
+        df = df.merge(artist_canonical, left_on="artist_mbid", right_index=True, how="left")
+        df["artist"] = df["_artist_canonical"].fillna(df["artist"])
+        df = df.drop(columns=["_artist_canonical"])
+        df[group_col] = df[group_col] + " \u2014 " + df["artist"]
 
     top_entities = df[group_col].value_counts().head(effective_topn).index.tolist()
     df_filtered = df[df[group_col].isin(top_entities)].copy()
