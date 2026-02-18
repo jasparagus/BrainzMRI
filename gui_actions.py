@@ -107,34 +107,38 @@ class ActionComponent:
         # UI Elements
         tk.Label(self.frame, text="Actions:", bg="#ECEFF1", font=("Segoe UI", 9, "bold")).pack(side="left", padx=10, pady=5)
 
-        self.btn_open_mb = tk.Button(self.frame, text="Open in MusicBrainz", bg="#81C784", command=self.action_open_musicbrainz)
-        self.btn_open_mb.pack(side="left", padx=5)
+        self.btn_open_mb = tk.Button(self.frame, text="Search Item On\nMusicBrainz", bg="#81C784", command=self.action_open_musicbrainz)
+        self.btn_open_mb.pack(side="left", padx=5, ipadx=5)
         Hovertip(self.btn_open_mb, "Open the selected item's MusicBrainz page\nin your default browser.")
 
+        self.btn_resolve = tk.Button(self.frame, text="Resolve\nMetadata", bg="#4DD0E1", command=self.action_resolve, state="disabled")
+        self.btn_resolve.pack(side="left", padx=5, ipadx=5)
+        Hovertip(self.btn_resolve, "Search MusicBrainz for metadata (mbids) for the items in the current view.", hover_delay=500)
+
         self.btn_like_all = tk.Button(self.frame, text="Like All\nEverywhere", bg="#FFB74D", command=self.action_like_all, state="disabled")
-        self.btn_like_all.pack(side="left", padx=5)
+        self.btn_like_all.pack(side="left", padx=5, ipadx=5)
         Hovertip(self.btn_like_all, "Like all tracks in the current view\non both ListenBrainz and Last.fm.", hover_delay=500)
 
-        self.btn_like_sel = tk.Button(self.frame, text="Like Selected\nListenBrainz", bg="#FFCC80", command=self.action_like_selected, state="disabled")
-        self.btn_like_sel.pack(side="left", padx=5)
+        self.btn_like_sel = tk.Button(self.frame, text="Like Selected\non ListenBrainz", bg="#FFCC80", command=self.action_like_selected, state="disabled")
+        self.btn_like_sel.pack(side="left", padx=5, ipadx=5)
         Hovertip(self.btn_like_sel, "Like selected tracks on ListenBrainz.", hover_delay=500)
 
-        self.btn_like_lfm = tk.Button(self.frame, text="Like Selected\nLast.fm", bg="#FF6659", fg="white", command=self.action_like_selected_lastfm, state="disabled")
-        self.btn_like_lfm.pack(side="left", padx=5)
+        self.btn_like_lfm = tk.Button(self.frame, text="Love Selected\non Last.fm", bg="#FF6659", fg="white", command=self.action_like_selected_lastfm, state="disabled")
+        self.btn_like_lfm.pack(side="left", padx=5, ipadx=5)
         Hovertip(self.btn_like_lfm, "Love selected tracks on Last.fm.\nRequires Last.fm authentication.", hover_delay=500)
 
-        self.btn_resolve = tk.Button(self.frame, text="Resolve Metadata", bg="#4DD0E1", command=self.action_resolve, state="disabled")
-        self.btn_resolve.pack(side="left", padx=5)
-
         # Export Group
-        self.btn_export_lb = tk.Button(self.frame, text="Export to LB", bg="#9575CD", fg="white", command=self.action_export_lb, state="disabled")
-        self.btn_export_lb.pack(side="left", padx=5)
+        self.btn_export_lb = tk.Button(self.frame, text="Export Tracklist\nto ListenBrainz", bg="#9575CD", fg="white", command=self.action_export_lb, state="disabled")
+        self.btn_export_lb.pack(side="left", padx=5, ipadx=5)
+        Hovertip(self.btn_export_lb, "Export tracklist to ListenBrainz.", hover_delay=500)
 
-        self.btn_export_jspf = tk.Button(self.frame, text="Export JSPF", bg="#B39DDB", fg="white", command=self.action_export_jspf, state="disabled")
-        self.btn_export_jspf.pack(side="left", padx=2)
+        self.btn_export_jspf = tk.Button(self.frame, text="Export Tracklist\nto JSPF File", bg="#B39DDB", fg="white", command=self.action_export_jspf, state="disabled")
+        self.btn_export_jspf.pack(side="left", padx=5, ipadx=5)
+        Hovertip(self.btn_export_jspf, "Export tracklist to JSPF file for upload to ListenBrainz or sharing.", hover_delay=500)
 
-        self.btn_export_xspf = tk.Button(self.frame, text="Export XSPF", bg="#B39DDB", fg="white", command=self.action_export_xspf, state="disabled")
-        self.btn_export_xspf.pack(side="left", padx=2)
+        self.btn_export_xspf = tk.Button(self.frame, text="Export Tracklist\nto XSPF File", bg="#B39DDB", fg="white", command=self.action_export_xspf, state="disabled")
+        self.btn_export_xspf.pack(side="left", padx=5, ipadx=5)
+        Hovertip(self.btn_export_xspf, "Export tracklist to XSPF file for sharing with various apps.", hover_delay=500)
 
 
     def update_state(self, has_mbids: bool, has_missing: bool):
