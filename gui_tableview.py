@@ -175,8 +175,11 @@ class ReportTableView:
         """
         logging.info(f"TRACE: show_table called with {len(df)} rows. Columns: {list(df.columns)}")
         
-        # Hide ID columns from display
-        df = df.drop(columns=[c for c in df.columns if c.endswith("_mbid")], errors="ignore")
+        # Hide ID columns from display (keep recording_mbid for Likes audit)
+        hide_cols = [c for c in df.columns if c.endswith("_mbid")]
+        if "Both Liked" in df.columns:  # Likes report signature column
+            hide_cols = [c for c in hide_cols if c != "recording_mbid"]
+        df = df.drop(columns=hide_cols, errors="ignore")
         cols = list(df.columns)
         
         # Update dropdown

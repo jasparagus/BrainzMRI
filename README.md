@@ -25,6 +25,7 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 * **Favorite Trends:** A time-series analysis that bins your history (Daily/Weekly/Monthly) to show the rise and fall of your top **Artists**, **Tracks**, or **Albums** over time.
 * **New Music by Year:** A discovery analysis comparing "New Discoveries" (artists heard for the first time that year) vs. "Catalog" (re-listening to known artists).
 * **Raw Listens:** A forensic view of your individual listen events, useful for verifying imports and data integrity.
+* **Likes Audit:** A cross-platform comparison of your liked/loved tracks on both **ListenBrainz** and **Last.fm**. Shows `Last.fm Liked`, `ListenBrainz Liked`, and `Both Liked` status per track, with full MBID visibility for sorting and filtering.
 
 ### Rich Visualizations
 * **Album Art Matrix:** A grid visualization of album covers for "Top Albums" reports, fetching thumbnails from the **Cover Art Archive** and caching them locally. Uses a **release-group fallback** — if a specific release has no artwork, it automatically looks up the parent release group to find art from any pressing of the same album.
@@ -35,13 +36,17 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 ### Metadata Enrichment & Deep Query
 * **Smart Enrichment:** Automatically fetches metadata from MusicBrainz and Last.fm.
 * **Deep Query Mode:** An optional "Slow" mode that fetches detailed metadata for Albums and Tracks, not just Artists.
-* **Resolver Engine:** Can scan generic playlist imports (which lack IDs) and query MusicBrainz to resolve missing **Recording MBIDs**, upgrading "dumb" text lists into fully linkable, "Like"-able data.
+* **Resolver Engine:** Can scan generic playlist imports (which lack IDs) and query MusicBrainz to resolve missing **Recording MBIDs**, upgrading "dumb" text lists into fully linkable, "Like"-able data. The resolver now shows a rolling progress log with per-item **✓/✗** status and running success/failure counts.
 * **Genre Exclusion:** Configurable `excluded_genres` list in `config.json` filters junk genres (e.g., "seen live") at display-time without modifying cached data.
 * **Enrichment Failure Diagnostics:** Failed lookups are logged to `enrichment_failures.jsonl` for identifying missing MusicBrainz metadata.
 * **"Æ" Sorting:** Custom sorting logic that handles special characters (e.g., normalizing "Æ" to "AE") so that artists sort intuitively rather than at the bottom of the list.
 
 ### Upstream Actions (Read/Write)
-* **Batch Likes:** Highlight rows and mark them as "Loved" on ListenBrainz in bulk.
+* **Batch Likes (Multi-Service):**
+    * **Like All Everywhere:** Push all tracks with valid MBIDs to both ListenBrainz and Last.fm in one action.
+    * **Like Selected (ListenBrainz):** Highlight rows and mark them as "Loved" on ListenBrainz.
+    * **Like Selected (Last.fm):** Highlight rows and love them on Last.fm using the authenticated session.
+* **Get Last.fm ♥:** Fetch your loved tracks from Last.fm and cache them locally. Automatically switches to the **Likes** audit report.
 * **Playlist Export:** Export any generated report or filtered view directly to a **ListenBrainz playlist**, or save locally as **JSPF** or **XSPF** files.
 * **Safety First:** Includes a **"Dry Run"** mode (on by default) to simulate API requests without modifying your account.
 
@@ -122,8 +127,8 @@ python gui_main.py
 
 5. **Refine & Act:**
 * **Filter:** Use the Regex filter bar to drill down (e.g., `Rock|Metal` to find matches for either).
-* **Resolve:** If data is missing IDs (common with CSV imports), click **"Resolve Metadata"** to query MusicBrainz.
-* **Action:** Highlight tracks and click **"Like Selected Tracks"** or **"Export as Playlist"** to push changes back to ListenBrainz.
+* **Resolve:** If data is missing IDs (common with CSV imports or the Likes report), click **"Resolve Metadata"** to query MusicBrainz. A rolling log shows per-item success/failure.
+* **Action:** Highlight tracks and click **"Like Selected (ListenBrainz)"**, **"Like Selected (Last.fm)"**, or **"Like All Everywhere"** to push likes. Use **"Export as Playlist"** to export to ListenBrainz, JSPF, or XSPF.
 
 
 
@@ -145,7 +150,7 @@ BrainzMRI/
 │
 ├── report_engine.py              # Controller: Aggregation Pipeline & Data Routing
 ├── sync_engine.py                # Controller: Background Synchronization & Concurrency
-├── likes_sync.py                 # Controller: Cross-Platform Like Sync (Last.fm → LB)
+├── likes_sync.py                 # Controller: Lightweight Last.fm Loves Fetch & Cache
 │
 ├── reporting.py                  # Model: Core Aggregation, Statistics, & Filtering Logic
 ├── enrichment.py                 # Model: Metadata Fetching, Caching, & Resolution
@@ -173,17 +178,22 @@ BrainzMRI/
 ## Cross-Platform Like Synchronization and Auditing
 
 ### Current Status
-**Bidirectional** like sync is implemented between Last.fm and ListenBrainz:
+The Likes workflow supports fetch, audit, and push across both Last.fm and ListenBrainz:
 
-- **Last.fm → ListenBrainz**: "Get Last.fm Likes" button fetches loved tracks, resolves MBIDs via the Resolver Engine, diffs against existing likes, and pushes new likes to ListenBrainz with user confirmation.
-- **ListenBrainz → Last.fm**: "Push Likes to Last.fm" button pushes locally-liked tracks to Last.fm as loved tracks. Requires Last.fm Desktop Auth session key (per-user, obtained via "Connect Last.fm" in User Editor).
+- **Fetch:** "Get Last.fm ♥" (header) fetches loved tracks from Last.fm and caches them locally (`lastfm_loves.json`). Automatically switches to the **Likes** audit report.
+- **Audit (Likes Report):** A dedicated report mode showing every track liked on either service, with columns: `Track Name`, `Artist`, `Album`, `Last.fm Liked`, `ListenBrainz Liked`, `Both Liked`, `recording_mbid`. MBIDs are visible for sorting/filtering. Tracks liked on Last.fm are matched to listening history by MBID, with a name-based fallback via the resolver cache for MBID mismatches.
+- **Push (Actions Bar):**
+    - **Like All Everywhere:** Pushes all valid-MBID tracks to both ListenBrainz and Last.fm.
+    - **Like Selected (ListenBrainz):** Pushes selected tracks to ListenBrainz.
+    - **Like Selected (Last.fm):** Loves selected tracks on Last.fm (requires session key).
+- **Resolve Metadata** is always available on track-level reports. The resolver now shows a rolling progress log with per-item ✓/✗ status and running success/failure counts.
 
 **Last.fm Authentication** uses the Desktop Auth protocol. The developer registers one API account (API Key + Shared Secret in `config.json`). End users simply click "Connect Last.fm" in the User Editor, approve in their browser, and click "Complete Connection". Session keys are permanent and stored per-user.
 
 ### Remaining
-* Auditing: enable a "master view" to view a list of likes from both services and compare them, with columns: Track Name, Artist, Album, Last.fm Liked, ListenBrainz Liked, Do Both Match (Boolean), MBID
 * Full Sync (Additive): Bidirectional merge — any track liked on *either* service is pushed to the other (single button).
 * Sync Manager Dialog: A dedicated UI for selecting sync mode and reviewing the diff before execution.
+* Resolver Change: need to allow resolver to find Artist/Album/Track for items with an mbid but no known title info. This should help with likes sync. This is currently broken despite the rest of the feature working well.
 
 ## Relative Time for Filter
 * Enable time selection with a few presets, such as ("Last Month", "Last Year", 20XX, etc., which will auto-populate the "days ago" or "last listened" filters). Will need to decide on a basic UI (dropdown?) which, when selected, will auto-populate the associated filter(s) relative to the current datetime.
@@ -227,4 +237,4 @@ BrainzMRI/
 ## Miscellaneous Improvements and Fixes
 * Rename track_name -> Track (in Raw Listens view)
 * Genre Flavor Report: ensure it auto-selects "Cache Only" to enable actual reporting
-* "Close CSV" button should restore all "Report Types" in the dropdown to the full list. Better yet, simply add "Imported Playlist" as a report type and have it always present. This avoids dynamically modifying it.
+* ~~"Close CSV" button should restore all "Report Types" in the dropdown to the full list. Better yet, simply add "Imported Playlist" as a report type and have it always present.~~ ✅ Done — "Imported Playlist" and "Likes" are now permanent report modes in the dropdown.

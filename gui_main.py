@@ -593,10 +593,8 @@ class BrainzMRIGUI:
             if "recording_mbid" in result.columns:
                 has_mbids = result["recording_mbid"].notna().any()
             
-            has_missing = False
-            if has_tracks:
-                if "recording_mbid" not in result.columns: has_missing = True
-                else: has_missing = result["recording_mbid"].isna().any()
+            # Resolve Metadata is available on any track-level report
+            has_missing = has_tracks
 
             logging.info(f"TRACE: Calling actions.update_state with mbids={has_mbids}, missing={has_missing}")
             self.actions.update_state(
@@ -814,9 +812,10 @@ class BrainzMRIGUI:
                  except: pass
             
              # Re-eval action logic
+             has_tracks = self.state.last_report_df is not None and "track_name" in self.state.last_report_df.columns
              self.actions.update_state(
                  has_mbids=(self.state.last_report_df is not None and "recording_mbid" in self.state.last_report_df.columns),
-                 has_missing=(self.state.last_report_df is not None and "recording_mbid" in self.state.last_report_df.columns and self.state.last_report_df["recording_mbid"].isna().any())
+                 has_missing=has_tracks
              )
             
         logging.info("TRACE: Interface Unlocked")

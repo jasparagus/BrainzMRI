@@ -444,13 +444,21 @@ class ActionComponent:
         logging.info("User Action: Clicked 'Resolve Metadata'")
         if self.state.last_report_df is None: return
         
-        win = ProgressWindow(self.frame, "Resolving...")
+        win = ProgressWindow(self.frame, "Resolving Metadata...")
         df_in = self.state.last_report_df.copy()
 
         def worker():
             try:
                 def cb(c, t, m):
-                    if win.winfo_exists(): win.update_progress(c, t, m)
+                    if not win.winfo_exists(): return
+                    # m format: "Resolving [N OK / M Fail]  ✓ Artist - Track"
+                    # Split into header (counts) and detail (item result)
+                    parts = m.split("  ", 1)
+                    header = parts[0]  # "Resolving [N OK / M Fail]"
+                    detail = parts[1] if len(parts) > 1 else ""  # "✓ Artist - Track"
+                    win.update_progress(c, t, header)
+                    if detail:
+                        win.update_secondary(detail)
                 
                 # Use live variable if available, fallback to last params
                 if self.force_var:

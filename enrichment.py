@@ -619,10 +619,9 @@ def resolve_missing_mbids(
                 resolved_count += 1
             else:
                 failed_count += 1
+            if progress_callback:
+                progress_callback(i, total, f"Resolving [{resolved_count} OK / {failed_count} Fail] (cached: {artist} - {track})")
             continue
-
-        if progress_callback:
-            progress_callback(i, total, f"Resolving: {artist} - {track}...")
 
         try:
             # API Call (Slow)
@@ -636,14 +635,19 @@ def resolve_missing_mbids(
 
         if res:
             resolved_count += 1
+            status_icon = "✓"
         else:
             failed_count += 1
+            status_icon = "✗"
             _log_enrichment_failure(
                 entity_type="resolver",
                 lookup_key=key,
                 query_info={"artist": artist, "track": track, "album": album},
                 failure_reason="unrecognized_entity"
             )
+        
+        if progress_callback:
+            progress_callback(i + 1, total, f"Resolving [{resolved_count} OK / {failed_count} Fail]  {status_icon} {artist} - {track}")
         
         # Periodic Save
         if updates_since_save >= 10:

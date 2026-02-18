@@ -677,15 +677,57 @@ def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list =
         for mbid in liked_mbids:
             matches = df[df["recording_mbid"] == mbid]
             if matches.empty:
-                # MBID not found in listening history — include with empty fields
-                rows.append({
-                    "track_name": "",
-                    "artist": "",
-                    "album": "",
-                    "ListenBrainz Liked": 1,
-                    "Last.fm Liked": 0,
-                    "recording_mbid": mbid,
-                })
+                # MBID not found in listening history — try reverse lookup via resolver cache
+                # The resolver cache maps (artist, track, album) → {mbid: ...}, so we need
+                # to search it backwards to find names for this MBID
+                found_name = False
+                for cache_key, cache_val in resolver_cache.items():
+                    if isinstance(cache_val, dict) and cache_val.get("mbid") == mbid:
+                        # cache_key is typically "artist||track||album" (from make_track_key)
+                        parts = cache_key.split("||")
+                        if len(parts) >= 2:
+                            artist_name = parts[0].strip()
+                            track_name = parts[1].strip()
+                            album_name = parts[2].strip() if len(parts) > 2 else ""
+                            
+                            # Try to find this track in history by name
+                            name_matches = df[
+                                (df["track_name"].str.lower() == track_name.lower()) &
+                                (df["artist"].str.lower() == artist_name.lower())
+                            ]
+                            if not name_matches.empty:
+                                best_row = name_matches.iloc[0]
+                                rows.append({
+                                    "track_name": str(best_row.get("track_name", track_name)).strip(),
+                                    "artist": str(best_row.get("artist", artist_name)).strip(),
+                                    "album": str(best_row.get("album", album_name)).strip(),
+                                    "ListenBrainz Liked": 1,
+                                    "Last.fm Liked": 0,
+                                    "recording_mbid": mbid,
+                                })
+                            else:
+                                # Use the names from cache even without history match
+                                rows.append({
+                                    "track_name": track_name,
+                                    "artist": artist_name,
+                                    "album": album_name,
+                                    "ListenBrainz Liked": 1,
+                                    "Last.fm Liked": 0,
+                                    "recording_mbid": mbid,
+                                })
+                            found_name = True
+                            break
+                
+                if not found_name:
+                    # No resolver cache hit — include with empty fields
+                    rows.append({
+                        "track_name": "",
+                        "artist": "",
+                        "album": "",
+                        "ListenBrainz Liked": 1,
+                        "Last.fm Liked": 0,
+                        "recording_mbid": mbid,
+                    })
                 continue
             
             # Pick the most complete row: prefer non-"Unknown", non-empty fields
