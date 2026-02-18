@@ -170,11 +170,6 @@ BrainzMRI/
 
 # Master Roadmap
 
-
-## Track Deduplication
-
-Add a toggle for "Group Similar Tracks and Albums" to enable grouping tracks/albums by  an artist when they differ by common tags like "Deluxe" or "Anniversary" or "Explicit", etc.
-
 ## Playlist Prep: Album Expansion Engine
 
 * Goal: Enable the creation of "Full Album" playlists from album-level reports (e.g., turning a "Top Albums of 2024" report into a playable track list).
@@ -202,9 +197,8 @@ Add a toggle for "Group Similar Tracks and Albums" to enable grouping tracks/alb
 
 
 ## Group Artists, Albums
-* Goal: Add a checkbox "Group by mbid" that will group each artist by mbid so that variants of the same artist are grouped together. 
-* Goal: Add checkbox "Group by parent release" that will allow for grouping all variants of the same album by their parent "release" mbid. Will only apply on by-album reports.
-
+* Goal: reduce clutter from near-identical versions of similar (related) tracks and albums, such as deluxe or remasters.
+* Workflow: add a checkbox "Group Similar Albums, Artists, and Tracks" (or similar) that will group each artist, album (release), and track by its parent (higher-level, per MusicBrainz) mbid so that variants of the same artist, album, and/or track are grouped together. This will not modify the raw listen data, but should impact all reports for aggregation purposes. 
 
 ## Listen Deletion
 * Goal: Allow users to delete individual listens from their **ListenBrainz** and/or **Last.fm** history directly from the "Raw Listens" view.
@@ -215,13 +209,14 @@ Add a toggle for "Group Similar Tracks and Albums" to enable grouping tracks/alb
 
 
 ## Streak Detection
-* Goal: Identify "Binge Listening" sessions (consecutive days/hours of specific artists).
+* Goal: Identify "Binge Listening" sessions for a specific artists, albums, or tracks, in which the user listened to multiple tracks from the same artist, album, or track in a short period of time (consecutive days/hours of specific artists, albums, or tracks above some automatic threshold using a simple statistical method to identify outliers).
+* Workflow: add a new report type for "Binge Listens" that plots a graph of all 3 types of listens (artist, album, and track) and highlights the outliers as a function of time (within the filtered dataset) using the standard filters.
 
+## Re-Evaluate Thresholds (duration)
+* The "duration" filter relies on poor quality track duration data, which is often missing or wrong. It is helpful to treat long tracks with appropriate weight, but is not particularly robust otherwise. Consider ways to effectively use it. Maybe add a duration cache per mbid?
 
-## Report Presets
-* Goal: Dropdown menu to pre-fill complex filter configurations.
- * Example: "Forgotten Favorites" (`High Play Count` + `Last Listened > 1 Year Ago`).
- * Example: "All Time Greatest Albums" (`High Play Count` + `High Play Count` + `4+ Likes Per Album`).
+## Relative Time
+* Enable time selection with a few presets, such as ("Last Month", "Last Year", 20XX, etc., which will auto-populate the "days ago" or "last listened" filters)
 
 ## Miscellaneous Improvements and Fixes
 * Rename track_name -> Track (in Raw Listens view)
