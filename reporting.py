@@ -484,24 +484,49 @@ def report_genre_flavor(df: pd.DataFrame):
 
 
 # ------------------------------------------------------------
-# Favorite Artist Trend Report (Time Binning)
+# Favorite Entity Trend Report (Time Binning)
 # ------------------------------------------------------------
 
-def report_artist_trend(df: pd.DataFrame, bins: int = 15, topn: int = 20, **kwargs):
+def report_entity_trend(df: pd.DataFrame, entity: str = "artist", bins: int = 15, topn: int = 20, **kwargs):
     """
-    Generate 'Favorite Artist Trend' report (Tabular format).
-    Divides time range into `bins`. For each bin, finds top `topn` artists.
+    Generate a Favorite Entity Trend report (Tabular format).
+    Divides time range into `bins`. For each bin, finds top `topn` entities.
+    `entity` can be "artist", "album", or "track".
     Accepts **kwargs to act as a sink for unused filters (min_listens, etc).
     """
+    # Map entity type to DataFrame column and display label
+    entity_map = {
+        "artist": ("artist", "Artist", "ArtistTrend", "artist_mbid"),
+        "album":  ("album",  "Album",  "AlbumTrend",  "release_mbid"),
+        "track":  ("track_name", "Track", "TrackTrend", "recording_mbid"),
+    }
+    group_col, display_label, meta_entity, mbid_col = entity_map.get(entity, entity_map["artist"])
+
     effective_topn = min(topn, 20) if topn else 20
     
     if df.empty:
-        return pd.DataFrame(columns=["Period Start", "Rank", "Artist", "Listens"]), {}
+        return pd.DataFrame(columns=["Period Start", "Rank", display_label, "Listens"]), {}
 
     df = df.copy()
+
+    # --- MBID-based data quality ---
+    # 1. Filter out rows without a valid MBID (eliminates "Unknown" / unmapped data)
+    if mbid_col in df.columns:
+        df = df.dropna(subset=[mbid_col])
+        df = df[df[mbid_col].str.strip() != ""]
+    if df.empty:
+        return pd.DataFrame(columns=["Period Start", "Rank", display_label, "Listens"]), {}
+
+    # 2. Resolve canonical display name (most common text name per MBID)
+    if mbid_col in df.columns:
+        canonical = df.groupby(mbid_col)[group_col].agg(lambda x: x.mode().iloc[0]).rename("_canonical")
+        df = df.merge(canonical, left_on=mbid_col, right_index=True, how="left")
+        df[group_col] = df["_canonical"]
+        df = df.drop(columns=["_canonical"])
+
     df["period"] = pd.cut(df["listened_at"], bins=bins)
     
-    grouped = df.groupby(["period", "artist"], observed=True).size().reset_index(name="listens")
+    grouped = df.groupby(["period", group_col], observed=True).size().reset_index(name="listens")
     grouped = grouped.sort_values(["period", "listens"], ascending=[True, False])
     
     result_rows = []
@@ -517,14 +542,14 @@ def report_artist_trend(df: pd.DataFrame, bins: int = 15, topn: int = 20, **kwar
             result_rows.append({
                 "Period Start": period_str,
                 "Rank": row["Rank"],
-                "Artist": row["artist"],
+                display_label: row[group_col],
                 "Listens": row["listens"]
             })
             
-    result_df = pd.DataFrame(result_rows, columns=["Period Start", "Rank", "Artist", "Listens"])
+    result_df = pd.DataFrame(result_rows, columns=["Period Start", "Rank", display_label, "Listens"])
     
     meta = {
-        "entity": "ArtistTrend",
+        "entity": meta_entity,
         "topn": effective_topn,
         "days": None,
         "metric": "trend"
@@ -532,18 +557,44 @@ def report_artist_trend(df: pd.DataFrame, bins: int = 15, topn: int = 20, **kwar
     
     return result_df, meta
 
+# Backward-compatible alias
+report_artist_trend = report_entity_trend
 
-def prepare_artist_trend_chart_data(df: pd.DataFrame, bins: int = 15, topn: int = 20) -> pd.DataFrame:
+
+def prepare_entity_trend_chart_data(df: pd.DataFrame, entity: str = "artist", bins: int = 15, topn: int = 20) -> pd.DataFrame:
     """
     Prepare data for Stacked Area Chart.
+    `entity` can be "artist", "album", or "track".
     """
+    col_map = {"artist": "artist", "album": "album", "track": "track_name"}
+    mbid_map = {"artist": "artist_mbid", "album": "release_mbid", "track": "recording_mbid"}
+    group_col = col_map.get(entity, "artist")
+    mbid_col = mbid_map.get(entity, "artist_mbid")
+
     effective_topn = min(topn, 20) if topn else 20
     
     if df.empty:
         return pd.DataFrame()
 
-    top_artists = df['artist'].value_counts().head(effective_topn).index.tolist()
-    df_filtered = df[df['artist'].isin(top_artists)].copy()
+    df = df.copy()
+
+    # --- MBID-based data quality ---
+    # 1. Filter out rows without a valid MBID
+    if mbid_col in df.columns:
+        df = df.dropna(subset=[mbid_col])
+        df = df[df[mbid_col].str.strip() != ""]
+    if df.empty:
+        return pd.DataFrame()
+
+    # 2. Resolve canonical display name (most common text name per MBID)
+    if mbid_col in df.columns:
+        canonical = df.groupby(mbid_col)[group_col].agg(lambda x: x.mode().iloc[0]).rename("_canonical")
+        df = df.merge(canonical, left_on=mbid_col, right_index=True, how="left")
+        df[group_col] = df["_canonical"]
+        df = df.drop(columns=["_canonical"])
+
+    top_entities = df[group_col].value_counts().head(effective_topn).index.tolist()
+    df_filtered = df[df[group_col].isin(top_entities)].copy()
     
     if df_filtered.empty:
         return pd.DataFrame()
@@ -555,13 +606,16 @@ def prepare_artist_trend_chart_data(df: pd.DataFrame, bins: int = 15, topn: int 
 
     df_filtered['period'] = pd.cut(df_filtered['listened_at'], bins=bins)
     
-    grouped = df_filtered.groupby(['period', 'artist'], observed=True).size().reset_index(name='count')
-    pivot = grouped.pivot(index='period', columns='artist', values='count').fillna(0)
-    pivot = pivot.reindex(columns=top_artists, fill_value=0)
+    grouped = df_filtered.groupby(['period', group_col], observed=True).size().reset_index(name='count')
+    pivot = grouped.pivot(index='period', columns=group_col, values='count').fillna(0)
+    pivot = pivot.reindex(columns=top_entities, fill_value=0)
     
     pivot.index = [p.left.strftime("%Y-%m-%d") for p in pivot.index]
     
     return pivot
+
+# Backward-compatible alias
+prepare_artist_trend_chart_data = prepare_entity_trend_chart_data
 
 
 # ------------------------------------------------------------

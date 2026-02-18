@@ -22,14 +22,14 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
     * **Metrics:** View total listen counts and **Like counts** for every entity.
 * **Genre Flavor:** A weighted analysis of your listening habits. Unlike simple tag counts, this report weights genres by the *volume of listens* and *likes*, giving a more accurate picture of your actual musical "diet."
 * **Genre Flavor Treemap:** A rectangular visualization of genre dominance, displaying both listen counts and **Like counts (❤️)** in the labels. Uses the same data as the **Genre Flavor** report.
-* **Favorite Artist Trends:** A time-series analysis that bins your history (Daily/Weekly/Monthly) to show the rise and fall of your top artists over time.
+* **Favorite Trends:** A time-series analysis that bins your history (Daily/Weekly/Monthly) to show the rise and fall of your top **Artists**, **Tracks**, or **Albums** over time.
 * **New Music by Year:** A discovery analysis comparing "New Discoveries" (artists heard for the first time that year) vs. "Catalog" (re-listening to known artists).
 * **Raw Listens:** A forensic view of your individual listen events, useful for verifying imports and data integrity.
 
 ### Rich Visualizations
 * **Album Art Matrix:** A grid visualization of album covers for "Top Albums" reports, fetching thumbnails from the **Cover Art Archive** and caching them locally. Uses a **release-group fallback** — if a specific release has no artwork, it automatically looks up the parent release group to find art from any pressing of the same album.
 * **Genre Treemap:** A rectangular visualization of genre dominance .
-* **Stacked Area Chart:** Visualizes the "Favorite Artist Trend" report, showing how artist dominance shifts over periods. Now includes a subplot showing Relative Dominance (normalized percentage) alongside absolute listen counts.
+* **Stacked Area Chart:** Visualizes the "Favorite Trend" reports (Artist, Track, or Album), showing how entity dominance shifts over periods. Includes a subplot showing Relative Dominance (normalized percentage) alongside absolute listen counts.
 * **Stacked Bar Chart:** Visualizes the "New Music by Year" report, highlighting your discovery rates over time. Now includes a subplot comparing the ratio of New vs. Recurring tracks.
 
 ### Metadata Enrichment & Deep Query
@@ -117,7 +117,7 @@ python gui_main.py
 
 
 4. **Visualize:**
-* For supported reports (Artist Trend, Genre Flavor, New Music, Top Albums), click **"Show Graph"** to open a stable, embedded matplotlibvisualization window. For **Top Albums**, this displays an Album Art Matrix with cover art fetched from the Cover Art Archive.
+* For supported reports (Artist/Track/Album Trend, Genre Flavor, New Music, Top Albums), click **"Show Graph"** to open a stable, embedded matplotlib visualization window. For **Top Albums**, this displays an Album Art Matrix with cover art fetched from the Cover Art Archive.
 
 
 5. **Refine & Act:**

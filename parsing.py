@@ -141,9 +141,9 @@ def normalize_listens(raw_listens: list[dict[str, Any]], origin: str = "zip_impo
         if not meta:
             meta = record
 
-        artist_name = meta.get("artist_name", "Unknown")
-        track_name = meta.get("track_name", "Unknown")
-        album_name = meta.get("release_name", "Unknown")
+        artist_name = meta.get("artist_name", "")
+        track_name = meta.get("track_name", "")
+        album_name = meta.get("release_name", "")
 
         # Additional info - FIX: Handle explicit nulls in JSON
         add_info = meta.get("additional_info") or {}
@@ -260,9 +260,9 @@ def parse_playlist(file_path: str) -> pd.DataFrame:
             df[col] = None
             
     # Sanitize strings
-    df["artist"] = df["artist"].fillna("Unknown").astype(str)
-    df["track_name"] = df["track_name"].fillna("Unknown").astype(str)
-    df["album"] = df["album"].fillna("Unknown").astype(str)
+    df["artist"] = df["artist"].fillna("").astype(str)
+    df["track_name"] = df["track_name"].fillna("").astype(str)
+    df["album"] = df["album"].fillna("").astype(str)
     
     # Ensure duration is int (0 if missing)
     df["duration_ms"] = df["duration_ms"].fillna(0).astype(int)

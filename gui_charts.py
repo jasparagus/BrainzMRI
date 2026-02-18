@@ -46,12 +46,12 @@ def create_chart_window(fig, title, parent=None):
     window.lift()
     return window
 
-def show_artist_trend_chart(df: pd.DataFrame, parent=None):
+def show_entity_trend_chart(df: pd.DataFrame, entity_label: str = "Artist", parent=None):
     """
-    Generate a Stacked Area Chart for Artist Trends (2 Rows).
+    Generate a Stacked Area Chart for Entity Trends (2 Rows).
     Top Row: Absolute Counts.
     Bottom Row: Normalized (Percentage) Dominance.
-    Artists 11-20 get cross-hatch patterns to differentiate from
+    Entities 11-20 get cross-hatch patterns to differentiate from
     the first 10 which share the same tab10 palette colors.
     """
     import matplotlib.colors as mcolors
@@ -75,43 +75,42 @@ def show_artist_trend_chart(df: pd.DataFrame, parent=None):
     ax_norm = fig.add_subplot(212, sharex=ax_abs)
     
     x = chart_df.index
-    artists = chart_df.columns.tolist()
+    entities = chart_df.columns.tolist()
 
-    # Color + hatch: artists 11-20 reuse tab10 colors but get hatching
+    # Color + hatch: entities 11-20 reuse tab10 colors but get hatching
     tab10 = list(mcolors.TABLEAU_COLORS.values())
-    # hatch_patterns = ['//', '\\\\', 'xx', '++', '..', 'oo', '**', 'OO', '--', '||']  # if cycling is desired
-    hatch_patterns = ['//', '\\\\', 'xx', '++', '..', 'oo', '**', 'OO', '--', '||']  # if not
+    hatch_patterns = ['//', '\\\\', 'xx', '++', '..', 'oo', '**', 'OO', '--', '||']
 
     def _get_style(i):
         color = tab10[i % 10]
-        hatch = '...'  if i >= 10 else None  # hatch_patterns[i % 10] if i >= 10 else None
+        hatch = '...'  if i >= 10 else None
         return color, hatch
 
     # 1. Plot Absolute (Top) — manual fill_between for hatch support
     cumulative = np.zeros(len(x))
-    for i, artist in enumerate(artists):
-        y = chart_df[artist].values
+    for i, entity in enumerate(entities):
+        y = chart_df[entity].values
         color, hatch = _get_style(i)
         ax_abs.fill_between(
             x, cumulative, cumulative + y,
-            label=artist, color=color, alpha=0.8,
+            label=entity, color=color, alpha=0.8,
             hatch=hatch, edgecolor='white' if hatch else None,
             linewidth=0.3,
         )
         cumulative = cumulative + y
     
-    ax_abs.set_title("Top Artist Dominance Over Time (Absolute)")
+    ax_abs.set_title(f"Top {entity_label} Dominance Over Time (Absolute)")
     ax_abs.set_ylabel("Listens")
-    ax_abs.legend(loc='upper left', bbox_to_anchor=(1, 1), title="Artists", fontsize=8)
+    ax_abs.legend(loc='upper left', bbox_to_anchor=(1, 1), title=f"{entity_label}s", fontsize=8)
     
     # 2. Plot Normalized (Bottom) — same fill_between approach
     cumulative = np.zeros(len(x))
-    for i, artist in enumerate(artists):
-        y = norm_df[artist].values
+    for i, entity in enumerate(entities):
+        y = norm_df[entity].values
         color, hatch = _get_style(i)
         ax_norm.fill_between(
             x, cumulative, cumulative + y,
-            label=artist, color=color, alpha=0.8,
+            label=entity, color=color, alpha=0.8,
             hatch=hatch, edgecolor='white' if hatch else None,
             linewidth=0.3,
         )
@@ -126,7 +125,10 @@ def show_artist_trend_chart(df: pd.DataFrame, parent=None):
     ax_norm.axhline(y=0.5, color='gray', linestyle='--', alpha=0.3, linewidth=1)
 
     fig.tight_layout()
-    create_chart_window(fig, "Favorite Artist Trend", parent)
+    create_chart_window(fig, f"Favorite {entity_label} Trend", parent)
+
+# Backward-compatible alias
+show_artist_trend_chart = show_entity_trend_chart
 
 def show_new_music_stacked_bar(df: pd.DataFrame, parent=None):
     """

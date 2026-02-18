@@ -48,11 +48,22 @@ class ReportEngine:
                 "status": "Genre Flavor report generated.",
             },
             "Favorite Artist Trend": {
-                # Use real reporting function for tabular view
-                "func": reporting.report_artist_trend,
-                "kwargs": {},
+                "func": reporting.report_entity_trend,
+                "kwargs": {"entity": "artist"},
                 "report_type_key": "trend",
-                "status": "Trend report generated.",
+                "status": "Artist Trend report generated.",
+            },
+            "Favorite Track Trend": {
+                "func": reporting.report_entity_trend,
+                "kwargs": {"entity": "track"},
+                "report_type_key": "trend",
+                "status": "Track Trend report generated.",
+            },
+            "Favorite Album Trend": {
+                "func": reporting.report_entity_trend,
+                "kwargs": {"entity": "album"},
+                "report_type_key": "trend",
+                "status": "Album Trend report generated.",
             },
             "New Music By Year": {
                 "func": reporting.report_new_music_by_year,

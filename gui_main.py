@@ -31,7 +31,7 @@ from gui_header import HeaderComponent
 from gui_filters import FilterComponent
 from gui_actions import ActionComponent
 from gui_tableview import ReportTableView
-from gui_charts import show_artist_trend_chart, show_new_music_stacked_bar, show_genre_flavor_treemap, show_album_art_matrix
+from gui_charts import show_entity_trend_chart, show_new_music_stacked_bar, show_genre_flavor_treemap, show_album_art_matrix
 import reporting
 import enrichment
 
@@ -167,7 +167,7 @@ class BrainzMRIGUI:
 
 
 
-        self.REPORT_MODES = ["Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "New Music By Year", "Raw Listens", "Imported Playlist"]
+        self.REPORT_MODES = ["Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "Favorite Track Trend", "Favorite Album Trend", "New Music By Year", "Raw Listens", "Imported Playlist"]
 
         # Initialize Variables for Enrichment (Moved from Filters)
         self.enrichment_mode_var = tk.StringVar(value="None (Data Only, No Genres)")
@@ -610,6 +610,8 @@ class BrainzMRIGUI:
     # ----------------------------------------------------------
     GRAPH_HANDLERS = {
         "Favorite Artist Trend": "_show_artist_trend_chart",
+        "Favorite Track Trend":  "_show_track_trend_chart",
+        "Favorite Album Trend":  "_show_album_trend_chart",
         "New Music By Year":     "_show_new_music_chart",
         "Genre Flavor":          "_show_genre_treemap",
         "Top Albums":            "_show_album_art_matrix",
@@ -627,8 +629,24 @@ class BrainzMRIGUI:
         p = self.state.last_params
         if p.get("time_start_days", 0) > 0 or p.get("time_end_days", 0) > 0:
             df_src = reporting.filter_by_days(df_src, "listened_at", p["time_start_days"], p["time_end_days"])
-        data = reporting.prepare_artist_trend_chart_data(df_src, topn=p.get("topn", 20))
-        if not data.empty: show_artist_trend_chart(data, parent=self.root)
+        data = reporting.prepare_entity_trend_chart_data(df_src, entity="artist", topn=p.get("topn", 20))
+        if not data.empty: show_entity_trend_chart(data, entity_label="Artist", parent=self.root)
+
+    def _show_track_trend_chart(self):
+        df_src = self.state.playlist_df if self.state.playlist_df is not None else self.state.user.get_listens()
+        p = self.state.last_params
+        if p.get("time_start_days", 0) > 0 or p.get("time_end_days", 0) > 0:
+            df_src = reporting.filter_by_days(df_src, "listened_at", p["time_start_days"], p["time_end_days"])
+        data = reporting.prepare_entity_trend_chart_data(df_src, entity="track", topn=p.get("topn", 20))
+        if not data.empty: show_entity_trend_chart(data, entity_label="Track", parent=self.root)
+
+    def _show_album_trend_chart(self):
+        df_src = self.state.playlist_df if self.state.playlist_df is not None else self.state.user.get_listens()
+        p = self.state.last_params
+        if p.get("time_start_days", 0) > 0 or p.get("time_end_days", 0) > 0:
+            df_src = reporting.filter_by_days(df_src, "listened_at", p["time_start_days"], p["time_end_days"])
+        data = reporting.prepare_entity_trend_chart_data(df_src, entity="album", topn=p.get("topn", 20))
+        if not data.empty: show_entity_trend_chart(data, entity_label="Album", parent=self.root)
 
     def _show_new_music_chart(self):
         show_new_music_stacked_bar(self.state.last_report_df, parent=self.root)
