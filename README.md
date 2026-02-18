@@ -170,13 +170,27 @@ BrainzMRI/
 
 # Roadmap
 
+## Cross-Platform Like Synchronization and Auditing
+
+### Current Status
+One-way **"Last.fm → ListenBrainz"** import is implemented via the **"Import Last.fm Likes"** button in the header bar. This fetches loved tracks from Last.fm, resolves MBIDs via the Resolver Engine, diffs against existing likes, and pushes new likes to ListenBrainz with user confirmation.
+
+### Remaining
+* Add OAuth for Last.fm
+* Auditing: enable a "master view" to view a list of likes from both services and compare them, with columns: Track Name, Artist, Album, Last.fm Liked, ListenBrainz Liked, Do Both Match (Boolean), MBID
+* ListenBrainz to Last.fm: One-way push of LB likes to Last.fm.
+* Full Sync (Additive): Bidirectional merge — any track liked on *either* service is pushed to the other.
+* Sync Manager Dialog: A dedicated UI for selecting sync mode and reviewing the diff before execution.
+
 ## Relative Time for Filter
 * Enable time selection with a few presets, such as ("Last Month", "Last Year", 20XX, etc., which will auto-populate the "days ago" or "last listened" filters). Will need to decide on a basic UI (dropdown?) which, when selected, will auto-populate the associated filter(s) relative to the current datetime.
-
 
 ## Heatmaps
 * Goal: Visualizations for listening density (Hour of Day vs Day of Week).
 
+## Listen Deletion
+* Goal: Allow users to delete individual listens from their **ListenBrainz** and/or **Last.fm** history directly from the "Raw Listens" view.
+* Workflow: User selects rows in the Raw Listens table, clicks a "Delete Selected" button, confirms via dialog, and the selected listens are removed from the remote service(s) via API.
 
 ## Streak Detection
 * Goal: Identify "Binge Listening" sessions for a specific artists, albums, or tracks, in which the user listened to multiple tracks from the same artist, album, or track in a short period of time (consecutive days/hours of specific artists, albums, or tracks above some automatic threshold using a simple statistical method to identify outliers).
@@ -186,11 +200,6 @@ BrainzMRI/
 ## Group Artists, Albums
 * Goal: reduce clutter from near-identical versions of similar (related) tracks and albums, such as deluxe or remasters.
 * Workflow: add a checkbox "Group Similar Albums, Artists, and Tracks" (or similar) that will group each artist, album (release), and track by its parent (higher-level, per MusicBrainz) mbid so that variants of the same artist, album, and/or track are grouped together. This will not modify the raw listen data, but should impact all reports for aggregation purposes. 
-
-
-## Listen Deletion
-* Goal: Allow users to delete individual listens from their **ListenBrainz** and/or **Last.fm** history directly from the "Raw Listens" view.
-* Workflow: User selects rows in the Raw Listens table, clicks a "Delete Selected" button, confirms via dialog, and the selected listens are removed from the remote service(s) via API.
 
 
 ## Playlist Prep: Album Expansion Engine
@@ -206,17 +215,6 @@ BrainzMRI/
 4. **Render:** The UI table refreshes to display this new "Expanded Track List."
 
 * **Benefit:** This transforms abstract album statistics into actionable track lists, allowing users to immediately utilize the existing "Export to Playlist" or "Batch Like" features on full albums.
-
-
-## Cross-Platform Like Synchronization
-
-### Current Status
-One-way **"Last.fm → ListenBrainz"** import is implemented via the **"Import Last.fm Likes"** button in the header bar. This fetches loved tracks from Last.fm, resolves MBIDs via the Resolver Engine, diffs against existing likes, and pushes new likes to ListenBrainz with user confirmation.
-
-### Remaining
-1. **"ListenBrainz to Last.fm"**: One-way push of LB likes to Last.fm.
-2. **"Full Sync (Additive)"**: Bidirectional merge — any track liked on *either* service is pushed to the other.
-3. **Sync Manager Dialog**: A dedicated UI for selecting sync mode and reviewing the diff before execution.
 
 
 ## Re-Evaluate Thresholds (duration)
