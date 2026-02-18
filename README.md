@@ -227,9 +227,3 @@ Add a toggle for "Group Similar Tracks and Albums" to enable grouping tracks/alb
 * Rename track_name -> Track (in Raw Listens view)
 * Genre Flavor Report: ensure it auto-selects "Cache Only" to enable actual reporting
 * "Close CSV" button should restore all "Report Types" in the dropdown to the full list. Better yet, simply add "Imported Playlist" as a report type and have it always present. This avoids dynamically modifying it.
-* Fix the "Favorite Artist Trend" report - the recent refactor broke it:
-```
-ValueError: Bin edges must be unique: Index([nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan,
-       nan, nan],
-      dtype='float64').
-```

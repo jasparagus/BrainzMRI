@@ -1,6 +1,6 @@
 # Project Instantiation Document: BrainzMRI
-**Version:** 7.5 (update_idletasks Elimination & ProgressWindow Safety)
-**Date:** 2026-02-16
+**Version:** 8.0 (Generalized Trend Reports & MBID Data Quality)
+**Date:** 2026-02-17
 
 ## 1. Meta-Instructions for the LLM
 **Role:** You are the Lead Python Developer and Architect for **BrainzMRI**.
@@ -61,14 +61,15 @@ This document is the **immutable Source of Truth** for the project's architectur
 * **Empty Data Protocol (The Guard Clause):** The `ReportEngine` **MUST** check `if df.empty` at the very start of generation. It must return a valid "No Data" response immediately.
 * **Just-In-Time Type Safety:** `reporting.py` must convert columns to numeric types `pd.to_numeric(..., errors='coerce').fillna(0)` *immediately before* calculation.
 * **Ingestion Sanitization (The Anti-NaN Rule):** When importing data (CSV or JSON), all text-based identifiers (`artist`, `album`, `track_name`) **MUST** be explicitly cast to string and have `NaN`/None replaced with `""` (empty string). This defaults must happen at the *Ingestion Boundary* (`parsing.py`), not deep in the reporting logic. This prevents "Hidden Float" crashes during merging.
+* **MBID-Based Trend Quality:** Trend reports (`report_entity_trend`, `prepare_entity_trend_chart_data`) **MUST** filter out rows without a valid MBID for the selected entity before grouping. After filtering, the canonical display name for each entity is resolved using `mode()` (the most frequent text name per MBID). For album and track trends, a composite display name is built: `"Album — Artist"` or `"Track — Artist"`. This eliminates unmapped/unknown data, consolidates case-variant duplicates, and provides unambiguous attribution.
 * **Transactional Ingestion:**
     * **Stateful (Listens):** "Backwards Crawl" with Intermediate Caching.
     * **Stateless (Likes):** Atomic Replacement.
 
 ### 3.8 Report Mode Decoupling
-* **Strict Data Isolation:** Analytical reports ("Top Artists", "Genre Flavor", etc.) **MUST ONLY** operate on the loaded User History. They must never silently fall back to an imported CSV.
-* **Dedicated CSV Mode:** Imported CSVs are treated as a transient "Playlist Review" state. They are accessible **ONLY** via the dedicated "Imported CSV" report mode. This prevents cross-contamination of metrics (e.g., your "Top Artists of 2024" should not include tracks from a CSV you just imported to check formatting).
-* **UI State Management:** The `gui_main.py` controller must dynamically update the available options in the Report Dropdown based on the current context (e.g., showing/hiding "Imported CSV" option).
+* **Strict Data Isolation:** Analytical reports ("Top Artists", "Genre Flavor", etc.) **MUST ONLY** operate on the loaded User History. They must never silently fall back to an imported playlist.
+* **Dedicated Playlist Mode:** Imported playlists are treated as a transient "Playlist Review" state. They are accessible **ONLY** via the dedicated "Imported Playlist" report mode. This prevents cross-contamination of metrics (e.g., your "Top Artists of 2024" should not include tracks from a playlist you just imported to check formatting).
+* **UI State Management:** The `gui_main.py` controller must dynamically update the available options in the Report Dropdown based on the current context (e.g., showing/hiding "Imported Playlist" option).
 
 ### 3.9 Tcl/Tk Safety (Windows)
 Tkinter is a thin wrapper around the Tcl/Tk C library. Certain patterns trigger C-level access violations or heap corruption that bypass Python's exception handling entirely, killing the process silently.
@@ -112,7 +113,7 @@ Tkinter is a thin wrapper around the Tcl/Tk C library. Certain patterns trigger 
 * **`gui_filters.py`:** Middle section. Input validation, Tooltip management, Parameter extraction (`get_values`).
 * **`gui_actions.py`:** Bottom bar. Upstream actions (Like, Resolve, Export). Owns the worker threads for these actions.
 * **`gui_tableview.py`:** `ttk.Treeview` wrapper. Handles sorting (`mergesort`), regex filtering, and column rendering.
-* **`gui_charts.py`:** Native Matplotlib window generation (Artist Trends, New Music, Genre Treemap, Album Art Matrix).
+* **`gui_charts.py`:** Native Matplotlib window generation (Entity Trends for Artist/Track/Album, New Music, Genre Treemap, Album Art Matrix).
 
 ### 4.2 The Controller (Logic Engines)
 * **`report_engine.py`:** Bridges GUI inputs to Data outputs. Handles "No Data" states, orchestration of aggregation + enrichment pipelines.
