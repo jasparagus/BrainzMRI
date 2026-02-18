@@ -12,6 +12,8 @@ import time
 import logging
 from datetime import datetime, timezone
 import os
+import webbrowser
+from urllib.parse import quote_plus
 
 import enrichment
 import parsing
@@ -107,6 +109,10 @@ class ActionComponent:
         # UI Elements
         tk.Label(self.frame, text="Actions:", bg="#ECEFF1", font=("Segoe UI", 9, "bold")).pack(side="left", padx=10, pady=5)
 
+        self.btn_open_mb = tk.Button(self.frame, text="Open in MusicBrainz", bg="#81C784", command=self.action_open_musicbrainz)
+        self.btn_open_mb.pack(side="left", padx=5)
+        Hovertip(self.btn_open_mb, "Open the selected item's MusicBrainz page\nin your default browser.")
+
         self.btn_like_all = tk.Button(self.frame, text="Like All", bg="#FFB74D", command=self.action_like_all, state="disabled")
         self.btn_like_all.pack(side="left", padx=5)
 
@@ -171,6 +177,62 @@ class ActionComponent:
     def _get_client(self, dry_run):
         return ListenBrainzClient(token=self.state.user.listenbrainz_token, dry_run=dry_run)
 
+    def action_open_musicbrainz(self):
+        """Open the MusicBrainz page for the first selected row's entity."""
+        logging.info("User Action: Clicked 'Open in MusicBrainz'")
+        df = self.state.filtered_df
+        if df is None or df.empty:
+            messagebox.showwarning("No Data", "Generate a report first.")
+            return
+
+        tree = self.table_view.tree
+        if not tree: 
+            messagebox.showwarning("No Data", "Generate a report first.")
+            return
+        selected = tree.selection()
+        if not selected:
+            messagebox.showinfo("No Selection", "Select a row in the table first.")
+            return
+
+        children = tree.get_children()
+        try:
+            idx = children.index(selected[0])
+        except ValueError:
+            messagebox.showwarning("Error", "Could not locate selected row.")
+            return
+        row = df.iloc[idx]
+
+        # Try most specific MBID first: recording > release > artist
+        mbid_map = [
+            ("recording_mbid", "recording"),
+            ("release_mbid",   "release"),
+            ("artist_mbid",    "artist"),
+        ]
+        for col, entity_type in mbid_map:
+            mbid = row.get(col)
+            if mbid and str(mbid).strip() and str(mbid) != "nan":
+                url = f"https://musicbrainz.org/{entity_type}/{mbid}"
+                logging.info(f"Opening MusicBrainz {entity_type}: {url}")
+                webbrowser.open(url)
+                return
+
+        # No MBID available — fall back to search
+        search_type_map = [
+            ("track_name",  "recording"),
+            ("album",       "release_group"),
+            ("artist",      "artist"),
+        ]
+        for col, search_type in search_type_map:
+            name = row.get(col)
+            if name and str(name).strip() and str(name) != "nan":
+                query = quote_plus(str(name))
+                url = f"https://musicbrainz.org/search?query={query}&type={search_type}&limit=25&method=indexed"
+                logging.info(f"Opening MusicBrainz search ({search_type}): {url}")
+                webbrowser.open(url)
+                return
+
+        messagebox.showwarning("No Data", "Selected row has no identifiable entity.")
+
     def action_like_all(self):
         logging.info("User Action: Clicked 'Like All'")
         df = self.state.filtered_df
@@ -220,6 +282,7 @@ class ActionComponent:
         
         def worker():
             success = 0
+            liked_set = set()
             for i, mbid in enumerate(mbids):
                 if win.cancelled: break
                 
@@ -230,6 +293,7 @@ class ActionComponent:
                 try:
                     client.submit_feedback(mbid, 1)
                     success += 1
+                    liked_set.add(mbid)
                 except Exception as e:
                     logging.error(f"Like failed: {e}")
                     if "401" in str(e) or "429" in str(e):
@@ -241,7 +305,21 @@ class ActionComponent:
                 else:
                     time.sleep(0.05)
 
-            win.after(0, lambda: [win.destroy(), messagebox.showinfo("Done", f"{mode_str}Liked {success} tracks.")])
+            def _finish():
+                win.destroy()
+                # Update local state and refresh table (live mode only)
+                if not dry_run and success > 0:
+                    self.state.user.liked_recording_mbids.update(liked_set)
+                    self.state.user._save_likes()
+                    all_liked = self.state.user.get_liked_mbids()
+                    for df in [self.state.filtered_df, self.state.last_report_df, self.state.original_df]:
+                        if df is not None and "recording_mbid" in df.columns:
+                            df["Likes"] = df["recording_mbid"].apply(lambda x: 1 if x in all_liked else 0)
+                    if self.state.filtered_df is not None:
+                        self.table_view.show_table(self.state.filtered_df)
+                messagebox.showinfo("Done", f"{mode_str}Liked {success} tracks.")
+
+            win.after(0, _finish)
 
         threading.Thread(target=worker, daemon=True).start()
 
