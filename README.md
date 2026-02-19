@@ -36,7 +36,7 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 ### Metadata Enrichment & Deep Query
 * **Smart Enrichment:** Automatically fetches metadata from MusicBrainz and Last.fm.
 * **Deep Query Mode:** An optional "Slow" mode that fetches detailed metadata for Albums and Tracks, not just Artists.
-* **Resolver Engine:** Can scan generic playlist imports (which lack IDs) and query MusicBrainz to resolve missing **Recording MBIDs**, upgrading "dumb" text lists into fully linkable, "Like"-able data. The resolver now shows a rolling progress log with per-item **✓/✗** status and running success/failure counts.
+* **Resolver Engine:** Can scan generic playlist imports (which lack IDs) and query MusicBrainz to resolve missing **Recording MBIDs**, upgrading "dumb" text lists into fully linkable, "Like"-able data. The resolver shows a rolling progress log with per-item **✓/✗** status and running success/failure counts.
 * **Genre Exclusion:** Configurable `excluded_genres` list in `config.json` filters junk genres (e.g., "seen live") at display-time without modifying cached data.
 * **Enrichment Failure Diagnostics:** Failed lookups are logged to `enrichment_failures.jsonl` for identifying missing MusicBrainz metadata.
 * **"Æ" Sorting:** Custom sorting logic that handles special characters (e.g., normalizing "Æ" to "AE") so that artists sort intuitively rather than at the bottom of the list.
