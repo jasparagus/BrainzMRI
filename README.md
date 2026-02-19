@@ -175,26 +175,6 @@ BrainzMRI/
 
 # Roadmap
 
-## Cross-Platform Like Synchronization and Auditing
-
-### Current Status
-The Likes workflow supports fetch, audit, and push across both Last.fm and ListenBrainz:
-
-- **Fetch:** "Get Last.fm ♥" (header) fetches loved tracks from Last.fm and caches them locally (`lastfm_loves.json`). Automatically switches to the **Likes** audit report.
-- **Audit (Likes Report):** A dedicated report mode showing every track liked on either service, with columns: `Track Name`, `Artist`, `Album`, `Last.fm Liked`, `ListenBrainz Liked`, `Both Liked`, `recording_mbid`. MBIDs are visible for sorting/filtering. Tracks liked on Last.fm are matched to listening history by MBID, with a name-based fallback via the resolver cache for MBID mismatches.
-- **Push (Actions Bar):**
-    - **Like All Everywhere:** Pushes all valid-MBID tracks to both ListenBrainz and Last.fm.
-    - **Like Selected (ListenBrainz):** Pushes selected tracks to ListenBrainz.
-    - **Like Selected (Last.fm):** Loves selected tracks on Last.fm (requires session key).
-- **Resolve Metadata** is always available on track-level reports. The resolver now shows a rolling progress log with per-item ✓/✗ status and running success/failure counts.
-
-**Last.fm Authentication** uses the Desktop Auth protocol. The developer registers one API account (API Key + Shared Secret in `config.json`). End users simply click "Connect Last.fm" in the User Editor, approve in their browser, and click "Complete Connection". Session keys are permanent and stored per-user.
-
-### Remaining
-* Full Sync (Additive): Bidirectional merge — any track liked on *either* service is pushed to the other (single button).
-* Sync Manager Dialog: A dedicated UI for selecting sync mode and reviewing the diff before execution.
-* Resolver Change: need to allow resolver to find Artist/Album/Track for items with an mbid but no known title info. This should help with likes sync. This is currently broken despite the rest of the feature working well.
-
 ## Relative Time for Filter
 * Enable time selection with a few presets, such as ("Last Month", "Last Year", 20XX, etc., which will auto-populate the "days ago" or "last listened" filters). Will need to decide on a basic UI (dropdown?) which, when selected, will auto-populate the associated filter(s) relative to the current datetime.
 
@@ -216,7 +196,6 @@ The Likes workflow supports fetch, audit, and push across both Last.fm and Liste
 
 
 ## Playlist Prep: Album Expansion Engine
-
 * Goal: Enable the creation of "Full Album" playlists from album-level reports (e.g., turning a "Top Albums of 2024" report into a playable track list).
 * Workflow:
 1. User generates a **"By Album"** report (applying standard filters like time range, play count, etc.).
@@ -229,12 +208,10 @@ The Likes workflow supports fetch, audit, and push across both Last.fm and Liste
 
 * **Benefit:** This transforms abstract album statistics into actionable track lists, allowing users to immediately utilize the existing "Export to Playlist" or "Batch Like" features on full albums.
 
-
 ## Re-Evaluate Thresholds (duration)
 * The "duration" filter relies on poor quality track duration data, which is often missing or wrong. It is helpful to treat long tracks with appropriate weight, but is not particularly robust otherwise. Consider ways to effectively use it. Maybe add a duration cache per mbid?
 
-
 ## Miscellaneous Improvements and Fixes
 * Rename track_name -> Track (in Raw Listens view)
-* Genre Flavor Report: ensure it auto-selects "Cache Only" to enable actual reporting
-* ~~"Close CSV" button should restore all "Report Types" in the dropdown to the full list. Better yet, simply add "Imported Playlist" as a report type and have it always present.~~ ✅ Done — "Imported Playlist" and "Likes" are now permanent report modes in the dropdown.
+* Genre Flavor Report: ensure it auto-selects "Cache Only" to enable actual reporting. This isn't working despite gui_main.py setting a flag within on_report_type_changed that should enable it. Not a huge deal, but annoying.
+* Resolver Change: need to allow resolver to find Artist/Album/Track for items with an existing mbid but a missing title/artist/track info. This should help with likes sync to make the list richer. This is currently broken despite the rest of the feature working well.
