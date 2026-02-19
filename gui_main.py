@@ -398,8 +398,8 @@ class BrainzMRIGUI:
             if barrier["gap_closed"]:
                 self.state.user.merge_intermediate_cache()
                 msg = f"Imported {barrier['listens_count']} new listens."
-                if barrier.get("likes_failed"): msg += "\\nWARNING: Likes Sync Failed."
-                else: msg += f"\\nSynced {barrier['likes_count']} likes."
+                if barrier.get("likes_failed"): msg += "\nWARNING: Likes Sync Failed."
+                else: msg += f"\nSynced {barrier['likes_count']} likes."
                 messagebox.showinfo("Success", msg)
                 if self.cmb_report.get() == "Raw Listens": self.run_report()
             else:
