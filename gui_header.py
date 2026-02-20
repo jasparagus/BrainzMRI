@@ -54,7 +54,7 @@ class HeaderComponent:
 
         self.btn_get_listens = tk.Button(
             self.frm_source,
-            text="Get New Listenbrainz Data", bg="#353070", fg="white",
+            text="Get New ListenBrainz Data", bg="#353070", fg="#FFFEDD",
             command=self.callback_refresh_data, # Delegated to main controller
             state="disabled"
         )

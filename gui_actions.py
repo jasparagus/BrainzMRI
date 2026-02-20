@@ -115,20 +115,20 @@ class ActionComponent:
         self.btn_resolve.pack(side="left", padx=5, ipadx=5)
         Hovertip(self.btn_resolve, "Search MusicBrainz for metadata (mbids) for the items in the current view.", hover_delay=500)
 
-        self.btn_like_all = tk.Button(self.frame, text="Like All\nEverywhere", bg="#FFB74D", command=self.action_like_all, state="disabled")
+        self.btn_like_all = tk.Button(self.frame, text="\u2665 All\nEverywhere", bg="#FFB74D", command=self.action_like_all, state="disabled")
         self.btn_like_all.pack(side="left", padx=5, ipadx=5)
         Hovertip(self.btn_like_all, "Like all tracks in the current view\non both ListenBrainz and Last.fm.", hover_delay=500)
 
-        self.btn_like_sel = tk.Button(self.frame, text="Like Selected\non ListenBrainz", bg="#FFCC80", command=self.action_like_selected, state="disabled")
+        self.btn_like_sel = tk.Button(self.frame, text="\u2665 Selected\non ListenBrainz", bg="#353070", fg="white", command=self.action_like_selected, state="disabled")
         self.btn_like_sel.pack(side="left", padx=5, ipadx=5)
         Hovertip(self.btn_like_sel, "Like selected tracks on ListenBrainz.", hover_delay=500)
 
-        self.btn_like_lfm = tk.Button(self.frame, text="Love Selected\non Last.fm", bg="#FF6659", fg="white", command=self.action_like_selected_lastfm, state="disabled")
+        self.btn_like_lfm = tk.Button(self.frame, text="\u2665 Selected\non Last.fm", bg="#D51007", fg="white", command=self.action_like_selected_lastfm, state="disabled")
         self.btn_like_lfm.pack(side="left", padx=5, ipadx=5)
         Hovertip(self.btn_like_lfm, "Love selected tracks on Last.fm.\nRequires Last.fm authentication.", hover_delay=500)
 
         # Export Group
-        self.btn_export_lb = tk.Button(self.frame, text="Export Tracklist\nto ListenBrainz", bg="#9575CD", fg="white", command=self.action_export_lb, state="disabled")
+        self.btn_export_lb = tk.Button(self.frame, text="Export Tracklist\nto ListenBrainz", bg="#9575CD", fg="#FFFEDD", command=self.action_export_lb, state="disabled")
         self.btn_export_lb.pack(side="left", padx=5, ipadx=5)
         Hovertip(self.btn_export_lb, "Export tracklist to ListenBrainz.", hover_delay=500)
 

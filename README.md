@@ -175,6 +175,17 @@ BrainzMRI/
 
 # Roadmap
 
+## Enter The Matrix 
+- Replace the current "Album Art Matrix" feature (hidden in "Show Graph" for "Top Albums") with a dedicated "Show Art Matrix" button (located next to "Show Graph"). This will be a new type of analysis (in addition to "Show Graph" and "Save Report") that will be available whenever possible (i.e. for regular reports, playlists, etc.). It will enable visualizing entities in a pleasing (album-art-focused) way. When clicked, "Show Art Matrix" will:
+- Operate on the data in the current table (so it will respect any filters applied to the data)
+- Choose what entity to visualize based on the current columns:
+  - For albums, the current behavior is preserved (that is, it should visualize albums), with the slight modification that filters should be applied
+  - For Artists and Tracks, it should visualize a sub-matrix of album art (in a square block) for each artist and album in the data
+- In all cases, the visualized matrix should be annotated in the same manner as the current "Album Art Matrix" (with the same content and font). That is:
+  - for artists and tracks, the overall sub-matrix will be tagged with the artist name, total listens, and total likes by artist.
+  - for albums, the current annotation should be identical in format and content to the current "Album Art Matrix", except that it will reflect any applied filters
+
+
 ## Relative Time for Filter
 * Enable time selection with a few presets, such as ("Last Month", "Last Year", 20XX, etc., which will auto-populate the "days ago" or "last listened" filters). Will need to decide on a basic UI (dropdown?) which, when selected, will auto-populate the associated filter(s) relative to the current datetime.
 
@@ -212,6 +223,8 @@ BrainzMRI/
 * The "duration" filter relies on poor quality track duration data, which is often missing or wrong. It is helpful to treat long tracks with appropriate weight, but is not particularly robust otherwise. Consider ways to effectively use it. Maybe add a duration cache per mbid?
 
 ## Miscellaneous Improvements and Fixes
+* Add a small bit of padding at the top of the app UI to avoid clipping with the menu bar
+* Rename "Show Graph" to "Show Visualization" (two lines)
 * Rename track_name -> Track (in Raw Listens view)
 * Genre Flavor Report: ensure it auto-selects "Cache Only" to enable actual reporting. This isn't working despite gui_main.py setting a flag within on_report_type_changed that should enable it. Not a huge deal, but annoying.
 * Resolver Change: need to allow resolver to find Artist/Album/Track for items with an existing mbid but a missing title/artist/track info. This should help with likes sync to make the list richer. This is currently broken despite the rest of the feature working well.
