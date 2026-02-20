@@ -223,7 +223,7 @@ BrainzMRI/
 * The "duration" filter relies on poor quality track duration data, which is often missing or wrong. It is helpful to treat long tracks with appropriate weight, but is not particularly robust otherwise. Consider ways to effectively use it. Maybe add a duration cache per mbid?
 
 ## Miscellaneous Improvements and Fixes
-* Add a small bit of padding at the top of the app UI to avoid clipping with the menu bar
+* Decide if a small bit of padding should be added at the top of the app UI to avoid clipping with the menu bar
 * Rename "Show Graph" to "Show Visualization" (two lines)
 * Rename track_name -> Track (in Raw Listens view)
 * Resolver Change: need to allow resolver to find Artist/Album/Track for items with an existing mbid but a missing title/artist/track info. This should help with likes sync to make the list richer. This is currently broken despite the rest of the feature working well.
