@@ -226,5 +226,4 @@ BrainzMRI/
 * Add a small bit of padding at the top of the app UI to avoid clipping with the menu bar
 * Rename "Show Graph" to "Show Visualization" (two lines)
 * Rename track_name -> Track (in Raw Listens view)
-* Genre Flavor Report: ensure it auto-selects "Cache Only" to enable actual reporting. This isn't working despite gui_main.py setting a flag within on_report_type_changed that should enable it. Not a huge deal, but annoying.
 * Resolver Change: need to allow resolver to find Artist/Album/Track for items with an existing mbid but a missing title/artist/track info. This should help with likes sync to make the list richer. This is currently broken despite the rest of the feature working well.

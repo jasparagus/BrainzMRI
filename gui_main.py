@@ -264,7 +264,7 @@ class BrainzMRIGUI:
         self.cmb_report = ttk.Combobox(frm_type, values=self.REPORT_MODES, state="readonly", width=18)
         self.cmb_report.current(0)
         self.cmb_report.pack(anchor="w")
-        self.cmb_report.bind("<<ComboboxSelected>>", lambda e: self._update_ui_state())
+        self.cmb_report.bind("<<ComboboxSelected>>", self.on_report_type_changed)
 
         # --- Column 2: Genre Lookup ---
         frm_enrich = tk.Frame(container)
@@ -299,19 +299,23 @@ class BrainzMRIGUI:
         frm_btns_inner = tk.Frame(frm_btns)
         frm_btns_inner.pack(anchor="center", pady=10)
 
-        self.btn_generate = tk.Button(frm_btns_inner, text="Generate Report", bg="#4CAF50", fg="white", command=self.run_report, height=2)
-        self.btn_generate.pack(side="left", padx=5)
+        self.btn_generate = tk.Button(frm_btns_inner, text="Generate\nReport", bg="#4CAF50", fg="white", command=self.run_report, height=2)
+        self.btn_generate.pack(side="left", padx=5, ipadx=5)
 
-        self.btn_graph = tk.Button(frm_btns_inner, text="Show Graph", state="disabled", command=self.show_graph, height=2)
-        self.btn_graph.pack(side="left", padx=5)
+        self.btn_graph = tk.Button(frm_btns_inner, text="Show\nGraph", state="disabled", command=self.show_graph, height=2)
+        self.btn_graph.pack(side="left", padx=5, ipadx=5)
 
-        tk.Button(frm_btns_inner, text="Save Report", bg="#2196F3", fg="white", command=self.save_report, height=2).pack(side="left", padx=5)
+        self.btn_savereport = tk.Button(frm_btns_inner, text="Save\nReport", bg="#2196F3", fg="white", command=self.save_report, height=2)
+        self.btn_savereport.pack(side="left", padx=5, ipadx=5)
 
     def on_report_type_changed(self, event):
         # Auto-set Enrichment to Cache Only for Genre Flavor
         if self.cmb_report.get() == "Genre Flavor":
-            if self.filters.enrichment_mode_var.get().startswith("None"):
-                self.filters.enrichment_mode_var.set("Cache Only")
+            if self.enrichment_mode_var.get().startswith("None"):
+                self.enrichment_mode_var.set("Cache Only")
+        
+        # Ensure UI state is updated after logic
+        self._update_ui_state()
 
     # ------------------------------------------------------------------
     # Core Actions

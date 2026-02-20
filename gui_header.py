@@ -50,7 +50,8 @@ class HeaderComponent:
         # --- Source Row ---
         self.btn_import = tk.Button(self.frm_source, text="Import Playlist File", 
             bg="#FFCC80", command=self.import_playlist)  # use file explorer coloration
-        self.btn_import.pack(side="left", padx=(5, 5))
+        self.btn_import.pack(side="left", padx=(10, 0))
+        Hovertip(self.btn_import, "Import a playlist file (CSV, JSPF, XSPF, or TXT).", hover_delay=500)
 
         self.btn_get_listens = tk.Button(
             self.frm_source,
@@ -58,7 +59,7 @@ class HeaderComponent:
             command=self.callback_refresh_data, # Delegated to main controller
             state="disabled"
         )
-        self.btn_get_listens.pack(side="left", padx=(0, 10))
+        self.btn_get_listens.pack(side="left", padx=(10, 10))
         Hovertip(self.btn_get_listens, "Fetch recent listens from ListenBrainz API.\nRequires username in profile.", hover_delay=500)
 
         # Fetch Last.fm Loves
