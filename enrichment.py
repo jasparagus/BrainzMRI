@@ -284,9 +284,23 @@ def _enrich_single_entity(
         elif entity_type == "track":
             lf_tags = lastfm_client.get_tags("track.getTopTags", "track", artist=info.get("artist"),
                                              track=info.get("track"))
+            # Fallback: retry with cleaned track title
+            if not lf_tags:
+                clean_track = mb_client._clean_title(info.get("track", ""))
+                if clean_track != info.get("track", ""):
+                    logging.info(f"Last.fm track retry with cleaned title: '{clean_track}'")
+                    lf_tags = lastfm_client.get_tags("track.getTopTags", "track",
+                                                     artist=info.get("artist"), track=clean_track)
         elif entity_type == "album":
             lf_tags = lastfm_client.get_tags("album.getTopTags", "album", artist=info.get("artist"),
                                              album=info.get("album"))
+            # Fallback: retry with cleaned album name
+            if not lf_tags:
+                clean_album = mb_client._clean_title(info.get("album", ""))
+                if clean_album != info.get("album", ""):
+                    logging.info(f"Last.fm album retry with cleaned name: '{clean_album}'")
+                    lf_tags = lastfm_client.get_tags("album.getTopTags", "album",
+                                                     artist=info.get("artist"), album=clean_album)
 
         tags.update(lf_tags)
 

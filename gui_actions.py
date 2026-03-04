@@ -231,14 +231,35 @@ class ActionComponent:
                 return
 
         # No MBID available — fall back to search
+        # Build a combined query when possible (recording search benefits from artist+album context)
+        track_name = row.get("track_name")
+        artist_name = row.get("artist")
+        album_name = row.get("album")
+
+        def _valid(val):
+            return val and str(val).strip() and str(val).lower() not in ("nan", "none", "unknown", "")
+
+        if _valid(track_name):
+            # Recording search — include artist and album for precision
+            parts = [f'recording:"{track_name}"']
+            if _valid(artist_name):
+                parts.append(f'artist:"{artist_name}"')
+            if _valid(album_name):
+                parts.append(f'release:"{album_name}"')
+            query = quote_plus(" AND ".join(parts))
+            url = f"https://musicbrainz.org/search?query={query}&type=recording&limit=25&method=indexed"
+            logging.info(f"Opening MusicBrainz search (recording): {url}")
+            webbrowser.open(url)
+            return
+
+        # Fallback for album-only or artist-only rows
         search_type_map = [
-            ("track_name",  "recording"),
-            ("album",       "release_group"),
-            ("artist",      "artist"),
+            ("album",  "release_group"),
+            ("artist", "artist"),
         ]
         for col, search_type in search_type_map:
             name = row.get(col)
-            if name and str(name).strip() and str(name) != "nan":
+            if _valid(name):
                 query = quote_plus(str(name))
                 url = f"https://musicbrainz.org/search?query={query}&type={search_type}&limit=25&method=indexed"
                 logging.info(f"Opening MusicBrainz search ({search_type}): {url}")

@@ -145,13 +145,45 @@ class MusicBrainzClient(BaseClient):
         return [t["name"] for t in results[0].get("tags", [])]
 
     def _clean_title(self, text):
-        """Remove common noise from track titles for fallback search."""
+        """Remove common noise from track/album titles for fallback search.
+        Handles: (Remastered 2006), [2009 Re-Recording], (Bonus Tracks Version),
+        (Deluxe Edition), (Anniversary Edition), (Instrumental Version), etc."""
         import re
         if not text: return ""
-        # Remove (Extension) types
+
+        # Noise keywords (order doesn't matter — all checked via alternation)
+        _NOISE_KW = (
+            r"re-?master(?:ed)?"
+            r"|re-?record(?:ing|ed)?"
+            r"|re-?mix|remix"
+            r"|instrumental(?:\s+version)?"
+            r"|live"
+            r"|demo"
+            r"|edit"
+            r"|deluxe(?:\s+edition)?"
+            r"|super\s+deluxe"
+            r"|bonus\s+track(?:s)?(?:\s+version)?"
+            r"|anniversary(?:\s+edition)?"
+            r"|expanded(?:\s+edition)?"
+            r"|special\s+edition"
+            r"|version"
+        )
+
+        # Remove featuring credits:  (feat. X), [with Y], etc.
         t = re.sub(r"\s*[\(\[]\s*(fit\.|feat\.|ft\.|with|featuring).+?[\)\]]", "", text, flags=re.IGNORECASE)
-        t = re.sub(r"\s*[\(\[]\s*(remix|instrumental|live|demo|edit|remaster|remastered).+?[\)\]]", "", t, flags=re.IGNORECASE)
-        t = re.sub(r"\s*-\s*(remix|instrumental|live|demo|edit|remaster|remastered).*", "", t, flags=re.IGNORECASE)
+
+        # Remove parenthetical/bracketed noise — keyword may be preceded by a year
+        t = re.sub(
+            rf"\s*[\(\[]\s*(?:\d{{4}}\s+)?({_NOISE_KW}).*?[\)\]]",
+            "", t, flags=re.IGNORECASE
+        )
+
+        # Remove dash-separated noise suffix:  "- Remastered", "- 2011 Remaster"
+        t = re.sub(
+            rf"\s*-\s*(?:\d{{4}}\s+)?({_NOISE_KW}).*",
+            "", t, flags=re.IGNORECASE
+        )
+
         return t.strip()
 
     def search_recording_details(self, artist, track, album=None):
@@ -180,12 +212,19 @@ class MusicBrainzClient(BaseClient):
         # 1. Strict Search
         recs = perform_search(artist, track, album)
         
-        # 2. Fallback: Cleaned Search (if no results or low confidence could be checked, but simpler to just try if empty)
-        if not recs:
-            clean_track = self._clean_title(track)
-            if clean_track != track:
-                logging.info(f"Retrying search with cleaned title: '{clean_track}'")
-                recs = perform_search(artist, clean_track, album)
+        # 2. Fallback: Clean track title
+        clean_track = self._clean_title(track)
+        if not recs and clean_track != track:
+            logging.info(f"Retrying search with cleaned title: '{clean_track}'")
+            recs = perform_search(artist, clean_track, album)
+
+        # 3. Fallback: Also clean album name
+        if not recs and album:
+            clean_album = self._clean_title(album)
+            if clean_album != album:
+                search_track = clean_track if clean_track != track else track
+                logging.info(f"Retrying search with cleaned album: '{clean_album}'")
+                recs = perform_search(artist, search_track, clean_album)
 
         if not recs: return None
 
