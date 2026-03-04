@@ -144,6 +144,19 @@ class MusicBrainzClient(BaseClient):
         # Return tags of first match
         return [t["name"] for t in results[0].get("tags", [])]
 
+    def _split_primary_artist(self, artist_str):
+        """Extract the primary (first) artist from a multi-artist credit string.
+        Splits on common separators: comma, ampersand, 'feat.', 'ft.', 'with', etc.
+        Returns the primary artist, or the original string if no split is possible."""
+        import re
+        if not artist_str:
+            return artist_str
+        # Split on common multi-artist separators
+        parts = re.split(r"\s*(?:,|&|\bfeat\.?\b|\bft\.?\b|\bwith\b|\bfeaturing\b|\bx\b|/|\+)\s*",
+                         artist_str, maxsplit=1, flags=re.IGNORECASE)
+        primary = parts[0].strip()
+        return primary if primary else artist_str
+
     def _clean_title(self, text):
         """Remove common noise from track/album titles for fallback search.
         Handles: (Remastered 2006), [2009 Re-Recording], (Bonus Tracks Version),
@@ -219,12 +232,33 @@ class MusicBrainzClient(BaseClient):
             recs = perform_search(artist, clean_track, album)
 
         # 3. Fallback: Also clean album name
+        clean_album = self._clean_title(album) if album else album
+        if not recs and album and clean_album != album:
+            search_track = clean_track if clean_track != track else track
+            logging.info(f"Retrying search with cleaned album: '{clean_album}'")
+            recs = perform_search(artist, search_track, clean_album)
+
+        # 4. Fallback: Try primary artist only (for multi-artist credits)
+        primary_artist = self._split_primary_artist(artist)
+        if not recs and primary_artist != artist:
+            search_track = clean_track if clean_track != track else track
+            search_album = clean_album if (album and clean_album != album) else album
+            logging.info(f"Retrying search with primary artist only: '{primary_artist}'")
+            recs = perform_search(primary_artist, search_track, search_album)
+
+        # 5. Final fallback: Drop artist entirely, rely on track + album
         if not recs and album:
-            clean_album = self._clean_title(album)
-            if clean_album != album:
-                search_track = clean_track if clean_track != track else track
-                logging.info(f"Retrying search with cleaned album: '{clean_album}'")
-                recs = perform_search(artist, search_track, clean_album)
+            search_track = clean_track if clean_track != track else track
+            search_album = clean_album if clean_album != album else album
+            logging.info(f"Retrying search without artist constraint")
+            # Build query manually without artist
+            query = f'recording:"{search_track}"'
+            if search_album and str(search_album).lower() not in ["", "nan", "none", "unknown"]:
+                query += f' AND release:"{search_album}"'
+            data = self._request("GET", "recording", params={"query": query, "fmt": "json", "limit": 5})
+            time.sleep(self.delay)
+            if data:
+                recs = data.get("recordings", [])
 
         if not recs: return None
 
@@ -239,7 +273,11 @@ class MusicBrainzClient(BaseClient):
             artist_name = credits[0].get("name", "") if credits else ""
             if isinstance(artist_name, dict): artist_name = artist_name.get("name", "") 
             
+            # For multi-artist inputs, also check primary artist to avoid
+            # penalizing "ROSALÍA, Björk& Yves Tumor" vs "ROSALÍA"
             art_score = similar(artist, artist_name)
+            if primary_artist != artist:
+                art_score = max(art_score, similar(primary_artist, artist_name))
             if art_score < 0.4: continue # Loose filter
             score += art_score * 10
             
