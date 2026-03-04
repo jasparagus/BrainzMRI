@@ -628,14 +628,14 @@ def resolve_missing_mbids(
 
         # Check Cache (bypass if force_update)
         if not force_update and key in results_map:
-            # We count it as resolved if the cache has a valid entry
-            if results_map[key]: 
+            cached = results_map[key]
+            # Skip only if the cache has a SUCCESSFUL result.
+            # Retry previously-failed entries (None) so new fallback logic can resolve them.
+            if cached and isinstance(cached, dict) and "mbid" in cached:
                 resolved_count += 1
-            else:
-                failed_count += 1
-            if progress_callback:
-                progress_callback(i, total, f"Resolving [{resolved_count} OK / {failed_count} Fail] (cached: {artist} - {track})")
-            continue
+                if progress_callback:
+                    progress_callback(i, total, f"Resolving [{resolved_count} OK / {failed_count} Fail] (cached: {artist} - {track})")
+                continue
 
         try:
             # API Call (Slow)
