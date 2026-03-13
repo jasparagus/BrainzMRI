@@ -395,8 +395,16 @@ class ActionComponent:
                     self.state.user._save_likes()
                     all_liked = self.state.user.get_liked_mbids()
                     for df in [self.state.filtered_df, self.state.last_report_df, self.state.original_df]:
-                        if df is not None and "recording_mbid" in df.columns:
-                            df["Likes"] = df["recording_mbid"].apply(lambda x: 1 if x in all_liked else 0)
+                        if df is not None:
+                            # Standard reports
+                            if "recording_mbid" in df.columns:
+                                df["Likes"] = df["recording_mbid"].apply(lambda x: 1 if x in all_liked else 0)
+                            # Likes audit reports
+                            if "ListenBrainz Liked" in df.columns and "recording_mbid" in df.columns:
+                                df.loc[df["recording_mbid"].isin(liked_set), "ListenBrainz Liked"] = 1
+                            if "ListenBrainz Liked" in df.columns and "Last.fm Liked" in df.columns and "Both Liked" in df.columns:
+                                df["Both Liked"] = ((df["ListenBrainz Liked"] == 1) & (df["Last.fm Liked"] == 1)).astype(int)
+                                
                     if self.state.filtered_df is not None:
                         self.table_view.show_table(self.state.filtered_df)
                 messagebox.showinfo("Done", f"{mode_str}Liked {success} tracks on ListenBrainz.")
@@ -434,6 +442,7 @@ class ActionComponent:
         
         def worker():
             success = 0
+            successful_loves = []  # In-memory list of (artist, track) for local UI updates
             for i, t in enumerate(tracks):
                 if win.cancelled: break
                 
@@ -445,6 +454,7 @@ class ActionComponent:
                     if not dry_run:
                         lfm_client.love_track(t["artist"], t["track"], session_key)
                     success += 1
+                    successful_loves.append((t["artist"].lower(), t["track"].lower()))
                 except Exception as e:
                     logging.error(f"Last.fm love failed: {t['artist']} - {t['track']}: {e}")
                 
@@ -455,6 +465,23 @@ class ActionComponent:
             
             def _finish():
                 win.destroy()
+                # Update local state and refresh table (live mode only)
+                if not dry_run and success > 0 and successful_loves:
+                    for df in [self.state.filtered_df, self.state.last_report_df, self.state.original_df]:
+                        if df is not None and "Last.fm Liked" in df.columns:
+                            # Create a boolean mask identifying rows that match the successful loves
+                            mask = df.apply(
+                                lambda row: (str(row.get("artist", "")).strip().lower(), 
+                                             str(row.get("track_name", "")).strip().lower()) in successful_loves,
+                                axis=1
+                            )
+                            df.loc[mask, "Last.fm Liked"] = 1
+                            if "ListenBrainz Liked" in df.columns and "Both Liked" in df.columns:
+                                df["Both Liked"] = ((df["ListenBrainz Liked"] == 1) & (df["Last.fm Liked"] == 1)).astype(int)
+
+                    if self.state.filtered_df is not None:
+                        self.table_view.show_table(self.state.filtered_df)
+                        
                 messagebox.showinfo("Done", f"{mode_str}Loved {success} tracks on Last.fm.")
             
             win.after(0, _finish)
