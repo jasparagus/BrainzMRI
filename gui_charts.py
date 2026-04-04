@@ -15,8 +15,10 @@ import matplotlib.patheffects as pe
 import pandas as pd
 import numpy as np
 import math
+import os
 import textwrap
 import squarify  # Requires: pip install squarify
+from config import config
 
 def create_chart_window(fig, title, parent=None):
     """
@@ -296,6 +298,21 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
     if df.empty:
         return
 
+    # Load fallback logo image once (avoid re-reading per cell)
+    _logo_path = os.path.join(config.app_root, "BrainzMRI_Transparent.png")
+    _fallback_logo = None
+    try:
+        _raw = mpimg.imread(_logo_path)
+        h, w = _raw.shape[:2]
+        if h != w:
+            min_dim = min(h, w)
+            sy = (h - min_dim) // 2
+            sx = (w - min_dim) // 2
+            _raw = _raw[sy:sy+min_dim, sx:sx+min_dim]
+        _fallback_logo = _raw
+    except Exception:
+        pass  # Will fall back to the existing black rectangle
+
     # Limit to 150 albums max
     plot_df = df.head(150).copy()
     n = len(plot_df)
@@ -400,10 +417,14 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
         if img_display is not None:
             ax.imshow(img_display, aspect="equal", extent=[0, 1, 0, 1])
         else:
-            rect = plt_Rectangle((0, 0), 1, 1, color="#111111")
-            ax.add_patch(rect)
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 1)
+            if _fallback_logo is not None:
+                ax.imshow(_fallback_logo, aspect="equal", extent=[0, 1, 0, 1])
+            else:
+                # Ultimate fallback: black rectangle if logo couldn't load
+                rect = plt_Rectangle((0, 0), 1, 1, color="#111111")
+                ax.add_patch(rect)
+                ax.set_xlim(0, 1)
+                ax.set_ylim(0, 1)
 
         # 2. Text Overlay
         text_style = dict(
