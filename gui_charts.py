@@ -11,7 +11,6 @@ from matplotlib.backends.backend_tkagg import (
 )
 from matplotlib.figure import Figure
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-import matplotlib.image as mpimg
 import matplotlib.patheffects as pe
 import pandas as pd
 import numpy as np
@@ -19,10 +18,8 @@ import math
 import os
 import textwrap
 import squarify  # Requires: pip install squarify
+from PIL import Image  # For tile resizing in art matrix compositing
 from config import config
-
-# Helper for Rectangle since we don't import pyplot
-from matplotlib.patches import Rectangle as plt_Rectangle
 
 
 def create_chart_window(fig, title, parent=None):
@@ -55,90 +52,138 @@ def create_chart_window(fig, title, parent=None):
 
 
 # ================================================================
-# Shared Helpers for Album Art Matrix
+# Shared Helpers for Art Matrix (Pre-Compositing)
 # ================================================================
 
-def _load_fallback_logo():
-    """Load and return the BrainzMRI logo image, cropped to square.
-    Returns None if the logo cannot be loaded."""
-    logo_path = os.path.join(config.app_root, "BrainzMRI_Transparent.png")
+# Tile size in pixels for pre-compositing album art. All images are resized
+# to TILE_PX × TILE_PX before being stitched into a single composite array.
+# Higher values yield sharper images but increase memory and render time.
+# 250px is a good balance for up to ~50 blocks. Reduce to 150px if
+# performance becomes an issue (search for TILE_PX to find all usages).
+TILE_PX = 250
+
+
+def _load_tile(path, tile_px=TILE_PX):
+    """Load an image from *path*, center-crop to square, resize to tile_px.
+    Returns a uint8 RGB numpy array, or None on failure."""
     try:
-        raw = mpimg.imread(logo_path)
-        h, w = raw.shape[:2]
-        if h != w:
-            min_dim = min(h, w)
-            sy = (h - min_dim) // 2
-            sx = (w - min_dim) // 2
-            raw = raw[sy:sy+min_dim, sx:sx+min_dim]
-        return raw
+        img = Image.open(path).convert("RGB")
+        w, h = img.size
+        if w != h:
+            d = min(w, h)
+            left, top = (w - d) // 2, (h - d) // 2
+            img = img.crop((left, top, left + d, top + d))
+        img = img.resize((tile_px, tile_px), Image.LANCZOS)
+        return np.array(img, dtype=np.uint8)
     except Exception:
         return None
 
 
-def _render_album_cell(ax, cover_art_map, mbid, fallback_logo,
-                       artist_text=None, album_text=None, stats_text=None):
-    """Render a single album art cell on the given Axes.
+def _make_dark_tile(tile_px=TILE_PX):
+    """Solid dark tile for empty grid cells (uint8 RGB)."""
+    return np.full((tile_px, tile_px, 3), 17, dtype=np.uint8)  # #111111
 
-    Image is loaded from cover_art_map[mbid], falling back to the logo
-    or a black rectangle.
 
-    If artist_text/album_text/stats_text are None, no text overlay is drawn
-    (used for entity sub-grid cells which are art-only).
+def _load_logo_tile(tile_px=TILE_PX):
+    """Load the BrainzMRI logo as a tile_px × tile_px uint8 RGB array.
+    Used for albums with missing cover art (distinct from empty cells)."""
+    logo_path = os.path.join(config.app_root, "BrainzMRI_Transparent.png")
+    tile = _load_tile(logo_path, tile_px)
+    if tile is not None:
+        return tile
+    return _make_dark_tile(tile_px)
+
+
+def _composite_grid(albums, side, cover_art_map, logo_tile, dark_tile):
+    """Stitch album images into a single (side*TILE_PX) × (side*TILE_PX) composite.
+
+    - Albums with cover art  → loaded and resized
+    - Albums with missing art → logo_tile (fallback logo)
+    - Empty grid cells       → dark_tile (solid dark fill)
     """
-    ax.set_xticks([])
-    ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_visible(False)
+    tile_px = logo_tile.shape[0]
+    rows = []
+    idx = 0
+    for _r in range(side):
+        row_tiles = []
+        for _c in range(side):
+            if idx < len(albums):
+                mbid = albums[idx].get("release_mbid")
+                img_path = cover_art_map.get(mbid) if mbid else None
+                tile = _load_tile(img_path, tile_px) if img_path else None
+                row_tiles.append(tile if tile is not None else logo_tile.copy())
+                idx += 1
+            else:
+                row_tiles.append(dark_tile.copy())
+        rows.append(np.concatenate(row_tiles, axis=1))
+    return np.concatenate(rows, axis=0)
 
-    # --- Image ---
-    img_path = cover_art_map.get(mbid) if mbid else None
-    img_display = None
 
-    if img_path:
-        try:
-            img = mpimg.imread(img_path)
-            h, w = img.shape[:2]
-            if h != w:
-                min_dim = min(h, w)
-                start_y = (h - min_dim) // 2
-                start_x = (w - min_dim) // 2
-                img = img[start_y:start_y+min_dim, start_x:start_x+min_dim]
-            img_display = img
-        except Exception:
-            img_display = None
+def _render_art_block(fig, subplot_spec, composite,
+                      title, subtitle, detail=None,
+                      header_bg="#1a1a2e"):
+    """Render a single art block: dark header row + composite image.
 
-    if img_display is not None:
-        ax.imshow(img_display, aspect="equal", extent=[0, 1, 0, 1])
-    elif fallback_logo is not None:
-        ax.imshow(fallback_logo, aspect="equal", extent=[0, 1, 0, 1])
-    else:
-        rect = plt_Rectangle((0, 0), 1, 1, color="#111111")
-        ax.add_patch(rect)
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
+    Used by both the album matrix (per-album blocks) and the entity matrix
+    (per-artist blocks). The header layout adapts to 2 or 3 lines of text.
 
-    # --- Text Overlay (only when explicitly provided) ---
-    if artist_text is None and album_text is None and stats_text is None:
-        return  # Art-only cell
+    Args:
+        fig:           matplotlib Figure
+        subplot_spec:  outer GridSpec cell to place this block in
+        composite:     numpy uint8 RGB array of the composited album art
+        title:         Primary header text (e.g., artist name)
+        subtitle:      Secondary text (e.g., album name or stats)
+        detail:        Optional tertiary text (e.g., stats when subtitle is album name)
+        header_bg:     Header background colour
+    """
+    has_detail = detail is not None
+    header_ratio = 0.30 if has_detail else 0.22
 
-    text_style = dict(
-        ha='center',
-        color='white',
-        weight='bold',
-        transform=ax.transAxes,
-        path_effects=[pe.withStroke(linewidth=2.5, foreground='black')]
+    inner_gs = GridSpecFromSubplotSpec(
+        2, 1,
+        subplot_spec=subplot_spec,
+        height_ratios=[header_ratio, 1.0],
+        hspace=0.0,
     )
 
-    if artist_text:
-        ax.text(0.5, 0.96, artist_text, va='top', fontsize=9, **text_style)
-    if stats_text:
-        ax.text(0.5, 0.03, stats_text, va='bottom', fontsize=8, **text_style)
-    if album_text:
-        ax.text(0.5, 0.15, album_text, va='bottom', fontsize=9, **text_style)
+    # --- Header ---
+    ax_hdr = fig.add_subplot(inner_gs[0, 0])
+    ax_hdr.set_xticks([]); ax_hdr.set_yticks([])
+    for sp in ax_hdr.spines.values():
+        sp.set_visible(False)
+    ax_hdr.set_facecolor(header_bg)
+
+    stroke_thin = [pe.withStroke(linewidth=1.5, foreground='black')]
+    stroke_bold = [pe.withStroke(linewidth=2, foreground='black')]
+
+    if has_detail:
+        ax_hdr.text(0.5, 0.80, _format_text(title, 25, 1), ha='center', va='center',
+                    fontsize=9, weight='bold', color='white',
+                    transform=ax_hdr.transAxes, path_effects=stroke_bold)
+        ax_hdr.text(0.5, 0.45, _format_text(subtitle, 25, 1), ha='center', va='center',
+                    fontsize=8, color='#dddddd',
+                    transform=ax_hdr.transAxes, path_effects=stroke_thin)
+        ax_hdr.text(0.5, 0.15, detail, ha='center', va='center',
+                    fontsize=7, color='#cccccc',
+                    transform=ax_hdr.transAxes, path_effects=stroke_thin)
+    else:
+        ax_hdr.text(0.5, 0.65, _format_text(title, 30, 1), ha='center', va='center',
+                    fontsize=9, weight='bold', color='white',
+                    transform=ax_hdr.transAxes, path_effects=stroke_bold)
+        ax_hdr.text(0.5, 0.15, subtitle, ha='center', va='center',
+                    fontsize=7, color='#cccccc',
+                    transform=ax_hdr.transAxes, path_effects=stroke_thin)
+
+    # --- Art (single composite image) ---
+    ax_art = fig.add_subplot(inner_gs[1, 0])
+    ax_art.imshow(composite, aspect="equal")
+    ax_art.set_xticks([]); ax_art.set_yticks([])
+    for sp in ax_art.spines.values():
+        sp.set_visible(False)
 
 
 def _format_text(text, max_chars=25, max_lines=2):
-    """Wrap text for cell annotations, truncating with '...' if needed."""
+    """Wrap text for header annotations, truncating with '...' if needed."""
     if not text:
         return ""
     text = str(text)
@@ -424,7 +469,11 @@ def show_genre_flavor_treemap(df: pd.DataFrame, parent=None):
 def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None], filter_params: dict = None, parent=None):
     """
     Render an N×M grid of album cover art thumbnails.
-    
+
+    Each album is rendered as a block with a dark header row (artist, album,
+    stats) above a single pre-composited 1×1 image.  This uses the same
+    _render_art_block helper as the entity matrix for visual consistency.
+
     Args:
         df: Album report DataFrame with artist, album, release_mbid, total_listens columns.
         cover_art_map: Dict mapping release_mbid -> local image filepath (or None).
@@ -434,13 +483,14 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
     if df.empty:
         return
 
-    fallback_logo = _load_fallback_logo()
+    logo_tile = _load_logo_tile()
+    dark_tile = _make_dark_tile()
 
     # Limit to 150 albums max
     plot_df = df.head(150).copy()
     n = len(plot_df)
 
-    # Calculate grid dimensions...
+    # Calculate grid dimensions (favour wider-than-tall layouts)
     best = None
     start_c = max(1, math.isqrt(n))
     for c in range(start_c, n + 2):
@@ -460,22 +510,23 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
         ncols = math.ceil(math.sqrt(n * 1.5))
         nrows = math.ceil(n / ncols)
 
-    # Create figure (OO API)
-    fig = Figure(figsize=(ncols * 2, nrows * 2), dpi=100)
+    # Figure size: each block is ~2.5 wide, ~3.0 tall (header + art)
+    fig = Figure(figsize=(ncols * 2.5, nrows * 3.0), dpi=100)
 
-    # Build title with filter context
     title_main = f"Top {n} Albums"
     subtitle = _build_filter_subtitle(filter_params)
     full_title = title_main
     if subtitle:
         full_title += " - " + subtitle
-
     fig.suptitle(full_title, fontsize=14, weight="bold", y=0.98)
 
-    # Iterate 0..n-1
-    for idx in range(n):
-        ax = fig.add_subplot(nrows, ncols, idx + 1)
+    outer_gs = GridSpec(
+        nrows, ncols, figure=fig,
+        hspace=0.3, wspace=0.15,
+        left=0.02, right=0.98, bottom=0.02, top=0.93,
+    )
 
+    for idx in range(n):
         row = plot_df.iloc[idx]
         mbid = row.get("release_mbid", None)
         raw_album = str(row.get("album", "Unknown Album"))
@@ -487,16 +538,19 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
         if likes > 0:
             stats_str += f" | {likes} ❤️"
 
-        _render_album_cell(
-            ax, cover_art_map, mbid, fallback_logo,
-            artist_text=_format_text(raw_artist, max_chars=20, max_lines=3),
-            album_text=_format_text(raw_album, max_chars=20, max_lines=3),
-            stats_text=stats_str,
+        # 1×1 composite for single album
+        albums = [{"release_mbid": mbid}]
+        composite = _composite_grid(albums, 1, cover_art_map, logo_tile, dark_tile)
+
+        r = idx // ncols
+        c = idx % ncols
+        _render_art_block(
+            fig, outer_gs[r, c], composite,
+            title=raw_artist,
+            subtitle=raw_album,
+            detail=stats_str,
         )
 
-    # Tight layout: minimize gaps
-    fig.subplots_adjust(left=0.01, right=0.99, bottom=0.01, top=0.92, wspace=0.02, hspace=0.02)
-    
     create_chart_window(fig, "Album Art Matrix", parent)
 
 
@@ -513,6 +567,11 @@ def show_entity_art_matrix(
     """
     Render a composite matrix with per-artist square sub-grids.
 
+    Each artist is rendered as a block with a dark header row (artist name,
+    stats) above a single pre-composited side×side image.  The composite
+    guarantees pixel-perfect squares with zero inter-tile gaps regardless
+    of window size.
+
     Args:
         artist_data: List of dicts, each with keys:
             - artist (str): Artist name
@@ -527,134 +586,54 @@ def show_entity_art_matrix(
     if not artist_data:
         return
 
-    fallback_logo = _load_fallback_logo()
+    logo_tile = _load_logo_tile()
+    dark_tile = _make_dark_tile()
 
     n_artists = len(artist_data)
 
-    # Determine outer grid: arrange artists in a flowing grid
-    # Target ~5 columns for a nice wide layout, but adapt to small counts
+    # Outer grid: arrange artists in a flowing grid (~5 columns)
     outer_cols = min(5, n_artists)
     outer_rows = math.ceil(n_artists / outer_cols)
 
-    # Each artist block needs:
-    #   1 row for the header text label
-    #   side×side rows for the album sub-grid (side = ceil(sqrt(n_albums)), max 3)
-    # We use a fixed cell size; the figure scales to fit.
-    # sub_side for each artist is computed individually.
-
-    # Pre-compute sub-grid sizes
-    artist_sides = []
-    for entry in artist_data:
-        n_albums = len(entry.get("albums", []))
-        if n_albums == 0:
-            artist_sides.append(1)  # Single empty cell
-        else:
-            side = min(3, math.ceil(math.sqrt(n_albums)))
-            artist_sides.append(side)
-
-    max_side = max(artist_sides) if artist_sides else 1
-
-    # GridSpec layout:
-    # Each artist block occupies (max_side + 1) rows (1 for header + max_side for art)
-    # and max_side columns.
-    # We use height_ratios to give the header row less space.
-    block_rows = max_side + 1  # 1 header + max_side art rows
-    total_gs_rows = outer_rows * block_rows
-    total_gs_cols = outer_cols * max_side
-
-    # Figure size: scale by number of cells
-    fig_w = max(6, total_gs_cols * 1.8)
-    fig_h = max(4, total_gs_rows * 1.6)
+    fig_w = max(8, outer_cols * 3.5)
+    fig_h = max(5, outer_rows * 4.0)
     fig = Figure(figsize=(fig_w, fig_h), dpi=100)
 
-    # Build title
     title_main = f"Art Matrix — {n_artists} Artists"
     subtitle = _build_filter_subtitle(filter_params)
     full_title = title_main
     if subtitle:
         full_title += " — " + subtitle
-    fig.suptitle(full_title, fontsize=14, weight="bold", y=0.99)
-
-    # Build height_ratios: for each block_row set, header row is shorter
-    height_ratios = []
-    for _ in range(outer_rows):
-        height_ratios.append(0.4)  # Header row (shorter)
-        for _ in range(max_side):
-            height_ratios.append(1.0)  # Art rows
+    fig.suptitle(full_title, fontsize=14, weight="bold", y=0.98)
 
     outer_gs = GridSpec(
-        total_gs_rows, total_gs_cols, figure=fig,
-        height_ratios=height_ratios,
-        hspace=0.15, wspace=0.05,
-        left=0.01, right=0.99, bottom=0.01, top=0.93,
+        outer_rows, outer_cols, figure=fig,
+        hspace=0.35, wspace=0.25,
+        left=0.02, right=0.98, bottom=0.02, top=0.93,
     )
 
     for artist_idx, entry in enumerate(artist_data):
-        # Determine position in outer grid
         outer_r = artist_idx // outer_cols
         outer_c = artist_idx % outer_cols
-
-        # Row/col offsets in the GridSpec
-        gs_row_start = outer_r * block_rows
-        gs_col_start = outer_c * max_side
 
         artist_name = entry.get("artist", "Unknown Artist")
         total_listens = entry.get("total_listens", 0)
         likes = entry.get("likes", 0)
         albums = entry.get("albums", [])
-        side = artist_sides[artist_idx]
 
-        # --- Header Row ---
-        # Span the full width of this artist's block
-        ax_header = fig.add_subplot(
-            outer_gs[gs_row_start, gs_col_start:gs_col_start + max_side]
-        )
-        ax_header.set_xticks([])
-        ax_header.set_yticks([])
-        for spine in ax_header.spines.values():
-            spine.set_visible(False)
-        ax_header.set_facecolor("#1a1a2e")
+        n_albums = len(albums)
+        side = min(3, math.ceil(math.sqrt(n_albums))) if n_albums > 0 else 1
 
-        # Header text: artist name + stats
-        header_text = _format_text(artist_name, max_chars=30, max_lines=1)
         stats_str = f"{total_listens} Listens"
         if likes > 0:
             stats_str += f" | {likes} ❤️"
 
-        ax_header.text(
-            0.5, 0.65, header_text, ha='center', va='center',
-            fontsize=9, weight='bold', color='white',
-            transform=ax_header.transAxes,
-            path_effects=[pe.withStroke(linewidth=2, foreground='black')]
+        composite = _composite_grid(albums, side, cover_art_map, logo_tile, dark_tile)
+
+        _render_art_block(
+            fig, outer_gs[outer_r, outer_c], composite,
+            title=artist_name,
+            subtitle=stats_str,
         )
-        ax_header.text(
-            0.5, 0.15, stats_str, ha='center', va='center',
-            fontsize=7, color='#cccccc',
-            transform=ax_header.transAxes,
-            path_effects=[pe.withStroke(linewidth=1.5, foreground='black')]
-        )
-
-        # --- Album Sub-Grid ---
-        album_idx = 0
-        for sr in range(max_side):
-            for sc in range(max_side):
-                gs_r = gs_row_start + 1 + sr  # +1 to skip header
-                gs_c = gs_col_start + sc
-
-                ax = fig.add_subplot(outer_gs[gs_r, gs_c])
-
-                if sr < side and sc < side and album_idx < len(albums):
-                    # Render album art (art-only, no text)
-                    album_entry = albums[album_idx]
-                    mbid = album_entry.get("release_mbid", None)
-                    _render_album_cell(ax, cover_art_map, mbid, fallback_logo)
-                    album_idx += 1
-                else:
-                    # Empty cell — hide completely
-                    ax.set_xticks([])
-                    ax.set_yticks([])
-                    for spine in ax.spines.values():
-                        spine.set_visible(False)
-                    ax.set_facecolor("#0a0a15")
 
     create_chart_window(fig, "Entity Art Matrix", parent)
