@@ -176,14 +176,15 @@ BrainzMRI/
 # Roadmap
 
 ## Enter The Matrix 
-- Replace the current "Album Art Matrix" feature (hidden in "Show Graph" for "Top Albums") with a dedicated "Show Art Matrix" button (located next to "Show Graph"). This will be a new type of analysis (in addition to "Show Graph" and "Save Report") that will be available whenever possible (i.e. for regular reports, playlists, etc.). It will enable visualizing entities in a pleasing (album-art-focused) way. When clicked, "Show Art Matrix" will:
-- Operate on the data in the current table (so it will respect any filters applied to the data)
-- Choose what entity to visualize based on the current columns:
-  - For albums, the current behavior is preserved (that is, it should visualize albums), with the slight modification that filters should be applied
-  - For Artists and Tracks, it should visualize a sub-matrix of album art (in a square block) for each artist and album in the data
-- In all cases, the visualized matrix should be annotated in the same manner as the current "Album Art Matrix" (with the same content and font). That is:
-  - for artists and tracks, the overall sub-matrix will be tagged with the artist name, total listens, and total likes by artist.
-  - for albums, the current annotation should be identical in format and content to the current "Album Art Matrix", except that it will reflect any applied filters
+- Replace the current "Album Art Matrix" feature (hidden in "Show Graph" for "Top Albums") with a dedicated **"Show Art Matrix"** button (located next to "Show Graph"). This is a new visualization action (alongside "Show Graph" and "Save Report") available for most report types. It enables visualizing entities in a pleasing, album-art-focused way.
+- **Availability:** The button is enabled for **Top Artists**, **Top Albums**, **Top Tracks**, **Raw Listens**, **Likes**, and **Imported Playlist** reports. It is disabled for Genre Flavor, Trends, and New Music By Year (which lack entity-level data).
+- **Filter Respect:** The matrix operates on `filtered_df` (the post-filter table), so regex filters and any applied sorts are reflected in the visualization.
+- **Entity Modes:**
+  - **Albums (Top Albums):** Current Album Art Matrix behavior is preserved. Each album gets one cell with the existing annotation (artist name at top, album name in middle, listens + likes at bottom). The only change is that applied filters now affect which albums appear.
+  - **Artists / Tracks (Top Artists, Top Tracks, Raw Listens, Likes, Imported Playlist):** Each artist gets a **square sub-grid** of album art. The sub-grid size is `ceil(sqrt(n_albums))` per side (e.g., 3 albums → 2×2 grid with 1 empty cell; 7 albums → 3×3 grid with 2 empty cells). Albums are discovered by filtering the user's listening history to matching artists, applying the report's **time-range filters** (but not re-applying threshold filters like Top N or min listens). All albums for each artist within the filtered dataset are included, up to a **cap of 9 albums (3×3)** per artist. Overall, a **hard cap of 50 artists** is rendered.
+- **Annotations:**
+  - **Artist/Track mode:** Each sub-grid is labeled with the **artist name**, **total listens**, and **total likes** (artist-level aggregate). Individual album cells within the sub-grid have **no per-album annotations** (album art only) to avoid visual clutter.
+  - **Album mode:** Identical to the current Album Art Matrix (artist name, album name, listens + likes per cell).
 
 
 ## Relative Time for Filter
