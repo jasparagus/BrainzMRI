@@ -31,7 +31,7 @@ from gui_header import HeaderComponent
 from gui_filters import FilterComponent
 from gui_actions import ActionComponent
 from gui_tableview import ReportTableView
-from gui_charts import show_entity_trend_chart, show_new_music_stacked_bar, show_genre_flavor_treemap, show_album_art_matrix
+from gui_charts import show_entity_trend_chart, show_new_music_stacked_bar, show_genre_flavor_treemap, show_album_art_matrix, show_entity_art_matrix
 import reporting
 import enrichment
 
@@ -304,6 +304,9 @@ class BrainzMRIGUI:
 
         self.btn_graph = tk.Button(frm_btns_inner, text="Show\nGraph", state="disabled", command=self.show_graph, height=2)
         self.btn_graph.pack(side="left", padx=5, ipadx=5)
+
+        self.btn_art_matrix = tk.Button(frm_btns_inner, text="Show Art\nMatrix", state="disabled", command=self.show_art_matrix, height=2)
+        self.btn_art_matrix.pack(side="left", padx=5, ipadx=5)
 
         self.btn_savereport = tk.Button(frm_btns_inner, text="Save\nReport", bg="#2196F3", fg="white", command=self.save_report, height=2)
         self.btn_savereport.pack(side="left", padx=5, ipadx=5)
@@ -591,6 +594,13 @@ class BrainzMRIGUI:
                 self.btn_graph.config(state="disabled", bg="SystemButtonFace", fg="black")
             logging.info("TRACE: Graph btn toggled")
 
+            # Toggle Art Matrix
+            if mode in self.ART_MATRIX_MODES:
+                self.btn_art_matrix.config(state="normal", bg="#9C27B0", fg="white")
+            else:
+                self.btn_art_matrix.config(state="disabled", bg="SystemButtonFace", fg="black")
+            logging.info("TRACE: Art Matrix btn toggled")
+
             # Toggle Actions Panel
             has_tracks = "track_name" in result.columns
             has_mbids = False
@@ -673,7 +683,14 @@ class BrainzMRIGUI:
         "Favorite Album Trend":  "_show_album_trend_chart",
         "New Music By Year":     "_show_new_music_chart",
         "Genre Flavor":          "_show_genre_treemap",
-        "Top Albums":            "_show_album_art_matrix",
+    }
+
+    # ----------------------------------------------------------
+    # Art Matrix Availability
+    # ----------------------------------------------------------
+    ART_MATRIX_MODES = {
+        "Top Artists", "Top Albums", "Top Tracks",
+        "Raw Listens", "Likes", "Imported Playlist",
     }
 
     def show_graph(self):
@@ -713,9 +730,28 @@ class BrainzMRIGUI:
     def _show_genre_treemap(self):
         show_genre_flavor_treemap(self.state.last_report_df, parent=self.root)
 
-    def _show_album_art_matrix(self):
-        """Fetch cover art (with progress) and render the album art matrix."""
-        df = self.state.last_report_df
+    # ----------------------------------------------------------
+    # Art Matrix Dispatch
+    # ----------------------------------------------------------
+    def show_art_matrix(self):
+        """Dispatch Art Matrix visualization based on current report type."""
+        logging.info("User Action: Clicked 'Show Art Matrix'")
+        df = self.state.filtered_df
+        if df is None or df.empty:
+            return
+
+        mode = self.state.last_mode
+
+        if mode == "Top Albums":
+            # Album mode: direct — use filtered_df which has release_mbid
+            self._show_album_art_matrix_filtered()
+        elif mode in self.ART_MATRIX_MODES:
+            # Artist/Track/Raw/Likes/Playlist mode: entity sub-grids
+            self._show_entity_art_matrix_data()
+
+    def _show_album_art_matrix_filtered(self):
+        """Album Art Matrix using filtered data (respects regex filter)."""
+        df = self.state.filtered_df
         if df is None or df.empty or "release_mbid" not in df.columns:
             return
 
@@ -754,6 +790,152 @@ class BrainzMRIGUI:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _show_entity_art_matrix_data(self):
+        """Prepare per-artist album sub-grids and render the entity art matrix.
+
+        Steps:
+          1. Extract unique artists from the filtered table (up to 50).
+          2. Retrieve the raw listening history and apply time-range filters only
+             (threshold filters like Top N / min listens are NOT re-applied).
+          3. For each artist, group albums and take the top 9 by listens.
+          4. Compute artist-level aggregates (total listens, likes) from the
+             filtered report table.
+          5. Fetch cover art for all discovered release MBIDs.
+          6. Render via show_entity_art_matrix().
+        """
+        df = self.state.filtered_df
+        if df is None or df.empty:
+            return
+
+        # 1. Extract unique artists (up to 50)
+        if "artist" not in df.columns:
+            return
+        artists_ordered = df["artist"].dropna().unique().tolist()[:50]
+        if not artists_ordered:
+            return
+
+        # 2. Get raw listening history
+        if self.state.playlist_df is not None:
+            history = self.state.playlist_df.copy()
+        elif self.state.user:
+            history = self.state.user.get_listens().copy()
+        else:
+            return
+
+        # Apply time-range filters only (not threshold filters)
+        p = self.state.last_params
+        t_start = p.get("time_start_days", 0)
+        t_end = p.get("time_end_days", 0)
+        if t_start > 0 or t_end > 0:
+            history = reporting.filter_by_days(history, "listened_at", t_start, t_end)
+
+        # 3. Filter history to matched artists and group by album
+        history = history[history["artist"].isin(artists_ordered)]
+        if history.empty:
+            return
+
+        # Ensure release_mbid column exists
+        if "release_mbid" not in history.columns:
+            history["release_mbid"] = None
+
+        album_groups = history.groupby(["artist", "album"]).agg(
+            total_listens=("album", "count"),
+            release_mbid=("release_mbid", "first"),
+        ).reset_index()
+
+        # Sort within artist by listens descending, cap to top 9 per artist
+        album_groups = album_groups.sort_values(
+            ["artist", "total_listens"], ascending=[True, False]
+        )
+        album_groups = album_groups.groupby("artist").head(9)
+
+        # 4. Compute artist-level aggregates from the filtered report table
+        # Use total_listens if available (aggregated reports), otherwise count rows
+        if "total_listens" in df.columns:
+            agg_spec = {"total_listens": ("total_listens", "sum")}
+            if "Likes" in df.columns:
+                agg_spec["likes"] = ("Likes", "sum")
+            artist_stats = df.groupby("artist").agg(**agg_spec).reset_index()
+        else:
+            artist_stats = df.groupby("artist").size().reset_index(name="total_listens")
+        
+        # Ensure likes column exists
+        if "likes" not in artist_stats.columns:
+            artist_stats["likes"] = 0
+
+        # 5. Build the artist_data structure, preserving order from artists_ordered
+        artist_data = []
+        for artist_name in artists_ordered:
+            stats_row = artist_stats[artist_stats["artist"] == artist_name]
+            if stats_row.empty:
+                a_listens = 0
+                a_likes = 0
+            else:
+                a_listens = int(stats_row.iloc[0].get("total_listens", 0))
+                a_likes = int(stats_row.iloc[0].get("likes", 0))
+
+            artist_albums = album_groups[album_groups["artist"] == artist_name]
+            albums_list = []
+            for _, arow in artist_albums.iterrows():
+                albums_list.append({
+                    "album": str(arow["album"]),
+                    "release_mbid": arow.get("release_mbid", None),
+                })
+
+            artist_data.append({
+                "artist": artist_name,
+                "total_listens": a_listens,
+                "likes": a_likes,
+                "albums": albums_list,
+            })
+
+        if not artist_data:
+            return
+
+        # 6. Collect all release MBIDs and fetch cover art
+        all_mbids = []
+        for entry in artist_data:
+            for album in entry["albums"]:
+                mbid = album.get("release_mbid")
+                if mbid and str(mbid) not in ("None", "nan", ""):
+                    all_mbids.append(str(mbid))
+        all_mbids = list(set(all_mbids))
+
+        if not all_mbids:
+            # No cover art to fetch — render immediately with empty map
+            show_entity_art_matrix(artist_data, {}, filter_params=self.state.last_params, parent=self.root)
+            return
+
+        win = ProgressWindow(self.root, "Fetching cover art...")
+
+        def worker():
+            try:
+                def cb(c, t, m):
+                    if not win.cancelled:
+                        self.root.after(0, lambda: win.update_progress(c, t, m))
+
+                cover_map = enrichment.fetch_cover_art(
+                    all_mbids,
+                    progress_callback=cb,
+                    is_cancelled=lambda: win.cancelled,
+                )
+
+                params = self.state.last_params
+
+                def render():
+                    if win.winfo_exists(): win.close()
+                    show_entity_art_matrix(artist_data, cover_map, filter_params=params, parent=self.root)
+
+                self.root.after(0, render)
+            except Exception as e:
+                logging.error(f"Entity art matrix cover art fetch failed: {e}", exc_info=True)
+                self.root.after(0, lambda: [
+                    win.close() if win.winfo_exists() else None,
+                    show_entity_art_matrix(artist_data, {}, filter_params=self.state.last_params, parent=self.root),
+                ])
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def lock_interface(self):
         """Disable all interactive elements to prevent race conditions."""
         self.processing = True
@@ -771,6 +953,7 @@ class BrainzMRIGUI:
         
         self.btn_generate.config(state="disabled")
         self.btn_graph.config(state="disabled")
+        self.btn_art_matrix.config(state="disabled")
         self.chk_force.config(state="disabled")
         self.chk_deep.config(state="disabled")
         self.cmb_report.config(state="disabled")
@@ -801,11 +984,16 @@ class BrainzMRIGUI:
         self._update_ui_state() # Will parse logic to enable/disable specific checks
         
         # Graph Button
-        if self.btn_graph["text"] == "Show Graph" and self.state.last_report_df is not None:
-             # Logic from on_report_done to decide if enabled
+        if self.state.last_report_df is not None:
              mode = self.state.last_mode
              if mode in self.GRAPH_HANDLERS:
                 self.btn_graph.config(state="normal")
+
+        # Art Matrix Button
+        if self.state.last_report_df is not None:
+             mode = self.state.last_mode
+             if mode in self.ART_MATRIX_MODES:
+                self.btn_art_matrix.config(state="normal", bg="#9C27B0", fg="white")
         
         # Actions
         if self.actions:
