@@ -202,9 +202,51 @@ def _compute_likes_count(df: pd.DataFrame, liked_mbids: set, group_col: str) -> 
 # Top-N Reports (Artist, Album, Track)
 # ------------------------------------------------------------
 
+def _normalize_names_by_mbid(df: pd.DataFrame, name_col: str, mbid_col: str) -> pd.DataFrame:
+    """Replace name variants with the most-frequent spelling per MBID.
+
+    When the same MBID maps to multiple name spellings (e.g. case variations
+    like 'Between The Buried And Me' vs 'Between the Buried and Me'), rows
+    with a valid MBID are updated to the most-common spelling.  Rows with
+    a missing MBID are left untouched.
+
+    Returns a *copy* of the DataFrame — the original is not mutated.
+    """
+    if mbid_col not in df.columns or not df[mbid_col].notna().any():
+        return df
+    if name_col not in df.columns:
+        return df
+
+    df = df.copy()
+
+    # Build a mapping: mbid -> most-frequent name spelling
+    canonical = (
+        df[df[mbid_col].notna()]
+        .groupby([mbid_col, name_col])
+        .size()
+        .reset_index(name="_n")
+        .sort_values("_n", ascending=False)
+        .drop_duplicates(subset=mbid_col, keep="first")
+        .set_index(mbid_col)[name_col]
+    )
+
+    mask = df[mbid_col].notna()
+    df.loc[mask, name_col] = df.loc[mask, mbid_col].map(canonical)
+    return df
+
+
 def _group_listens(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
-    """Internal helper to group listens by the specified entity type."""
+    """Internal helper to group listens by the specified entity type.
+
+    Before grouping, name columns are canonicalized via their MBID
+    counterpart so that case variations are merged (see
+    _normalize_names_by_mbid).
+    """
+    # Normalize name columns using MBIDs so case variants merge naturally.
+    df = _normalize_names_by_mbid(df, "artist", "artist_mbid")
+
     if group_col == "album":
+        df = _normalize_names_by_mbid(df, "album", "release_mbid")
         grouped = df.groupby(["artist", "album"]).agg(
             total_listens=("album", "count"),
             total_duration_ms=("duration_ms", "sum"),
@@ -215,12 +257,13 @@ def _group_listens(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
         )
 
     elif group_col == "track":
+        df = _normalize_names_by_mbid(df, "track_name", "recording_mbid")
         grouped = df.groupby(["artist", "track_name"]).agg(
             total_listens=("track_name", "count"),
             total_duration_ms=("duration_ms", "sum"),
             first_listened=("listened_at", "min"),
             last_listened=("listened_at", "max"),
-            album=("album", "first"), 
+            album=("album", "first"),
             artist_mbid=("artist_mbid", "first"),
             release_mbid=("release_mbid", "first"),
             recording_mbid=("recording_mbid", "first"),

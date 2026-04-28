@@ -11,6 +11,7 @@ from matplotlib.backends.backend_tkagg import (
 )
 from matplotlib.figure import Figure
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+from matplotlib.patches import Rectangle
 import matplotlib.patheffects as pe
 import pandas as pd
 import numpy as np
@@ -124,8 +125,10 @@ def _render_art_block(fig, subplot_spec, composite,
                       header_bg="#1a1a2e"):
     """Render a single art block: dark header row + composite image.
 
-    Used by both the album matrix (per-album blocks) and the entity matrix
-    (per-artist blocks). The header layout adapts to 2 or 3 lines of text.
+    Uses a single axes so that the header and image share the same data
+    coordinate x-range.  The image is rendered with aspect='equal' (always
+    square), and the header is a Rectangle patch spanning the same x-range,
+    guaranteeing the header width always matches the art width.
 
     Args:
         fig:           matplotlib Figure
@@ -137,49 +140,50 @@ def _render_art_block(fig, subplot_spec, composite,
         header_bg:     Header background colour
     """
     has_detail = detail is not None
-    header_ratio = 0.30 if has_detail else 0.22
+    # Header height as a fraction of image height (in data units)
+    hdr_h = 0.40 if has_detail else 0.28
 
-    inner_gs = GridSpecFromSubplotSpec(
-        2, 1,
-        subplot_spec=subplot_spec,
-        height_ratios=[header_ratio, 1.0],
-        hspace=0.0,
-    )
-
-    # --- Header ---
-    ax_hdr = fig.add_subplot(inner_gs[0, 0])
-    ax_hdr.set_xticks([]); ax_hdr.set_yticks([])
-    for sp in ax_hdr.spines.values():
+    ax = fig.add_subplot(subplot_spec)
+    ax.set_xticks([]); ax.set_yticks([])
+    for sp in ax.spines.values():
         sp.set_visible(False)
-    ax_hdr.set_facecolor(header_bg)
 
-    stroke_thin = [pe.withStroke(linewidth=1.5, foreground='black')]
-    stroke_bold = [pe.withStroke(linewidth=2, foreground='black')]
+    # Image occupies data coords [0, 1] × [0, 1]  (y=0 bottom, y=1 top).
+    # Header occupies [0, 1] × [1, 1+hdr_h] — same x-range, above image.
+    ax.imshow(composite[::-1], extent=[0, 1, 0, 1], origin='lower',
+              aspect='equal', zorder=1)
+
+    # Header background — shares the image's x-range so width always matches
+    ax.add_patch(Rectangle((0, 1), 1, hdr_h,
+                            facecolor=header_bg, edgecolor='none',
+                            zorder=2, clip_on=False))
+
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1 + hdr_h)
+
+    # --- Text (data coordinates, centred on x=0.5) ---
+    stroke_thin = [pe.withStroke(linewidth=2, foreground='black')]
+    stroke_bold = [pe.withStroke(linewidth=3, foreground='black')]
 
     if has_detail:
-        ax_hdr.text(0.5, 0.80, _format_text(title, 25, 1), ha='center', va='center',
-                    fontsize=9, weight='bold', color='white',
-                    transform=ax_hdr.transAxes, path_effects=stroke_bold)
-        ax_hdr.text(0.5, 0.45, _format_text(subtitle, 25, 1), ha='center', va='center',
-                    fontsize=8, color='#dddddd',
-                    transform=ax_hdr.transAxes, path_effects=stroke_thin)
-        ax_hdr.text(0.5, 0.15, detail, ha='center', va='center',
-                    fontsize=7, color='#cccccc',
-                    transform=ax_hdr.transAxes, path_effects=stroke_thin)
+        ax.text(0.5, 1 + hdr_h * 0.85, _format_text(title, 25, 2),
+                ha='center', va='top', fontsize=14, weight='bold',
+                color='white', path_effects=stroke_bold, zorder=3,
+                clip_on=False)
+        ax.text(0.5, 1 + hdr_h * 0.42, _format_text(subtitle, 25, 2),
+                ha='center', va='center', fontsize=12, color='#dddddd',
+                path_effects=stroke_thin, zorder=3, clip_on=False)
+        ax.text(0.5, 1 + hdr_h * 0.12, detail,
+                ha='center', va='center', fontsize=11, color='#cccccc',
+                path_effects=stroke_thin, zorder=3, clip_on=False)
     else:
-        ax_hdr.text(0.5, 0.65, _format_text(title, 30, 1), ha='center', va='center',
-                    fontsize=9, weight='bold', color='white',
-                    transform=ax_hdr.transAxes, path_effects=stroke_bold)
-        ax_hdr.text(0.5, 0.15, subtitle, ha='center', va='center',
-                    fontsize=7, color='#cccccc',
-                    transform=ax_hdr.transAxes, path_effects=stroke_thin)
-
-    # --- Art (single composite image) ---
-    ax_art = fig.add_subplot(inner_gs[1, 0])
-    ax_art.imshow(composite, aspect="equal")
-    ax_art.set_xticks([]); ax_art.set_yticks([])
-    for sp in ax_art.spines.values():
-        sp.set_visible(False)
+        ax.text(0.5, 1 + hdr_h * 0.78, _format_text(title, 30, 2),
+                ha='center', va='top', fontsize=14, weight='bold',
+                color='white', path_effects=stroke_bold, zorder=3,
+                clip_on=False)
+        ax.text(0.5, 1 + hdr_h * 0.15, subtitle,
+                ha='center', va='center', fontsize=11, color='#cccccc',
+                path_effects=stroke_thin, zorder=3, clip_on=False)
 
 
 def _format_text(text, max_chars=25, max_lines=2):
