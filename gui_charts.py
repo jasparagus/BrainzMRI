@@ -522,7 +522,7 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
     full_title = title_main
     if subtitle:
         full_title += " - " + subtitle
-    fig.suptitle(full_title, fontsize=14, weight="bold", y=0.98)
+    fig.suptitle(full_title, fontsize=10, weight="bold", y=0.98)
 
     outer_gs = GridSpec(
         nrows, ncols, figure=fig,
@@ -615,7 +615,7 @@ def show_entity_art_matrix(
     full_title = title_main
     if subtitle:
         full_title += " — " + subtitle
-    fig.suptitle(full_title, fontsize=14, weight="bold", y=0.98)
+    fig.suptitle(full_title, fontsize=10, weight="bold", y=0.98)
 
     outer_gs = GridSpec(
         outer_rows, outer_cols, figure=fig,
