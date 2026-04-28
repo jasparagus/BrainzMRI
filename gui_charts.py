@@ -595,12 +595,19 @@ def show_entity_art_matrix(
 
     n_artists = len(artist_data)
 
-    # Outer grid: arrange artists in a flowing grid (~5 columns)
-    outer_cols = min(5, n_artists)
+    # Layout: choose columns/rows to produce a landscape-friendly figure.
+    # Each block is ~1 wide × 1.3 tall (square art + header), so a naive
+    # sqrt layout would be too tall.  We target a figure aspect ratio of
+    # ~1.6:1 (landscape) and solve for the column count that achieves it:
+    #   (cols * block_w) / (rows * block_h) ≈ 1.6
+    #   cols / ceil(n/cols) * (1/1.3) ≈ 1.6  →  cols ≈ sqrt(n * 1.6 * 1.3)
+    block_aspect = 1.3   # height / width of each block (art + header)
+    target_ratio = 1.6   # desired figure width / height
+    outer_cols = max(1, min(n_artists, round(math.sqrt(n_artists * target_ratio * block_aspect))))
     outer_rows = math.ceil(n_artists / outer_cols)
 
-    fig_w = max(8, outer_cols * 3.5)
-    fig_h = max(5, outer_rows * 4.0)
+    fig_w = max(8, outer_cols * 3.0)
+    fig_h = max(5, outer_rows * 3.8)
     fig = Figure(figsize=(fig_w, fig_h), dpi=100)
 
     title_main = f"Art Matrix — {n_artists} Artists"
