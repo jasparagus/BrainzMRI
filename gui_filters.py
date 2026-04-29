@@ -65,9 +65,9 @@ class FilterComponent:
         # Top N
         tk.Label(frm_thresh, text="Top N (Results):").pack(side="left", padx=(0, 2))
         self.ent_topn = tk.Entry(frm_thresh, width=6)
-        self.ent_topn.insert(0, "200")
+        self.ent_topn.insert(0, "100")
         self.ent_topn.pack(side="left", padx=(0, 10))
-        self._add_tooltip(self.ent_topn, "Number of results to return.\nDefault: 200 results")
+        self._add_tooltip(self.ent_topn, "Number of results to return.\nDefault: 100 results")
 
         # Min Listens
         tk.Label(frm_thresh, text="Minimum Listen Count:").pack(side="left", padx=(0, 2))

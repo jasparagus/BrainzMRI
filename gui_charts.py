@@ -167,7 +167,7 @@ def _render_art_block(fig, subplot_spec, composite,
 
     if has_detail:
         ax.text(0.5, 1 + hdr_h * 0.85, _format_text(title, 25, 2),
-                ha='center', va='top', fontsize=14, weight='bold',
+                ha='center', va='top', fontsize=12, weight='bold',
                 color='white', path_effects=stroke_bold, zorder=3,
                 clip_on=False)
         ax.text(0.5, 1 + hdr_h * 0.42, _format_text(subtitle, 25, 2),
@@ -178,7 +178,7 @@ def _render_art_block(fig, subplot_spec, composite,
                 path_effects=stroke_thin, zorder=3, clip_on=False)
     else:
         ax.text(0.5, 1 + hdr_h * 0.78, _format_text(title, 30, 2),
-                ha='center', va='top', fontsize=14, weight='bold',
+                ha='center', va='top', fontsize=12, weight='bold',
                 color='white', path_effects=stroke_bold, zorder=3,
                 clip_on=False)
         ax.text(0.5, 1 + hdr_h * 0.15, subtitle,
@@ -490,8 +490,8 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
     logo_tile = _load_logo_tile()
     dark_tile = _make_dark_tile()
 
-    # Limit to 150 albums max
-    plot_df = df.head(150).copy()
+    # Limit to 100 albums max (was 150)
+    plot_df = df.head(100).copy()
     n = len(plot_df)
 
     # Calculate grid dimensions (favour wider-than-tall layouts)
@@ -522,7 +522,7 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
     full_title = title_main
     if subtitle:
         full_title += " - " + subtitle
-    fig.suptitle(full_title, fontsize=10, weight="bold", y=0.98)
+    fig.suptitle(full_title, fontsize=16, weight="bold", y=0.98)
 
     outer_gs = GridSpec(
         nrows, ncols, figure=fig,
@@ -615,7 +615,7 @@ def show_entity_art_matrix(
     full_title = title_main
     if subtitle:
         full_title += " — " + subtitle
-    fig.suptitle(full_title, fontsize=10, weight="bold", y=0.98)
+    fig.suptitle(full_title, fontsize=16, weight="bold", y=0.98)
 
     outer_gs = GridSpec(
         outer_rows, outer_cols, figure=fig,
