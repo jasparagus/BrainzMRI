@@ -176,6 +176,10 @@ BrainzMRI/
 
 # Roadmap
 
+## Likes Editing Improvements
+* Resolve Metadata should operate only on the currently filtered view (in the table) to facilitate cleanup of specific items rather than always resolving possibly thousands of likes (and repeatedly failing to find ones that are not possible to resolve).
+* Resolve Metadata does not seem to be using the local cache; please check behavior and confirm if there is an issue with speed.
+
 ## Presets for filters
 * Enable time selection with a few presets, such as ("Last Month", "Last Year", 20XX, etc., which will auto-populate the "days ago" or "last listened" filters). Will need to decide on a basic UI (dropdown?) which, when selected, will auto-populate the associated filter(s) relative to the current datetime.
 
@@ -184,7 +188,8 @@ BrainzMRI/
 
 ## Listen Deletion
 * Goal: Allow users to delete individual listens from their **ListenBrainz** and/or **Last.fm** history directly from the "Raw Listens" view.
-* Workflow: User selects rows in the Raw Listens table, clicks a "Delete Selected" button, confirms via dialog, and the selected listens are removed from the remote service(s) via API.
+* Workflow: User selects rows in the Raw Listens table (e.g. using Raw Listens, filtering to a specific undesired artist, track, or keyword), clicks a "Delete Selected" button, confirms via dialog, and the selected listens are removed from the remote service(s) via API.
+* Prioritize caution and user visibility when implementing. Ensure that the user is aware of what is being deleted and from where, and ensure nothing is deleted without explicit user confirmation.
 
 ## Streak Detection
 * Goal: Identify "Binge Listening" sessions for a specific artists, albums, or tracks, in which the user listened to multiple tracks from the same artist, album, or track in a short period of time (consecutive days/hours of specific artists, albums, or tracks above some automatic threshold using a simple statistical method to identify outliers).
