@@ -28,8 +28,8 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 * **Likes Audit:** A cross-platform comparison of your liked/loved tracks on both **ListenBrainz** and **Last.fm**. Shows `Last.fm Liked`, `ListenBrainz Liked`, and `Both Liked` status per track, with full MBID visibility for sorting and filtering.
 
 ### Rich Visualizations
-* **Album Art Matrix:** A grid visualization of album covers for "Top Albums" reports, fetching thumbnails from the **Cover Art Archive** and caching them locally. Uses a **release-group fallback** — if a specific release has no artwork, it automatically looks up the parent release group to find art from any pressing of the same album.
-* **Genre Treemap:** A rectangular visualization of genre dominance .
+* **Entity Art Matrices:** A grid visualization of album covers. For "Top Albums", it displays a grid of albums. For artist or track-level reports (e.g., Top Artists, Top Tracks, Raw Listens, Likes), it generates a square sub-grid of album covers per artist. Fetches thumbnails from the **Cover Art Archive** and caches them locally, with a fallback to the app logo if unavailable. Uses a **release-group fallback** — if a specific release has no artwork, it automatically looks up the parent release group to find art from any pressing of the same album.
+* **Genre Treemap:** A rectangular visualization of genre dominance.
 * **Stacked Area Chart:** Visualizes the "Favorite Trend" reports (Artist, Track, or Album), showing how entity dominance shifts over periods. Includes a subplot showing Relative Dominance (normalized percentage) alongside absolute listen counts.
 * **Stacked Bar Chart:** Visualizes the "New Music by Year" report, highlighting your discovery rates over time. Now includes a subplot comparing the ratio of New vs. Recurring tracks.
 
@@ -122,7 +122,8 @@ python gui_main.py
 
 
 4. **Visualize:**
-* For supported reports (Artist/Track/Album Trend, Genre Flavor, New Music, Top Albums), click **"Show Graph"** to open a stable, embedded matplotlib visualization window. For **Top Albums**, this displays an Album Art Matrix with cover art fetched from the Cover Art Archive.
+* For supported reports (Artist/Track/Album Trend, Genre Flavor, New Music), click **"Show Graph"** to open a stable, embedded matplotlib visualization window.
+* For entity-level reports (Top Artists, Top Albums, Top Tracks, Raw Listens, Likes, Imported Playlist), click **"Show Art Matrix"** to visualize the entities in a pleasing, album-art-focused layout.
 
 
 5. **Refine & Act:**
@@ -175,19 +176,7 @@ BrainzMRI/
 
 # Roadmap
 
-## Enter The Matrix 
-- Replace the current "Album Art Matrix" feature (hidden in "Show Graph" for "Top Albums") with a dedicated **"Show Art Matrix"** button (located next to "Show Graph"). This is a new visualization action (alongside "Show Graph" and "Save Report") available for most report types. It enables visualizing entities in a pleasing, album-art-focused way.
-- **Availability:** The button is enabled for **Top Artists**, **Top Albums**, **Top Tracks**, **Raw Listens**, **Likes**, and **Imported Playlist** reports. It is disabled for Genre Flavor, Trends, and New Music By Year (which lack entity-level data).
-- **Filter Respect:** The matrix operates on `filtered_df` (the post-filter table), so regex filters and any applied sorts are reflected in the visualization.
-- **Entity Modes:**
-  - **Albums (Top Albums):** Current Album Art Matrix behavior is preserved. Each album gets one cell with the existing annotation (artist name at top, album name in middle, listens + likes at bottom). The only change is that applied filters now affect which albums appear.
-  - **Artists / Tracks (Top Artists, Top Tracks, Raw Listens, Likes, Imported Playlist):** Each artist gets a **square sub-grid** of album art. The sub-grid size is `ceil(sqrt(n_albums))` per side (e.g., 3 albums → 2×2 grid with 1 empty cell; 7 albums → 3×3 grid with 2 empty cells). Albums are discovered by filtering the user's listening history to matching artists, applying the report's **time-range filters** (but not re-applying threshold filters like Top N or min listens). All albums for each artist within the filtered dataset are included, up to a **cap of 9 albums (3×3)** per artist. Overall, a **hard cap of 50 artists** is rendered.
-- **Annotations:**
-  - **Artist/Track mode:** Each sub-grid is labeled with the **artist name**, **total listens**, and **total likes** (artist-level aggregate). Individual album cells within the sub-grid have **no per-album annotations** (album art only) to avoid visual clutter.
-  - **Album mode:** Identical to the current Album Art Matrix (artist name, album name, listens + likes per cell).
-
-
-## Relative Time for Filter
+## Presets for filters
 * Enable time selection with a few presets, such as ("Last Month", "Last Year", 20XX, etc., which will auto-populate the "days ago" or "last listened" filters). Will need to decide on a basic UI (dropdown?) which, when selected, will auto-populate the associated filter(s) relative to the current datetime.
 
 ## Heatmaps
@@ -225,6 +214,5 @@ BrainzMRI/
 
 ## Miscellaneous Improvements and Fixes
 * Decide if a small bit of padding should be added at the top of the app UI to avoid clipping with the menu bar
-* Rename "Show Graph" to "Show Visualization" (two lines)
 * Rename track_name -> Track (in Raw Listens view)
 * Resolver Change: need to allow resolver to find Artist/Album/Track for items with an existing mbid but a missing title/artist/track info. This should help with likes sync to make the list richer. This is currently broken despite the rest of the feature working well.

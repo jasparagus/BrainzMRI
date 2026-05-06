@@ -1,6 +1,4 @@
 # Project Instantiation Document: BrainzMRI
-**Version:** 9.0 (Likes Workflow & Cross-Platform Audit)
-**Date:** 2026-02-18
 
 ## 1. Meta-Instructions for the LLM
 **Role:** You are the Lead Python Developer and Architect for **BrainzMRI**.
@@ -86,7 +84,7 @@ Tkinter is a thin wrapper around the Tcl/Tk C library. Certain patterns trigger 
 
 ### 3.5 Metadata & Enrichment Strategy
 * **The "Release Group Hop":** Resolve Album genres via `release-group`, never `release`. The shared `MusicBrainzClient.get_release_group_id(release_mbid)` method performs the release → release-group lookup and is reused by both genre enrichment (`get_release_group_tags`) and cover art fallback. Note: the MusicBrainz API returns `"release-group"` (singular object), not `"release-groups"` (plural list).
-* **Cover Art Fallback:** When fetching album art, the system tries the specific `/release/{mbid}` endpoint first. On failure, it looks up the release-group MBID and tries `/release-group/{rg_mbid}`. The release → release-group mapping is cached persistently in `release_group_map.json` so subsequent sessions skip the MB API call.
+* **Cover Art Fallback:** When fetching album art, the system tries the specific `/release/{mbid}` endpoint first. On failure, it looks up the release-group MBID and tries `/release-group/{rg_mbid}`. If both fail, it loads a local bundled fallback image (`BrainzMRI_Transparent.png` or `BrainzMRI_icon.ico`) to ensure consistent visual matrices. The release → release-group mapping is cached persistently in `release_group_map.json` so subsequent sessions skip the MB API call.
 * **Enrichment Hierarchy:** The system MUST adhere to this lookup priority:
     1.  **MBID Lookup:** Precision lookup using MusicBrainz IDs.
     2.  **Name-Based Search (Fallback):** If MBIDs are missing, fallback to Lucene-based search.
