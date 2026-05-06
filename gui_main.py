@@ -167,7 +167,7 @@ class BrainzMRIGUI:
 
 
 
-        self.REPORT_MODES = ["Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "Favorite Track Trend", "Favorite Album Trend", "New Music By Year", "Raw Listens", "Likes", "Imported Playlist"]
+        self.REPORT_MODES = ["Raw Listens", "Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "Favorite Track Trend", "Favorite Album Trend", "New Music By Year", "Likes", "Imported Playlist"]
 
         # Initialize Variables for Enrichment (Moved from Filters)
         self.enrichment_mode_var = tk.StringVar(value="None (Data Only, No Genres)")
@@ -261,7 +261,7 @@ class BrainzMRIGUI:
         frm_type.pack(side="left", padx=15, anchor="n")
         
         tk.Label(frm_type, text="Report Type").pack(anchor="w")
-        self.cmb_report = ttk.Combobox(frm_type, values=self.REPORT_MODES, state="readonly", width=18)
+        self.cmb_report = ttk.Combobox(frm_type, values=self.REPORT_MODES, state="readonly", width=18, height=15)
         self.cmb_report.current(0)
         self.cmb_report.pack(anchor="w")
         self.cmb_report.bind("<<ComboboxSelected>>", self.on_report_type_changed)
