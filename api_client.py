@@ -197,6 +197,14 @@ class MusicBrainzClient(BaseClient):
             "", t, flags=re.IGNORECASE
         )
 
+        # Remove modifier-prefixed version/mix/edit suffixes that the main regex missed.
+        # Handles: (Album Version), (Radio Edit), (Extended Mix), (Original Mix),
+        #          (Single Version), (LP Version), (Clean Version), (Acoustic Version), etc.
+        t = re.sub(
+            r"\s*[\(\[]\s*\w+\s+(?:version|mix|edit)\s*[\)\]]",
+            "", t, flags=re.IGNORECASE
+        )
+
         return t.strip()
 
     def search_recording_details(self, artist, track, album=None):

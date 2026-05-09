@@ -91,13 +91,83 @@ class ActionConfirmDialog(tk.Toplevel):
         self.destroy()
 
 
+class ResolveConfirmDialog(tk.Toplevel):
+    """
+    A modal dialog that lets the user choose between
+    Skip Previously Failed, Re-check Failures, or Cancel.
+    """
+    def __init__(self, parent, title, prompt):
+        super().__init__(parent)
+        self.result = None  # None=Cancel, True=skip_failures, False=re-check
+        self.title(title)
+        self.geometry("480x210")
+        self.resizable(False, False)
+
+        # Center relative to parent
+        try:
+            x = parent.winfo_rootx() + 50
+            y = parent.winfo_rooty() + 50
+            self.geometry(f"+{x}+{y}")
+        except:
+            pass
+
+        # Content
+        lbl = tk.Label(self, text=prompt, wraplength=440, justify="left", font=("Segoe UI", 10))
+        lbl.pack(pady=20, padx=20, fill="x")
+
+        # Buttons Frame
+        btn_frame = tk.Frame(self)
+        btn_frame.pack(pady=20)
+
+        # 1. Skip Previously Failed (default, fast)
+        btn_skip = tk.Button(
+            btn_frame, text="Skip Previously\nFailed (Fast)",
+            bg="#66BB6A", fg="white", font=("Segoe UI", 9, "bold"),
+            command=self.on_skip, width=18
+        )
+        btn_skip.pack(side="left", padx=8)
+        Hovertip(btn_skip, "Resolve new items only.\nSkip items that failed in a previous run.")
+
+        # 2. Re-check Failures
+        btn_recheck = tk.Button(
+            btn_frame, text="Re-check\nFailures (Slow)",
+            bg="#FFB74D", fg="white",
+            command=self.on_recheck, width=18
+        )
+        btn_recheck.pack(side="left", padx=8)
+        Hovertip(btn_recheck, "Retry ALL items, including\npreviously failed lookups.")
+
+        # 3. Cancel
+        btn_cancel = tk.Button(btn_frame, text="Cancel", command=self.on_cancel, width=10)
+        btn_cancel.pack(side="left", padx=8)
+
+        # Modal Setup
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self.on_cancel)
+        self.wait_window()
+
+    def on_skip(self):
+        self.result = True   # skip_failures = True
+        self.destroy()
+
+    def on_recheck(self):
+        self.result = False  # skip_failures = False
+        self.destroy()
+
+    def on_cancel(self):
+        self.result = None   # Abort
+        self.destroy()
+
+
 class ActionComponent:
-    def __init__(self, parent: tk.Frame, app_state, table_view, on_update_callback, force_var: tk.BooleanVar = None):
+    def __init__(self, parent: tk.Frame, app_state, table_view, on_update_callback, force_var: tk.BooleanVar = None, on_re_report_callback=None):
         self.parent = parent
         self.state = app_state
         self.table_view = table_view
         self.on_update_callback = on_update_callback
         self.force_var = force_var
+        self.on_re_report_callback = on_re_report_callback
 
         self.frame = tk.Frame(parent, bg="#ECEFF1", bd=1, relief="groove")
         self.frame.pack(fill="x", side="bottom", padx=5, pady=5) # Always Visible
@@ -490,35 +560,59 @@ class ActionComponent:
 
     def action_resolve(self):
         logging.info("User Action: Clicked 'Resolve Metadata'")
-        if self.state.last_report_df is None: return
+        if self.state.filtered_df is None: return
+
+        # Count items needing resolution in the FILTERED view
+        df_check = self.state.filtered_df
+        if "recording_mbid" in df_check.columns:
+            missing_count = df_check[
+                df_check["recording_mbid"].isna() | 
+                (df_check["recording_mbid"] == "") | 
+                (df_check["recording_mbid"] == "None")
+            ].shape[0]
+        else:
+            missing_count = len(df_check)
+
+        # Show resolve prompt dialog
+        dlg = ResolveConfirmDialog(
+            self.parent,
+            "Resolve Metadata",
+            f"Resolve metadata for {missing_count} items missing MBIDs in the current view.\n\n"
+            "Choose how to handle items that failed in previous attempts:"
+        )
+        if dlg.result is None:
+            return  # User cancelled
+        
+        skip_failures = dlg.result  # True = skip, False = re-check
+
+        # Capture current filter string for re-application after re-generate
+        saved_filter = ""
+        if self.table_view.filter_entry:
+            saved_filter = self.table_view.filter_entry.get().strip()
+        saved_filter_col = self.table_view.filter_by_var.get()
+
+        # Use FILTERED view as input
+        df_in = self.state.filtered_df.copy()
         
         win = ProgressWindow(self.frame, "Resolving Metadata...")
-        df_in = self.state.last_report_df.copy()
 
         def worker():
             try:
                 def cb(c, t, m):
                     if not win.winfo_exists(): return
-                    # m format: "Resolving [N OK / M Fail]  ✓ Artist - Track"
+                    # m format: "Resolving [N OK / M Fail / K Skip]  ✓ Artist - Track"
                     # Split into header (counts) and detail (item result)
                     parts = m.split("  ", 1)
-                    header = parts[0]  # "Resolving [N OK / M Fail]"
+                    header = parts[0]  # "Resolving [N OK / M Fail / K Skip]"
                     detail = parts[1] if len(parts) > 1 else ""  # "✓ Artist - Track"
                     win.update_progress(c, t, header)
                     if detail:
                         win.update_secondary(detail)
                 
-                # Use live variable if available, fallback to last params
-                if self.force_var:
-                    force = self.force_var.get()
-                    logging.info(f"Resolution using LIVE force_update={force}")
-                else:
-                    force = self.state.last_params.get("force_cache_update", False) if self.state.last_params else False
-                    logging.info(f"Resolution using STALE force_update={force}")
-                
-                df_res, ok, fail = enrichment.resolve_missing_mbids(
+                df_res, ok, fail, skipped = enrichment.resolve_missing_mbids(
                     df_in, 
-                    force_update=force,
+                    force_update=False,
+                    skip_failures=skip_failures,
                     progress_callback=cb, 
                     is_cancelled=lambda: win.cancelled
                 )
@@ -526,25 +620,24 @@ class ActionComponent:
                 def _finish():
                     if win.winfo_exists(): win.destroy()
                     
-                    # Re-apply Likes status to newly resolved MBIDs
-                    liked_mbids = self.state.user.get_liked_mbids()
-                    if "recording_mbid" in df_res.columns:
-                         df_res["Likes"] = df_res["recording_mbid"].apply(
-                             lambda x: 1 if x in liked_mbids else 0
-                         )
-
-                    self.state.last_report_df = df_res
-                    self.state.original_df = df_res.copy()
-                    self.state.filtered_df = df_res.copy()
-                    self.on_update_callback(df_res, ok, fail)
-                    messagebox.showinfo("Resolution Complete", f"Resolved: {ok}\nFailed: {fail}")
+                    # Show summary
+                    messagebox.showinfo(
+                        "Resolution Complete",
+                        f"Resolved: {ok}\nFailed: {fail}\nSkipped: {skipped}"
+                    )
+                    
+                    # Re-generate the report so all DataFrames are rebuilt
+                    # from the now-enriched resolver cache, then re-apply filter.
+                    if self.on_re_report_callback:
+                        self.on_re_report_callback(saved_filter, saved_filter_col)
+                    else:
+                        # Fallback: direct update (legacy behavior)
+                        self.on_update_callback(df_res, ok, fail)
 
                 win.after(0, _finish)
             except Exception as e:
                 logging.error(f"Resolution crashed: {e}", exc_info=True)
                 win.after(0, lambda: [win.destroy(), messagebox.showerror("Resolution Error", str(e))])
-
-
 
         threading.Thread(target=worker, daemon=True).start()
 

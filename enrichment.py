@@ -575,11 +575,19 @@ def enrich_report(
 def resolve_missing_mbids(
     df: pd.DataFrame,
     force_update: bool = False,
+    skip_failures: bool = True,
     progress_callback: Optional[Callable] = None,
     is_cancelled: Optional[Callable] = None
-) -> tuple[pd.DataFrame, int, int]:
+) -> tuple[pd.DataFrame, int, int, int]:
     """
     Attempt to find missing recording_mbids. Uses a persistent cache.
+
+    Args:
+        skip_failures: If True (default), previously-failed cache entries (None)
+                       are skipped instead of re-queried. Use False to retry them.
+
+    Returns:
+        (df, resolved_count, failed_count, skipped_count)
     """
     if "recording_mbid" not in df.columns:
         df["recording_mbid"] = ""
@@ -589,13 +597,6 @@ def resolve_missing_mbids(
     original_cache_size = len(results_map)
 
     # Identify rows needing resolution
-    # Logic: if force_update is True, we attempt to resolve ALL rows, even if they have MBIDs?
-    # NO, force_update usually means "re-fetch items that are in cache but maybe stale" OR "re-fetch items that failed".
-    # But here, we are iterating "unique_rows".
-    # For now, let's keep the mask strictly for "missing or empty" MBIDs in the DataFrame.
-    # The user wants to "Force a cache overwrite".
-    # This implies that if the item IS missing in DF, but IS in cache, we should ignore the cache and fetch again.
-    
     mask_missing = (
         (df["recording_mbid"].isna() | (df["recording_mbid"] == "") | (df["recording_mbid"] == "None")) &
         (df["artist"].notna() & (df["artist"] != "")) &
@@ -607,6 +608,7 @@ def resolve_missing_mbids(
     total = len(unique_rows)
     resolved_count = 0
     failed_count = 0
+    skipped_count = 0
     updates_since_save = 0
 
     for i, (_, row) in enumerate(unique_rows.iterrows()):
@@ -629,12 +631,17 @@ def resolve_missing_mbids(
         # Check Cache (bypass if force_update)
         if not force_update and key in results_map:
             cached = results_map[key]
-            # Skip only if the cache has a SUCCESSFUL result.
-            # Retry previously-failed entries (None) so new fallback logic can resolve them.
+            # Skip successful cache hits
             if cached and isinstance(cached, dict) and "mbid" in cached:
                 resolved_count += 1
                 if progress_callback:
-                    progress_callback(i, total, f"Resolving [{resolved_count} OK / {failed_count} Fail] (cached: {artist} - {track})")
+                    progress_callback(i, total, f"Resolving [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  (cached: {artist} - {track})")
+                continue
+            # Skip previously-failed entries when skip_failures is enabled
+            elif cached is None and skip_failures:
+                skipped_count += 1
+                if progress_callback:
+                    progress_callback(i, total, f"Resolving [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  (skip: {artist} - {track})")
                 continue
 
         try:
@@ -661,7 +668,7 @@ def resolve_missing_mbids(
             )
         
         if progress_callback:
-            progress_callback(i + 1, total, f"Resolving [{resolved_count} OK / {failed_count} Fail]  {status_icon} {artist} - {track}")
+            progress_callback(i + 1, total, f"Resolving [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  {status_icon} {artist} - {track}")
         
         # Periodic Save
         if updates_since_save >= 10:
@@ -710,4 +717,4 @@ def resolve_missing_mbids(
         df["recording_mbid"] = cols_out["recording_mbid"]
         df["album"] = cols_out["album"]
 
-    return df, resolved_count, failed_count
+    return df, resolved_count, failed_count, skipped_count

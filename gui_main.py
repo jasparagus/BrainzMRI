@@ -198,7 +198,7 @@ class BrainzMRIGUI:
         self.table_view = ReportTableView(root, self.frm_table, self.state)
 
         # 5. Actions (Now always visible)
-        self.actions = ActionComponent(root, self.state, self.table_view, self.on_data_updated, force_var=self.force_cache_var)
+        self.actions = ActionComponent(root, self.state, self.table_view, self.on_data_updated, force_var=self.force_cache_var, on_re_report_callback=self._re_report_after_resolve)
 
         # 6. Status Bar
         self.status_var = tk.StringVar(value="Ready.")
@@ -657,12 +657,54 @@ class BrainzMRIGUI:
         self.btn_generate.config(state="normal")
 
     def on_data_updated(self, new_df, resolved_count, failed_count):
-        """Callback from ActionComponent when data is resolved."""
+        """Callback from ActionComponent when data is resolved (legacy path)."""
         self.table_view.show_table(new_df)
         self.status_var.set(f"Resolved {resolved_count} items ({failed_count} failed).")
         # Refresh visibility of buttons (win=None, no progress window to close)
         self._on_report_done(new_df, self.state.last_meta, self.state.last_report_type_key, 
                              True, self.status_var.get(), self.state.last_mode)
+
+    def _re_report_after_resolve(self, saved_filter: str, saved_filter_col: str):
+        """Re-generate the current report after resolver cache update, then re-apply filter.
+        Called by ActionComponent.action_resolve after resolution completes.
+        The resolver cache has been updated on disk, so re-running the report
+        will pick up newly resolved MBIDs through the standard pipeline."""
+        logging.info(f"Re-generating report after resolve (filter='{saved_filter}', col='{saved_filter_col}')")
+        
+        # Store the callback to apply filter after report completes
+        self._pending_filter = saved_filter
+        self._pending_filter_col = saved_filter_col
+        
+        # Temporarily override _on_report_done to re-apply filter afterwards
+        original_done = self._on_report_done
+        
+        def done_with_refilter(result, meta, key, enriched, status, mode, win=None):
+            # Run the standard report-done handler
+            original_done(result, meta, key, enriched, status, mode, win)
+            
+            # Re-apply the saved filter
+            pf = getattr(self, '_pending_filter', '')
+            pfc = getattr(self, '_pending_filter_col', 'All')
+            if pf and self.table_view.filter_entry:
+                self.table_view.filter_entry.delete(0, tk.END)
+                self.table_view.filter_entry.insert(0, pf)
+                if pfc:
+                    self.table_view.filter_by_var.set(pfc)
+                self.table_view.apply_filter()
+                logging.info(f"Re-applied filter after resolve: '{pf}' (col={pfc})")
+            
+            # Clean up: restore original handler
+            self._on_report_done = original_done
+            if hasattr(self, '_pending_filter'):
+                del self._pending_filter
+            if hasattr(self, '_pending_filter_col'):
+                del self._pending_filter_col
+        
+        self._on_report_done = done_with_refilter
+        
+        # Re-run the report (this will use the updated resolver cache)
+        self.processing = False  # Clear guard so run_report proceeds
+        self.run_report()
 
     def save_report(self):
         logging.info("User Action: Clicked 'Save Report'")
