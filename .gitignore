@@ -4,6 +4,9 @@
 /temp/
 /tests/
 /Data/
+/venv/
+/.venv/
+/.env/
 *listenbrainz*.zip
 __pycache__/
 *.pyc
@@ -12,4 +15,5 @@ config.json
 *.note.*
 *.csv
 *.lnk
+*.kate-swp
 # *Instantiation*.md
