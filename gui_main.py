@@ -159,7 +159,15 @@ class BrainzMRIGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("BrainzMRI - ListenBrainz Metadata Review Instrument")
-        self.root.geometry("1000x900")
+        
+        # Apply display scaling from config
+        scale = config.display_scale
+        base_w, base_h = 1000, 900
+        self.root.geometry(f"{int(base_w * scale)}x{int(base_h * scale)}")
+        
+        # Scale Tkinter native point size
+        current_scaling = self.root.tk.call('tk', 'scaling')
+        self.root.tk.call('tk', 'scaling', current_scaling * scale)
         
         self.state = GUIState()
         self.report_engine = ReportEngine()

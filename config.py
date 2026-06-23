@@ -37,6 +37,7 @@ class AppConfig:
         self.lastfm_shared_secret = os.environ.get("BRAINZMRI_LASTFM_SECRET", "")
         self.log_level = "INFO" # none, INFO, DEBUG
         self.excluded_genres = []  # e.g. ["seen live", "spotify"] — lowercased at load
+        self.display_scale = 1.0  # Overall UI scaling factor
 
         # Initialize directories
         os.makedirs(self.cache_dir, exist_ok=True)
@@ -62,6 +63,7 @@ class AppConfig:
                     
                     self.log_level = data.get("log_level", "INFO")
                     self.excluded_genres = [g.lower().strip() for g in data.get("excluded_genres", [])]
+                    self.display_scale = data.get("display_scale", 1.0)
         except Exception as e:
             logging.error(f"Failed to load config: {e}")
 
@@ -73,7 +75,8 @@ class AppConfig:
             "lastfm_api_key": self.lastfm_api_key,
             "lastfm_shared_secret": self.lastfm_shared_secret,
             "log_level": self.log_level,
-            "excluded_genres": self.excluded_genres
+            "excluded_genres": self.excluded_genres,
+            "display_scale": self.display_scale
         }
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:

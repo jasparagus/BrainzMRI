@@ -43,7 +43,7 @@ class ActionConfirmDialog(tk.Toplevel):
             pass
 
         # Content
-        lbl = tk.Label(self, text=prompt, wraplength=400, justify="left", font=("Segoe UI", 10))
+        lbl = tk.Label(self, text=prompt, wraplength=400, justify="left", font=("sans-serif", 10))
         lbl.pack(pady=20, padx=20, fill="x")
 
         # Buttons Frame
@@ -53,7 +53,7 @@ class ActionConfirmDialog(tk.Toplevel):
         # 1. Execute (Red/Bold to indicate risk)
         btn_live = tk.Button(
             btn_frame, text="Execute (LIVE)", 
-            bg="#EF5350", fg="white", font=("Segoe UI", 9, "bold"),
+            bg="#EF5350", fg="white", font=("sans-serif", 9, "bold"),
             command=self.on_live, width=15
         )
         btn_live.pack(side="left", padx=10)
@@ -112,7 +112,7 @@ class ResolveConfirmDialog(tk.Toplevel):
             pass
 
         # Content
-        lbl = tk.Label(self, text=prompt, wraplength=440, justify="left", font=("Segoe UI", 10))
+        lbl = tk.Label(self, text=prompt, wraplength=440, justify="left", font=("sans-serif", 10))
         lbl.pack(pady=20, padx=20, fill="x")
 
         # Buttons Frame
@@ -122,7 +122,7 @@ class ResolveConfirmDialog(tk.Toplevel):
         # 1. Skip Previously Failed (default, fast)
         btn_skip = tk.Button(
             btn_frame, text="Skip Previously\nFailed (Fast)",
-            bg="#66BB6A", fg="white", font=("Segoe UI", 9, "bold"),
+            bg="#66BB6A", fg="white", font=("sans-serif", 9, "bold"),
             command=self.on_skip, width=18
         )
         btn_skip.pack(side="left", padx=8)
@@ -175,7 +175,7 @@ class ActionComponent:
         logging.info("TRACE: ActionComponent initialized")
 
         # UI Elements
-        tk.Label(self.frame, text="Actions:", bg="#ECEFF1", font=("Segoe UI", 9, "bold")).pack(side="left", padx=10, pady=5)
+        tk.Label(self.frame, text="Actions:", bg="#ECEFF1", font=("sans-serif", 9, "bold")).pack(side="left", padx=10, pady=5)
 
         self.btn_open_mb = tk.Button(self.frame, text="Search Item On\nMusicBrainz", bg="#81C784", command=self.action_open_musicbrainz)
         self.btn_open_mb.pack(side="left", padx=5, ipadx=5)

@@ -77,7 +77,7 @@ class HeaderComponent:
             self.frm_source,
             text="Active Source: User History",
             fg="gray",
-            font=("Segoe UI", 9, "italic")
+            font=("sans-serif", 9, "italic")
         )
         self.lbl_source_status.pack(side="left", padx=5)
 
@@ -87,7 +87,7 @@ class HeaderComponent:
             command=self.close_csv,
             bg="#FFCDD2",
             fg="black",
-            font=("Segoe UI", 8)
+            font=("sans-serif", 8)
         )
         
         # Initialize
