@@ -636,7 +636,7 @@ class BrainzMRIGUI:
             if mode in self.ART_MATRIX_MODES:
                 self.btn_art_matrix.config(state="normal", bg="#9C27B0", fg="white")
             else:
-                self.btn_art_matrix.config(state="disabled", bg="AD8DB0", fg="black")
+                self.btn_art_matrix.config(state="disabled", bg="#AD8DB0", fg="black")
             logging.info("TRACE: Art Matrix btn toggled")
 
             # Toggle Actions Panel
