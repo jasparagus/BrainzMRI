@@ -76,7 +76,7 @@ class UserEditorWindow(tk.Toplevel):
             text="\U0001F517 Connect Last.fm",
             command=self._start_lastfm_auth,
             bg="#D51007", fg="white",
-            font=("TkDefaultFont", 9, "bold"),
+            font="AppFontBold",
         )
         self.btn_lastfm_connect.pack(side="left", padx=(8, 0))
 

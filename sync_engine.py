@@ -46,7 +46,7 @@ class ProgressWindow(tk.Toplevel):
         self.lbl_status = tk.Label(self, text="Initializing...", anchor="w")
         self.lbl_status.pack(fill="x", padx=20, pady=(20, 5))
 
-        self.lbl_secondary = tk.Label(self, text="", anchor="w", fg="#666666", font=("sans-serif", 9))
+        self.lbl_secondary = tk.Label(self, text="", anchor="w", fg="#666666", font="AppFont")
         self.lbl_secondary.pack(fill="x", padx=20, pady=(0, 5))
 
         self.progress = ttk.Progressbar(self, orient="horizontal", mode="indeterminate")

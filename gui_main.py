@@ -6,6 +6,7 @@ Assemble UI components (Header, Filters, Table, Actions).
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+import tkinter.font as tkfont
 import threading
 import logging
 import sys
@@ -156,6 +157,34 @@ class GUIState:
 # Main Window
 # ======================================================================
 class BrainzMRIGUI:
+    def _setup_fonts(self, scale):
+        family = "sans-serif"
+        
+        s_normal = int(9 * scale)
+        s_small = int(8 * scale)
+        s_large = int(10 * scale)
+        
+        # Override default Tkinter named fonts so standard widgets automatically scale
+        default_font = tkfont.nametofont("TkDefaultFont")
+        default_font.configure(family=family, size=s_normal)
+        
+        text_font = tkfont.nametofont("TkTextFont")
+        text_font.configure(family=family, size=s_normal)
+        
+        fixed_font = tkfont.nametofont("TkFixedFont")
+        fixed_font.configure(size=s_normal)
+        
+        heading_font = tkfont.nametofont("TkHeadingFont")
+        heading_font.configure(family=family, size=s_normal, weight="bold")
+
+        # Create custom named fonts for specific stylistic needs
+        tkfont.Font(name="AppFont", family=family, size=s_normal)
+        tkfont.Font(name="AppFontItalic", family=family, size=s_normal, slant="italic")
+        tkfont.Font(name="AppFontBold", family=family, size=s_normal, weight="bold")
+        tkfont.Font(name="AppFontSmall", family=family, size=s_small)
+        tkfont.Font(name="AppFontLarge", family=family, size=s_large)
+        tkfont.Font(name="AppFontLargeBold", family=family, size=s_large, weight="bold")
+
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("BrainzMRI - ListenBrainz Metadata Review Instrument")
@@ -169,11 +198,12 @@ class BrainzMRIGUI:
         current_scaling = self.root.tk.call('tk', 'scaling')
         self.root.tk.call('tk', 'scaling', current_scaling * scale)
         
+        # Setup centralized named fonts
+        self._setup_fonts(scale)
+        
         self.state = GUIState()
         self.report_engine = ReportEngine()
         self.processing = False # Simple guard
-
-
 
         self.REPORT_MODES = ["Raw Listens", "Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "Favorite Track Trend", "Favorite Album Trend", "New Music By Year", "Likes", "Imported Playlist"]
 
