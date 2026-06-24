@@ -88,7 +88,7 @@ fi
 export UV_PYTHON_PREFERENCE="system"
 
 echo "Syncing virtual environment..."
-if ! uv sync --python system; then
+if ! uv sync --python-preference only-system; then
     echo ""
     echo "[ERROR] uv sync failed. Check the output above for details."
     echo ""
