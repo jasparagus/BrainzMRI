@@ -344,8 +344,8 @@ def show_new_music_stacked_bar(df: pd.DataFrame, parent=None):
     years = plot_df["Year"]
     
     # Colors
-    c_new = "#4CAF50" # Green
-    c_rec = "#2196F3" # Blue
+    c_new = "#2196F3" # Blue
+    c_rec = "#AF4C50" # Red
 
     # Iterate through columns (Artists, Albums, Tracks)
     # We add subplots dynamically: 231, 232, 233, etc.
