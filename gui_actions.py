@@ -31,7 +31,7 @@ class ActionConfirmDialog(tk.Toplevel):
         super().__init__(parent)
         self.result = None  # None=Cancel, True=DryRun, False=Live
         self.title(title)
-        self.geometry("450x200")
+        self.minsize(450, 180)
         self.resizable(False, False)
         
         # Center relative to parent (no update_idletasks — causes access violations)
@@ -62,14 +62,14 @@ class ActionConfirmDialog(tk.Toplevel):
         # 2. Dry Run (Green/Safe)
         btn_dry = tk.Button(
             btn_frame, text="Dry Run (Test)", 
-            bg="#66BB6A", fg="white",
+            bg="#66BB6A", fg="white", font="AppFontBold",
             command=self.on_dry, width=15
         )
         btn_dry.pack(side="left", padx=10)
         Hovertip(btn_dry, "Simulate the action.\nNo data will be sent.")
 
         # 3. Cancel
-        btn_cancel = tk.Button(btn_frame, text="Cancel", command=self.on_cancel, width=10)
+        btn_cancel = tk.Button(btn_frame, text="Cancel", command=self.on_cancel, font="AppFontBold", width=10)
         btn_cancel.pack(side="left", padx=10)
 
         # Modal Setup
@@ -100,7 +100,7 @@ class ResolveConfirmDialog(tk.Toplevel):
         super().__init__(parent)
         self.result = None  # None=Cancel, True=skip_failures, False=re-check
         self.title(title)
-        self.geometry("480x210")
+        self.minsize(480, 190)
         self.resizable(False, False)
 
         # Center relative to parent
@@ -131,14 +131,14 @@ class ResolveConfirmDialog(tk.Toplevel):
         # 2. Re-check Failures
         btn_recheck = tk.Button(
             btn_frame, text="Re-check\nFailures (Slow)",
-            bg="#FFB74D", fg="white",
+            bg="#FFB74D", fg="white", font="AppFontBold",
             command=self.on_recheck, width=18
         )
         btn_recheck.pack(side="left", padx=8)
         Hovertip(btn_recheck, "Retry ALL items, including\npreviously failed lookups.")
 
         # 3. Cancel
-        btn_cancel = tk.Button(btn_frame, text="Cancel", command=self.on_cancel, width=10)
+        btn_cancel = tk.Button(btn_frame, text="Cancel", command=self.on_cancel, font="AppFontBold", width=10)
         btn_cancel.pack(side="left", padx=8)
 
         # Modal Setup

@@ -25,7 +25,7 @@ class ProgressWindow(tk.Toplevel):
     def __init__(self, parent, title="Processing..."):
         super().__init__(parent)
         self.title(title)
-        self.geometry("400x175")
+        self.minsize(400, 160)
         self.resizable(False, False)
         self.parent = parent
         self.cancelled = False
@@ -35,8 +35,10 @@ class ProgressWindow(tk.Toplevel):
         # during transitional states (see Instantiation.md).
         def _center():
             try:
-                x = parent.winfo_x() + (parent.winfo_width() // 2) - (400 // 2)
-                y = parent.winfo_y() + (parent.winfo_height() // 2) - (150 // 2)
+                w = self.winfo_reqwidth()
+                h = self.winfo_reqheight()
+                x = parent.winfo_x() + (parent.winfo_width() // 2) - (w // 2)
+                y = parent.winfo_y() + (parent.winfo_height() // 2) - (h // 2)
                 self.geometry(f"+{x}+{y}")
             except Exception:
                 pass

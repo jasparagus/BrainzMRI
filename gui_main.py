@@ -157,33 +157,74 @@ class GUIState:
 # Main Window
 # ======================================================================
 class BrainzMRIGUI:
-    def _setup_fonts(self, scale):
-        family = "sans-serif"
-        
-        s_normal = int(9 * scale)
-        s_small = int(8 * scale)
-        s_large = int(10 * scale)
-        
-        # Override default Tkinter named fonts so standard widgets automatically scale
-        default_font = tkfont.nametofont("TkDefaultFont")
-        default_font.configure(family=family, size=s_normal)
-        
-        text_font = tkfont.nametofont("TkTextFont")
-        text_font.configure(family=family, size=s_normal)
-        
-        fixed_font = tkfont.nametofont("TkFixedFont")
-        fixed_font.configure(size=s_normal)
-        
-        heading_font = tkfont.nametofont("TkHeadingFont")
-        heading_font.configure(family=family, size=s_normal, weight="bold")
+    def _resolve_font_family(self):
+        """Probe available system font families for a clean cross-platform sans-serif font.
+        Must be called after tk.Tk() is created (font families require a live Tk interpreter).
+        """
+        available = set(tkfont.families())
+        # Preference order: clean cross-platform sans-serif fonts
+        for candidate in ("Segoe UI", "Helvetica Neue", "Helvetica",
+                          "Noto Sans", "DejaVu Sans", "Liberation Sans",
+                          "Arial", "sans-serif"):
+            if candidate in available:
+                return candidate
+        return "TkDefaultFont"  # Absolute last resort
 
-        # Create custom named fonts for specific stylistic needs
-        tkfont.Font(name="AppFont", family=family, size=s_normal)
-        tkfont.Font(name="AppFontItalic", family=family, size=s_normal, slant="italic")
-        tkfont.Font(name="AppFontBold", family=family, size=s_normal, weight="bold")
-        tkfont.Font(name="AppFontSmall", family=family, size=s_small)
-        tkfont.Font(name="AppFontLarge", family=family, size=s_large)
-        tkfont.Font(name="AppFontLargeBold", family=family, size=s_large, weight="bold")
+    def _setup_fonts(self, scale):
+        family = self._resolve_font_family()
+
+        # Base point sizes. Native `tk scaling` handles DPI scaling automatically,
+        # preserving linear scaling without double-scaling point sizes.
+        s_normal = 9
+        s_small = 8
+        s_large = 10
+
+        # ------------------------------------------------------------------
+        # 1. Override standard Tk named fonts so standard widgets automatically scale
+        # ------------------------------------------------------------------
+        for font_name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkCaptionFont"):
+            try:
+                tkfont.nametofont(font_name).configure(family=family, size=s_normal)
+            except Exception:
+                pass
+
+        try:
+            tkfont.nametofont("TkFixedFont").configure(size=s_normal)
+        except Exception:
+            pass
+
+        try:
+            tkfont.nametofont("TkHeadingFont").configure(family=family, size=s_normal, weight="bold")
+        except Exception:
+            pass
+
+        # ------------------------------------------------------------------
+        # 2. Register custom named fonts directly in Tcl's native font registry.
+        #    This prevents Tcl string lookup failure and fallback to Arial 15.
+        # ------------------------------------------------------------------
+        for name, f_fam, f_sz, f_wt, f_sl in [
+            ("AppFont", family, s_normal, "normal", "roman"),
+            ("AppFontItalic", family, s_normal, "normal", "italic"),
+            ("AppFontBold", family, s_normal, "bold", "roman"),
+            ("AppFontSmall", family, s_small, "normal", "roman"),
+            ("AppFontLarge", family, s_large, "normal", "roman"),
+            ("AppFontLargeBold", family, s_large, "bold", "roman"),
+        ]:
+            try:
+                if name in self.root.tk.call("font", "names"):
+                    self.root.tk.call("font", "configure", name, "-family", f_fam, "-size", f_sz, "-weight", f_wt, "-slant", f_sl)
+                else:
+                    self.root.tk.call("font", "create", name, "-family", f_fam, "-size", f_sz, "-weight", f_wt, "-slant", f_sl)
+            except Exception:
+                pass
+
+        # ------------------------------------------------------------------
+        # 3. Configure TTK Theme Style (including explicit Treeview row height)
+        # ------------------------------------------------------------------
+        style = ttk.Style()
+        style.configure(".", font=(family, s_normal))
+        style.configure("Treeview", font=(family, s_normal), rowheight=int(22 * scale))
+        style.configure("Treeview.Heading", font=(family, s_normal, "bold"))
 
     def __init__(self, root: tk.Tk):
         self.root = root
