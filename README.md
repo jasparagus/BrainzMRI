@@ -94,9 +94,11 @@ Double-click: `BrainzMRI.bat`
 Run:
 
 ```bash
-python gui_main.py
-
+./_BrainzMRI.sh
 ```
+
+*(Alternatively: `python gui_main.py`)*
+*Note:* `_BrainzMRI.sh` automatically checks system Python dependencies and verifies system Tk Xft/Freetype font scaling support.
 
 ---
 
@@ -175,10 +177,6 @@ BrainzMRI/
 ---
 
 # Roadmap
-
-## Likes Editing Improvements
-* Resolve Metadata should operate only on the currently filtered view (in the table) to facilitate cleanup of specific items rather than always resolving possibly thousands of likes (and repeatedly failing to find ones that are not possible to resolve).
-* Resolve Metadata does not seem to be using the local cache; please check behavior and confirm if there is an issue with speed.
 
 ## Presets for filters
 * Enable time selection with a few presets, such as ("Last Month", "Last Year", 20XX, etc., which will auto-populate the "days ago" or "last listened" filters). Will need to decide on a basic UI (dropdown?) which, when selected, will auto-populate the associated filter(s) relative to the current datetime.
