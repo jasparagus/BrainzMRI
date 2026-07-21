@@ -179,25 +179,23 @@ BrainzMRI/
 # Roadmap
 
 ## Presets for filters
-* Enable time selection with a few presets, such as ("Last Month", "Last Year", 20XX, etc., which will auto-populate the "days ago" or "last listened" filters). Will need to decide on a basic UI (dropdown?) which, when selected, will auto-populate the associated filter(s) relative to the current datetime.
+* Add a "Preset Report" button that will trigger some common reports (from a secondary modal), such as ("Last Month", "Last Year", 20XX, etc., which will auto-populate the "days ago" or "last listened" filters). Will need to decide on a basic UI (dropdown?) which, when selected, will auto-populate the associated filter(s) relative to the current datetime.
 
 ## Heatmaps
-* Goal: Visualizations for listening density (Hour of Day vs Day of Week).
-
-## Listen Deletion
-* Goal: Allow users to delete individual listens from their **ListenBrainz** and/or **Last.fm** history directly from the "Raw Listens" view.
-* Workflow: User selects rows in the Raw Listens table (e.g. using Raw Listens, filtering to a specific undesired artist, track, or keyword), clicks a "Delete Selected" button, confirms via dialog, and the selected listens are removed from the remote service(s) via API.
-* Prioritize caution and user visibility when implementing. Ensure that the user is aware of what is being deleted and from where, and ensure nothing is deleted without explicit user confirmation.
+* Goal: Visualization for listening density (Hour of Day vs Day of Week).
 
 ## Streak Detection
 * Goal: Identify "Binge Listening" sessions for a specific artists, albums, or tracks, in which the user listened to multiple tracks from the same artist, album, or track in a short period of time (consecutive days/hours of specific artists, albums, or tracks above some automatic threshold using a simple statistical method to identify outliers).
 * Workflow: add a new report type for "Binge Listens" that plots a graph of all 3 types of listens (artist, album, and track) and highlights the outliers as a function of time (within the filtered dataset) using the standard filters.
 
+## Listen Deletion [Currently Blocked by API Functionality]
+* Goal: Allow users to delete individual listens from their **ListenBrainz** and/or **Last.fm** history directly from the "Raw Listens" view.
+* Workflow: User selects rows in the Raw Listens table (e.g. using Raw Listens, filtering to a specific undesired artist, track, or keyword), clicks a "Delete Selected" button, confirms via dialog, and the selected listens are removed from the remote service(s) via API.
+* Prioritize caution and user visibility when implementing. Ensure that the user is aware of what is being deleted and from where, and ensure nothing is deleted without explicit user confirmation.
 
 ## Group Artists, Albums
 * Goal: reduce clutter from near-identical versions of similar (related) tracks and albums, such as deluxe or remasters.
 * Workflow: add a checkbox "Group Similar Albums, Artists, and Tracks" (or similar) that will group each artist, album (release), and track by its parent (higher-level, per MusicBrainz) mbid so that variants of the same artist, album, and/or track are grouped together. This will not modify the raw listen data, but should impact all reports for aggregation purposes. 
-
 
 ## Playlist Prep: Album Expansion Engine
 * Goal: Enable the creation of "Full Album" playlists from album-level reports (e.g., turning a "Top Albums of 2024" report into a playable track list).
@@ -213,7 +211,7 @@ BrainzMRI/
 * **Benefit:** This transforms abstract album statistics into actionable track lists, allowing users to immediately utilize the existing "Export to Playlist" or "Batch Like" features on full albums.
 
 ## Re-Evaluate Thresholds (duration)
-* The "duration" filter relies on poor quality track duration data, which is often missing or wrong. It is helpful to treat long tracks with appropriate weight, but is not particularly robust otherwise. Consider ways to effectively use it. Maybe add a duration cache per mbid?
+* The "duration" filter relies on poor quality track duration data, which is often missing or wrong. It is helpful to treat long tracks with appropriate weight, but is not particularly robust otherwise. Consider ways to effectively use it. Maybe add a duration cache per mbid, pulling the duration of some tracks from MusicBrianz for all resolved tracks? This would make the data robust. Would have to enable at the per-report level to be time-efficient.
 
 ## Miscellaneous Improvements and Fixes
 * Decide if a small bit of padding should be added at the top of the app UI to avoid clipping with the menu bar
