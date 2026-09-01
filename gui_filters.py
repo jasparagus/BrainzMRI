@@ -72,7 +72,7 @@ class FilterComponent:
         # Min Listens
         tk.Label(frm_thresh, text="Minimum Listen Count:").pack(side="left", padx=(0, 2))
         self.ent_min_listens = tk.Entry(frm_thresh, width=6)
-        self.ent_min_listens.insert(0, "10")
+        self.ent_min_listens.insert(0, "5")
         self.ent_min_listens.pack(side="left", padx=(0, 10))
         self._add_tooltip(self.ent_min_listens, "Minimum number of listens.\nWorks as an OR with minimum minutes.")
 
