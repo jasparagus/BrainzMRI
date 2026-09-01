@@ -32,7 +32,7 @@ from gui_header import HeaderComponent
 from gui_filters import FilterComponent
 from gui_actions import ActionComponent
 from gui_tableview import ReportTableView
-from gui_charts import show_entity_trend_chart, show_new_music_stacked_bar, show_genre_flavor_treemap, show_album_art_matrix, show_entity_art_matrix
+from gui_charts import show_entity_trend_chart, show_new_music_stacked_bar, show_genre_flavor_treemap, show_album_art_matrix, show_entity_art_matrix, render_album_art_matrix_image, render_entity_art_matrix_image
 import reporting
 import enrichment
 
@@ -878,7 +878,7 @@ class BrainzMRIGUI:
 
         mbids = df["release_mbid"].dropna().unique().tolist()
         if not mbids:
-            show_album_art_matrix(df, {}, filter_params=self.state.last_params, parent=self.root)
+            render_album_art_matrix_image(df, {}, filter_params=self.state.last_params, parent=self.root)
             return
 
         win = ProgressWindow(self.root, "Fetching cover art...")
@@ -899,14 +899,14 @@ class BrainzMRIGUI:
 
                 def render():
                     if win.winfo_exists(): win.close()
-                    show_album_art_matrix(df, cover_map, filter_params=params, parent=self.root)
+                    render_album_art_matrix_image(df, cover_map, filter_params=params, parent=self.root)
 
                 self.root.after(0, render)
             except Exception as e:
                 logging.error(f"Cover art fetch failed: {e}", exc_info=True)
                 self.root.after(0, lambda: [
                     win.close() if win.winfo_exists() else None,
-                    show_album_art_matrix(df, {}, filter_params=self.state.last_params, parent=self.root),
+                    render_album_art_matrix_image(df, {}, filter_params=self.state.last_params, parent=self.root),
                 ])
 
         threading.Thread(target=worker, daemon=True).start()
@@ -1024,7 +1024,7 @@ class BrainzMRIGUI:
 
         if not all_mbids:
             # No cover art to fetch — render immediately with empty map
-            show_entity_art_matrix(artist_data, {}, filter_params=self.state.last_params, parent=self.root)
+            render_entity_art_matrix_image(artist_data, {}, filter_params=self.state.last_params, parent=self.root)
             return
 
         win = ProgressWindow(self.root, "Fetching cover art...")
@@ -1045,14 +1045,14 @@ class BrainzMRIGUI:
 
                 def render():
                     if win.winfo_exists(): win.close()
-                    show_entity_art_matrix(artist_data, cover_map, filter_params=params, parent=self.root)
+                    render_entity_art_matrix_image(artist_data, cover_map, filter_params=params, parent=self.root)
 
                 self.root.after(0, render)
             except Exception as e:
                 logging.error(f"Entity art matrix cover art fetch failed: {e}", exc_info=True)
                 self.root.after(0, lambda: [
                     win.close() if win.winfo_exists() else None,
-                    show_entity_art_matrix(artist_data, {}, filter_params=self.state.last_params, parent=self.root),
+                    render_entity_art_matrix_image(artist_data, {}, filter_params=self.state.last_params, parent=self.root),
                 ])
 
         threading.Thread(target=worker, daemon=True).start()
