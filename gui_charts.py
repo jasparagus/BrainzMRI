@@ -225,6 +225,37 @@ def _build_filter_subtitle(filter_params):
     return " | ".join(subtitle_parts)
 
 
+def _compute_grid_layout(n):
+    """Choose (ncols, nrows) for *n* blocks, minimising empty cells
+    while targeting a landscape-friendly aspect ratio (~1.6:1).
+
+    The algorithm exhaustively tests column counts and scores each
+    candidate on empty-cell count (heavily penalised) plus deviation
+    from the ideal 1.6 column/row ratio.  This is used by both the
+    album and entity art matrices for consistent, tightly-packed grids.
+    """
+    if n <= 0:
+        return (1, 1)
+    best = None
+    start_c = max(1, math.isqrt(n))
+    for c in range(start_c, n + 2):
+        r = math.ceil(n / c)
+        if r == 0:
+            continue
+        ratio = c / r
+        if ratio < 0.8 or ratio > 2.2:
+            continue
+        empty_spots = (r * c) - n
+        score = (empty_spots * 10.0) + abs(ratio - 1.6)
+        if best is None or score < best[2]:
+            best = (c, r, score)
+    if best:
+        return (best[0], best[1])
+    # Fallback: slightly-wider-than-square
+    ncols = math.ceil(math.sqrt(n * 1.5))
+    return (ncols, math.ceil(n / ncols))
+
+
 # ================================================================
 # Entity Trend Charts
 # ================================================================
@@ -596,16 +627,8 @@ def show_entity_art_matrix(
 
     n_artists = len(artist_data)
 
-    # Layout: choose columns/rows to produce a landscape-friendly figure.
-    # Each block is ~1 wide × 1.3 tall (square art + header), so a naive
-    # sqrt layout would be too tall.  We target a figure aspect ratio of
-    # ~1.6:1 (landscape) and solve for the column count that achieves it:
-    #   (cols * block_w) / (rows * block_h) ≈ 1.6
-    #   cols / ceil(n/cols) * (1/1.3) ≈ 1.6  →  cols ≈ sqrt(n * 1.6 * 1.3)
-    block_aspect = 1.3   # height / width of each block (art + header)
-    target_ratio = 1.6   # desired figure width / height
-    outer_cols = max(1, min(n_artists, round(math.sqrt(n_artists * target_ratio * block_aspect))))
-    outer_rows = math.ceil(n_artists / outer_cols)
+    # Layout: minimise empty cells while targeting landscape aspect ratio
+    outer_cols, outer_rows = _compute_grid_layout(n_artists)
 
     fig_w = max(8, outer_cols * 3.0)
     fig_h = max(5, outer_rows * 3.8)
@@ -1024,26 +1047,8 @@ def render_album_art_matrix_image(
     plot_df = df.head(100).copy()
     n = len(plot_df)
 
-    # Grid layout -- identical logic to show_album_art_matrix()
-    best = None
-    start_c = max(1, math.isqrt(n))
-    for c in range(start_c, n + 2):
-        r = math.ceil(n / c)
-        if r == 0:
-            continue
-        ratio = c / r
-        if ratio < 0.8 or ratio > 2.2:
-            continue
-        empty_spots = (r * c) - n
-        score = (empty_spots * 10.0) + abs(ratio - 1.6)
-        if best is None or score < best[2]:
-            best = (c, r, score)
-
-    if best:
-        ncols, nrows = best[0], best[1]
-    else:
-        ncols = math.ceil(math.sqrt(n * 1.5))
-        nrows = math.ceil(n / ncols)
+    # Grid layout — shared algorithm (minimises empty cells)
+    ncols, nrows = _compute_grid_layout(n)
 
     block_w = RASTER_BLOCK_W
     header_h = RASTER_HEADER_3LINE  # Albums use 3-line headers
@@ -1119,15 +1124,8 @@ def render_entity_art_matrix_image(
 
     n_artists = len(artist_data)
 
-    # Layout -- identical logic to show_entity_art_matrix()
-    block_aspect = 1.3
-    target_ratio = 1.6
-    outer_cols = max(
-        1,
-        min(n_artists,
-            round(math.sqrt(n_artists * target_ratio * block_aspect))),
-    )
-    outer_rows = math.ceil(n_artists / outer_cols)
+    # Layout — shared grid algorithm (minimises empty cells)
+    outer_cols, outer_rows = _compute_grid_layout(n_artists)
 
     block_w = RASTER_BLOCK_W
     header_h = RASTER_HEADER_2LINE  # Entity uses 2-line headers
