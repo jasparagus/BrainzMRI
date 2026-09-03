@@ -150,9 +150,9 @@ Expect to receive the following files.
 | **`gui_main.py`** | **View/Controller** | Main Window, "Report Settings" Logic, and thread orchestration. |
 | **`gui_header.py`** | **View** | User/Source Selection UI. |
 | **`gui_filters.py`** | **View** | Strictly input widgets for Time, Recency, and Thresholds. (No Enrichment logic). |
-| **`gui_actions.py`** | **View/Controller** | Persistent Actions Bar (Like, Resolve, Playlist, Import). Manages button states (`update_state`). |
+| **`gui_actions.py`** | **View/Controller** | Persistent Actions Bar (Like, Resolve, Playlist, Import) and modal dialogs (`LikesSyncPromptDialog`, `ResolveConfirmDialog`, `ActionConfirmDialog`). Manages button states (`update_state`). |
 | **`gui_tableview.py`** | **View** | Treeview & Sort Logic. |
-| **`gui_charts.py`** | **View** | Matplotlib Visualization Logic (Embedded implementations). |
+| **`gui_charts.py`** | **View** | Matplotlib Visualization Logic (Embedded implementations for Entity Trends, Genre Treemap, Likes for Days Treemaps, Album Art Matrix). |
 | **`gui_user_editor.py`** | **View** | User Creation Dialog. |
 | **`report_engine.py`** | **Controller** | Pipeline Orchestration. |
 | **`sync_engine.py`** | **Controller** | Sync Threading & Barrier. |

@@ -700,18 +700,22 @@ def show_likes_for_days_windows(track_df: pd.DataFrame, artist_df: pd.DataFrame,
     win_albums = show_likes_for_days_albums_treemap(album_df, parent=parent) if album_df is not None and not album_df.empty else None
     win_tracks = show_likes_for_days_tracks_treemap(track_df, parent=parent)
 
-    try:
-        if win_artists:
-            x = win_artists.winfo_x()
-            y = win_artists.winfo_y()
-            if win_albums:
-                win_albums.geometry(f"+{x + 40}+{y + 40}")
-                win_albums.lift()
-            if win_tracks:
-                win_tracks.geometry(f"+{x + 80}+{y + 80}")
-                win_tracks.lift()
-    except Exception:
-        pass
+    def _cascade():
+        try:
+            if win_artists and win_artists.winfo_exists():
+                x = win_artists.winfo_x()
+                y = win_artists.winfo_y()
+                if win_albums and win_albums.winfo_exists():
+                    win_albums.geometry(f"+{x + 40}+{y + 40}")
+                    win_albums.lift()
+                if win_tracks and win_tracks.winfo_exists():
+                    win_tracks.geometry(f"+{x + 80}+{y + 80}")
+                    win_tracks.lift()
+        except Exception:
+            pass
+
+    if win_artists:
+        win_artists.after(20, _cascade)
 
     return win_tracks, win_artists, win_albums
 

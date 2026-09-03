@@ -127,8 +127,8 @@ Run:
 
 
 4. **Visualize:**
-* For supported reports (Artist/Track/Album Trend, Genre Flavor, New Music), click **"Show Graph"** to open a stable, embedded matplotlib visualization window.
-* For entity-level reports (Top Artists, Top Albums, Top Tracks, Raw Listens, Likes, Imported Playlist), click **"Show Art Matrix"** to visualize the entities in a pleasing, album-art-focused layout.
+* For supported reports (Artist/Track/Album Trend, Genre Flavor, New Music, Likes for Days), click **"Show Graph"** to open a stable, embedded matplotlib visualization window.
+* For entity-level reports (Top Artists, Top Albums, Top Tracks, Raw Listens, Likes, Likes for Days, Imported Playlist), click **"Show Art Matrix"** to visualize the entities in a pleasing, album-art-focused layout.
 
 
 5. **Refine & Act:**
@@ -215,7 +215,7 @@ BrainzMRI/
 * **Benefit:** This transforms abstract album statistics into actionable track lists, allowing users to immediately utilize the existing "Export to Playlist" or "Batch Like" features on full albums.
 
 ## Re-Evaluate Thresholds (duration)
-* The "duration" filter relies on poor quality track duration data, which is often missing or wrong. It is helpful to treat long tracks with appropriate weight, but is not particularly robust otherwise. Consider ways to effectively use it. Maybe add a duration cache per mbid, pulling the duration of some tracks from MusicBrianz for all resolved tracks? This would make the data robust. Would have to enable at the per-report level to be time-efficient.
+* The general "duration" filter currently relies on track duration data from history exports, which can sometimes be missing or imprecise. Track duration retrieval from MusicBrainz with persistent local caching has now been implemented for the **Likes for Days** pipeline (`cache/global/duration_cache.json`). Future work can explore generalizing this duration cache across standard Top-N reports to make general duration-based threshold filtering robust.
 
 ## Miscellaneous Improvements and Fixes
 * Decide if a small bit of padding should be added at the top of the app UI to avoid clipping with the menu bar

@@ -968,7 +968,8 @@ def get_resolved_likes(
     df: pd.DataFrame,
     liked_mbids: set,
     lastfm_loves: list = None,
-    resolver_cache: dict = None
+    resolver_cache: dict = None,
+    **kwargs
 ) -> pd.DataFrame:
     """
     Retrieve all resolved likes (ListenBrainz + Last.fm) that possess a valid recording_mbid.
@@ -1017,7 +1018,8 @@ def report_likes_for_days(
     df: pd.DataFrame,
     resolved_likes_df: pd.DataFrame,
     durations_map: dict[str, int],
-    topn: int = 100
+    topn: int = 100,
+    **kwargs
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """
     Compile 'Likes for Days' Top-N lists for Tracks, Artists, and Albums.
