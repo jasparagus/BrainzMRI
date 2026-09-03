@@ -951,9 +951,10 @@ class BrainzMRIGUI:
         if track_df is None or track_df.empty:
             track_df = self.state.last_report_df
         artist_df = self.state.last_meta.get("artist_df", pd.DataFrame())
+        album_df = self.state.last_meta.get("album_df", pd.DataFrame())
         if track_df is not None and not track_df.empty:
             from gui_charts import show_likes_for_days_windows
-            show_likes_for_days_windows(track_df, artist_df, parent=self.root)
+            show_likes_for_days_windows(track_df, artist_df, album_df, parent=self.root)
 
 
     # ----------------------------------------------------------

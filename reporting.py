@@ -220,8 +220,17 @@ def _normalize_names_by_mbid(df: pd.DataFrame, name_col: str, mbid_col: str) -> 
     df = df.copy()
 
     # Build a mapping: mbid -> most-frequent name spelling
+    valid_mask = (
+        df[mbid_col].notna() &
+        (df[mbid_col].astype(str).str.strip() != "") &
+        (df[mbid_col].astype(str).str.lower() != "nan") &
+        (df[mbid_col].astype(str).str.lower() != "none")
+    )
+    if not valid_mask.any():
+        return df
+
     canonical = (
-        df[df[mbid_col].notna()]
+        df[valid_mask]
         .groupby([mbid_col, name_col])
         .size()
         .reset_index(name="_n")
@@ -230,8 +239,7 @@ def _normalize_names_by_mbid(df: pd.DataFrame, name_col: str, mbid_col: str) -> 
         .set_index(mbid_col)[name_col]
     )
 
-    mask = df[mbid_col].notna()
-    df.loc[mask, name_col] = df.loc[mask, mbid_col].map(canonical)
+    df.loc[valid_mask, name_col] = df.loc[valid_mask, mbid_col].map(canonical)
     return df
 
 
@@ -747,6 +755,8 @@ def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list =
                                     "ListenBrainz Liked": 1,
                                     "Last.fm Liked": 0,
                                     "recording_mbid": mbid,
+                                    "artist_mbid": str(best_row.get("artist_mbid", "")).strip(),
+                                    "release_mbid": str(best_row.get("release_mbid", "")).strip(),
                                 })
                             else:
                                 # Use the names from cache even without history match
@@ -757,6 +767,8 @@ def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list =
                                     "ListenBrainz Liked": 1,
                                     "Last.fm Liked": 0,
                                     "recording_mbid": mbid,
+                                    "artist_mbid": "",
+                                    "release_mbid": "",
                                 })
                             found_name = True
                             break
@@ -770,6 +782,8 @@ def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list =
                         "ListenBrainz Liked": 1,
                         "Last.fm Liked": 0,
                         "recording_mbid": mbid,
+                        "artist_mbid": "",
+                        "release_mbid": "",
                     })
                 continue
             
@@ -793,6 +807,8 @@ def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list =
                 "ListenBrainz Liked": 1,
                 "Last.fm Liked": 0,
                 "recording_mbid": mbid,
+                "artist_mbid": str(best.get("artist_mbid", "")).strip(),
+                "release_mbid": str(best.get("release_mbid", "")).strip(),
             })
     elif liked_mbids:
         # No listening history but have MBIDs — include with empty fields
@@ -804,6 +820,8 @@ def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list =
                 "ListenBrainz Liked": 1,
                 "Last.fm Liked": 0,
                 "recording_mbid": mbid,
+                "artist_mbid": "",
+                "release_mbid": "",
             })
     
     # ------------------------------------------------------------------
@@ -869,6 +887,8 @@ def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list =
                 "ListenBrainz Liked": 0,
                 "Last.fm Liked": 1,
                 "recording_mbid": mbid or "",
+                "artist_mbid": "",
+                "release_mbid": "",
             })
     
     # ------------------------------------------------------------------
@@ -878,7 +898,7 @@ def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list =
         result = pd.DataFrame(columns=[
             "track_name", "artist", "album", 
             "Last.fm Liked", "ListenBrainz Liked", "Both Liked", 
-            "recording_mbid"
+            "recording_mbid", "artist_mbid", "release_mbid"
         ])
     else:
         result = pd.DataFrame(rows)
@@ -893,7 +913,7 @@ def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list =
         # Column order
         col_order = ["track_name", "artist", "album", 
                      "Last.fm Liked", "ListenBrainz Liked", "Both Liked", 
-                     "recording_mbid"]
+                     "recording_mbid", "artist_mbid", "release_mbid"]
         result = result[[c for c in col_order if c in result.columns]]
     
     meta = {
@@ -976,7 +996,7 @@ def get_resolved_likes(
         mbid_lookup = df[df["recording_mbid"].notna()].drop_duplicates(subset=["recording_mbid"]).set_index("recording_mbid")
         for idx, row in resolved_df.iterrows():
             mbid = row["recording_mbid"]
-            if (not row.get("artist") or not row.get("track_name")) and mbid in mbid_lookup.index:
+            if mbid in mbid_lookup.index:
                 hist_row = mbid_lookup.loc[mbid]
                 if not row.get("artist"):
                     resolved_df.at[idx, "artist"] = hist_row.get("artist", "")
@@ -984,6 +1004,10 @@ def get_resolved_likes(
                     resolved_df.at[idx, "track_name"] = hist_row.get("track_name", "")
                 if not row.get("album"):
                     resolved_df.at[idx, "album"] = hist_row.get("album", "")
+                if not row.get("artist_mbid") and "artist_mbid" in hist_row:
+                    resolved_df.at[idx, "artist_mbid"] = hist_row.get("artist_mbid", "")
+                if not row.get("release_mbid") and "release_mbid" in hist_row:
+                    resolved_df.at[idx, "release_mbid"] = hist_row.get("release_mbid", "")
 
     return resolved_df.reset_index(drop=True)
 
@@ -994,9 +1018,9 @@ def report_likes_for_days(
     resolved_likes_df: pd.DataFrame,
     durations_map: dict[str, int],
     topn: int = 100
-) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """
-    Compile 'Likes for Days' Top-N lists for Tracks and Artists.
+    Compile 'Likes for Days' Top-N lists for Tracks, Artists, and Albums.
 
     Args:
         df: User listening history DataFrame.
@@ -1005,7 +1029,7 @@ def report_likes_for_days(
         topn: Maximum number of rows to return for Top-N lists.
 
     Returns:
-        (track_df, artist_df, meta)
+        (track_df, artist_df, album_df, meta)
     """
     if resolved_likes_df.empty or df.empty:
         empty_tracks = pd.DataFrame(columns=[
@@ -1015,7 +1039,17 @@ def report_likes_for_days(
         empty_artists = pd.DataFrame(columns=[
             "artist", "Likes", "listens", "total_duration_ms", "Total Time", "track_count"
         ])
-        return empty_tracks, empty_artists, {"entity": "likes_for_days", "topn": topn}
+        empty_albums = pd.DataFrame(columns=[
+            "artist", "album", "Likes", "listens", "total_duration_ms", "Total Time", "track_count"
+        ])
+        return empty_tracks, empty_artists, empty_albums, {
+            "entity": "likes_for_days",
+            "topn": topn,
+            "metric": "duration",
+            "artist_df": empty_artists,
+            "album_df": empty_albums,
+            "track_df": empty_tracks,
+        }
 
     # 1. Precompute listen counts from history
     mbid_counts = {}
@@ -1035,6 +1069,18 @@ def report_likes_for_days(
         artist = str(row.get("artist", "")).strip()
         track_name = str(row.get("track_name", "")).strip()
         album = str(row.get("album", "")).strip()
+        artist_mbid = str(row.get("artist_mbid", "")).strip()
+        release_mbid = str(row.get("release_mbid", "")).strip()
+
+        # Fallback to history for artist_mbid / release_mbid if missing
+        if not artist_mbid and not df.empty and "recording_mbid" in df.columns and "artist_mbid" in df.columns:
+            m = df[df["recording_mbid"] == mbid]
+            if not m.empty and pd.notna(m["artist_mbid"].iloc[0]):
+                artist_mbid = str(m["artist_mbid"].iloc[0]).strip()
+        if not release_mbid and not df.empty and "recording_mbid" in df.columns and "release_mbid" in df.columns:
+            m = df[df["recording_mbid"] == mbid]
+            if not m.empty and pd.notna(m["release_mbid"].iloc[0]):
+                release_mbid = str(m["release_mbid"].iloc[0]).strip()
 
         # Count listens by MBID or canonical names
         c_mbid = mbid_counts.get(mbid, 0)
@@ -1068,6 +1114,8 @@ def report_likes_for_days(
             "duration_ms": int(duration_ms),
             "Likes": 1,
             "recording_mbid": mbid,
+            "artist_mbid": artist_mbid,
+            "release_mbid": release_mbid,
         })
 
     if not track_rows:
@@ -1078,9 +1126,39 @@ def report_likes_for_days(
         empty_artists = pd.DataFrame(columns=[
             "artist", "Likes", "listens", "total_duration_ms", "Total Time", "track_count"
         ])
-        return empty_tracks, empty_artists, {"entity": "likes_for_days", "topn": topn}
+        empty_albums = pd.DataFrame(columns=[
+            "artist", "album", "Likes", "listens", "total_duration_ms", "Total Time", "track_count"
+        ])
+        return empty_tracks, empty_artists, empty_albums, {
+            "entity": "likes_for_days",
+            "topn": topn,
+            "metric": "duration",
+            "artist_df": empty_artists,
+            "album_df": empty_albums,
+            "track_df": empty_tracks,
+        }
 
     full_track_df = pd.DataFrame(track_rows)
+
+    # 1. Normalize name columns using MBIDs so case/spelling variants merge
+    full_track_df = _normalize_names_by_mbid(full_track_df, "artist", "artist_mbid")
+    full_track_df = _normalize_names_by_mbid(full_track_df, "album", "release_mbid")
+
+    # 2. Case-insensitive canonicalization fallback (e.g. for tracks lacking MBID or remaining casing diffs)
+    if "artist" in full_track_df.columns and not full_track_df.empty:
+        artist_lower_to_canonical = full_track_df.groupby(full_track_df["artist"].str.lower())["artist"].agg(
+            lambda s: s.mode().iloc[0] if not s.empty else ""
+        ).to_dict()
+        full_track_df["artist"] = full_track_df["artist"].str.lower().map(artist_lower_to_canonical)
+
+    if "album" in full_track_df.columns and not full_track_df.empty:
+        full_track_df["album"] = full_track_df["album"].fillna("").astype(str).str.strip()
+        full_track_df.loc[full_track_df["album"] == "", "album"] = "[Unknown Album]"
+        album_lower_to_canonical = full_track_df.groupby(full_track_df["album"].str.lower())["album"].agg(
+            lambda s: s.mode().iloc[0] if not s.empty else "[Unknown Album]"
+        ).to_dict()
+        full_track_df["album"] = full_track_df["album"].str.lower().map(album_lower_to_canonical)
+
     # Sort by total listen duration descending, then by listen count
     full_track_df = full_track_df.sort_values(
         by=["total_duration_ms", "listens"],
@@ -1105,28 +1183,65 @@ def report_likes_for_days(
         })
 
     full_artist_df = pd.DataFrame(artist_rows)
-    full_artist_df = full_artist_df.sort_values(
-        by=["total_duration_ms", "listens"],
-        ascending=[False, False]
-    ).reset_index(drop=True)
+    if not full_artist_df.empty:
+        full_artist_df = full_artist_df.sort_values(
+            by=["total_duration_ms", "listens"],
+            ascending=[False, False]
+        ).reset_index(drop=True)
+    else:
+        full_artist_df = pd.DataFrame(columns=[
+            "artist", "Likes", "listens", "total_duration_ms", "Total Time", "track_count"
+        ])
+
+    # 4. Build Album list from all qualifying liked tracks
+    album_groups = full_track_df.groupby(["artist", "album"])
+    album_rows = []
+    for (art_name, alb_name), grp in album_groups:
+        total_alb_duration = grp["total_duration_ms"].sum()
+        total_alb_listens = grp["listens"].sum()
+        unique_likes = len(grp)  # Count of qualifying liked tracks for this album
+
+        album_rows.append({
+            "artist": art_name,
+            "album": alb_name,
+            "Likes": int(unique_likes),
+            "listens": int(total_alb_listens),
+            "total_duration_ms": int(total_alb_duration),
+            "Total Time": format_human_duration(total_alb_duration),
+            "track_count": int(unique_likes),
+        })
+
+    full_album_df = pd.DataFrame(album_rows)
+    if not full_album_df.empty:
+        full_album_df = full_album_df.sort_values(
+            by=["total_duration_ms", "listens"],
+            ascending=[False, False]
+        ).reset_index(drop=True)
+    else:
+        full_album_df = pd.DataFrame(columns=[
+            "artist", "album", "Likes", "listens", "total_duration_ms", "Total Time", "track_count"
+        ])
 
     # Apply Top-N truncation
     if topn and topn > 0:
         top_track_df = full_track_df.head(topn).copy()
         top_artist_df = full_artist_df.head(topn).copy()
+        top_album_df = full_album_df.head(topn).copy()
     else:
         top_track_df = full_track_df.copy()
         top_artist_df = full_artist_df.copy()
+        top_album_df = full_album_df.copy()
 
     meta = {
         "entity": "likes_for_days",
         "topn": topn,
         "metric": "duration",
         "artist_df": top_artist_df,
+        "album_df": top_album_df,
         "track_df": top_track_df,
     }
 
-    return top_track_df, top_artist_df, meta
+    return top_track_df, top_artist_df, top_album_df, meta
 
 
 # ------------------------------------------------------------

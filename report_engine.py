@@ -264,7 +264,7 @@ class ReportEngine:
 
             if progress_callback: progress_callback(90, 100, "Compiling Top-N lists...")
 
-            track_df, artist_df, result_meta = reporting.report_likes_for_days(
+            track_df, artist_df, album_df, result_meta = reporting.report_likes_for_days(
                 df=df,
                 resolved_likes_df=resolved_likes_df,
                 durations_map=durations_map,
