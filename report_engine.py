@@ -205,7 +205,7 @@ class ReportEngine:
                 return pd.DataFrame(), {}, handler["report_type_key"], False, "No resolved likes found."
 
             # Pre-filter candidates with >= 2 listens to avoid unnecessary API calls
-            if progress_callback: progress_callback(25, 100, "Filtering tracks with 2+ listens...")
+            if progress_callback: progress_callback(25, 100, f"Filtering tracks with 2+ listens (from {len(resolved_likes_df)} resolved likes)...")
 
             mbid_counts = {}
             if "recording_mbid" in df.columns:
@@ -216,14 +216,18 @@ class ReportEngine:
             if "artist" in df.columns and "track_name" in df.columns:
                 name_counts = df.groupby([df["artist"].str.lower().str.strip(), df["track_name"].str.lower().str.strip()]).size().to_dict()
 
+            seen_mbids = set()
             candidate_tracks = []
             for _, row in resolved_likes_df.iterrows():
                 mbid = str(row.get("recording_mbid", "")).strip()
+                if not mbid or mbid.lower() in ("none", "nan", "") or mbid in seen_mbids:
+                    continue
                 artist = str(row.get("artist", "")).strip()
                 track_name = str(row.get("track_name", "")).strip()
                 c_mbid = mbid_counts.get(mbid, 0)
                 c_name = name_counts.get((artist.lower(), track_name.lower()), 0) if (artist and track_name) else 0
                 if max(c_mbid, c_name) >= 2:
+                    seen_mbids.add(mbid)
                     candidate_tracks.append({
                         "recording_mbid": mbid,
                         "artist": artist,
@@ -240,7 +244,7 @@ class ReportEngine:
                 return pd.DataFrame(), {}, "", False, "Cancelled."
 
             # Fetch durations with persistent caching and progress feedback
-            if progress_callback: progress_callback(40, 100, f"Fetching durations for {len(candidate_tracks)} tracks...")
+            if progress_callback: progress_callback(40, 100, f"Fetching durations for {len(candidate_tracks)} qualifying tracks (2+ listens)...")
 
             def duration_progress(cur, tot, msg):
                 if progress_callback and tot > 0:

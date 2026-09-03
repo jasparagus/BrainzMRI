@@ -602,7 +602,13 @@ class BrainzMRIGUI:
                     # This prevents TclError if 'win' is destroyed before callback runs.
                     def cb(c, t, m):
                         if not win.cancelled:
-                            self.root.after(0, lambda: win.update_progress(c, t, m))
+                            parts = m.split("  ", 1)
+                            header = parts[0]
+                            detail = parts[1] if len(parts) > 1 else ""
+                            self.root.after(0, lambda _c=c, _t=t, _h=header, _d=detail: [
+                                win.update_progress(_c, _t, _h),
+                                win.update_secondary(_d)
+                            ])
 
                     # Optional Pre-Flight Stage: Sync & Resolve
                     if sync_and_resolve:
@@ -650,38 +656,29 @@ class BrainzMRIGUI:
                         cb(25, 100, "Resolving unmapped likes...")
                         try:
                             loves_list = params.get("lastfm_loves") or []
-                            resolver_cache = enrichment.get_resolver_cache()
                             unmapped_rows = []
                             for love in loves_list:
                                 a = love.get("artist", "").strip()
                                 t = love.get("track", "").strip()
                                 m = love.get("mbid", "")
                                 if not m or str(m).strip().lower() in ("none", "nan", ""):
-                                    k = parsing.make_track_key(a, t, "")
-                                    if k not in resolver_cache:
-                                        unmapped_rows.append({"artist": a, "track_name": t, "album": "", "recording_mbid": ""})
+                                    unmapped_rows.append({"artist": a, "track_name": t, "album": "", "recording_mbid": ""})
 
                             if unmapped_rows:
                                 unmapped_df = pd.DataFrame(unmapped_rows).drop_duplicates(subset=["artist", "track_name"])
-                                def resolve_cb(c, t, m):
-                                    if not win.cancelled:
-                                        parts = m.split("  ", 1)
-                                        header = parts[0]
-                                        detail = parts[1] if len(parts) > 1 else ""
-                                        self.root.after(0, lambda _c=c, _t=t, _h=header, _d=detail: [
-                                            win.update_progress(_c, _t, _h),
-                                            win.update_secondary(_d) if _d else None
-                                        ])
-
+                                is_force = params.get("force_cache_update", False)
                                 enrichment.resolve_missing_mbids(
                                     unmapped_df,
-                                    force_update=False,
-                                    skip_failures=True,
-                                    progress_callback=resolve_cb,
+                                    force_update=is_force,
+                                    skip_failures=not is_force,
+                                    progress_callback=cb,
                                     is_cancelled=lambda: win.cancelled
                                 )
                         except Exception as e:
                             logging.warning(f"Likes resolution warning: {e}")
+
+                        if not win.cancelled:
+                            self.root.after(0, lambda: win.update_secondary(""))
 
                         if win.cancelled:
                             self.root.after(0, lambda: self._on_report_done(pd.DataFrame(), {}, "", False, "Cancelled.", params['mode'], win))

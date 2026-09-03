@@ -652,13 +652,13 @@ def resolve_missing_mbids(
             if cached and isinstance(cached, dict) and "mbid" in cached:
                 resolved_count += 1
                 if progress_callback:
-                    progress_callback(i, total, f"Resolving [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  (cached: {artist} - {track})")
+                    progress_callback(i + 1, total, f"Resolving ({i + 1}/{total}) [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  ✓ (cached) {artist} - {track}")
                 continue
             # Skip previously-failed entries when skip_failures is enabled
             elif cached is None and skip_failures:
                 skipped_count += 1
                 if progress_callback:
-                    progress_callback(i, total, f"Resolving [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  (skip: {artist} - {track})")
+                    progress_callback(i + 1, total, f"Resolving ({i + 1}/{total}) [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  ↷ (skipped) {artist} - {track}")
                 continue
 
         try:
@@ -685,7 +685,7 @@ def resolve_missing_mbids(
             )
         
         if progress_callback:
-            progress_callback(i + 1, total, f"Resolving [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  {status_icon} {artist} - {track}")
+            progress_callback(i + 1, total, f"Resolving ({i + 1}/{total}) [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  {status_icon} {artist} - {track}")
         
         # Periodic Save
         if updates_since_save >= 10:
@@ -765,9 +765,9 @@ def fetch_recording_durations(
     durations: dict[str, int] = {}
     total = len(tracks)
 
-    ok_count = 0
-    fail_count = 0
     cached_count = 0
+    fetched_count = 0
+    fail_count = 0
     updates_since_save = 0
 
     for i, item in enumerate(tracks):
@@ -787,9 +787,8 @@ def fetch_recording_durations(
             cached_entry = duration_cache[mbid]
             dur_ms = cached_entry.get("duration_ms", 0) if isinstance(cached_entry, dict) else int(cached_entry or 0)
             durations[mbid] = dur_ms
-            cached_count += 1
             if dur_ms > 0:
-                ok_count += 1
+                cached_count += 1
                 status_icon = "✓"
             else:
                 fail_count += 1
@@ -798,7 +797,7 @@ def fetch_recording_durations(
             if progress_callback:
                 progress_callback(
                     i + 1, total,
-                    f"Fetching Durations [{ok_count} OK / {fail_count} Fail / {cached_count} Cached]  {status_icon} {artist} - {track_name}"
+                    f"Fetching Durations ({i + 1}/{total}) [{cached_count} Cached / {fetched_count} Fetched / {fail_count} Fail]  {status_icon} {artist} - {track_name}"
                 )
             continue
 
@@ -829,7 +828,7 @@ def fetch_recording_durations(
         updates_since_save += 1
 
         if dur_ms > 0:
-            ok_count += 1
+            fetched_count += 1
             status_icon = "✓"
         else:
             fail_count += 1
@@ -848,7 +847,7 @@ def fetch_recording_durations(
         if progress_callback:
             progress_callback(
                 i + 1, total,
-                f"Fetching Durations [{ok_count} OK / {fail_count} Fail / {cached_count} Cached]  {status_icon} {artist} - {track_name}"
+                f"Fetching Durations ({i + 1}/{total}) [{cached_count} Cached / {fetched_count} Fetched / {fail_count} Fail]  {status_icon} {artist} - {track_name}"
             )
 
     if updates_since_save > 0:
