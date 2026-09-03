@@ -246,7 +246,7 @@ class BrainzMRIGUI:
         self.report_engine = ReportEngine()
         self.processing = False # Simple guard
 
-        self.REPORT_MODES = ["Raw Listens", "Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "Favorite Track Trend", "Favorite Album Trend", "New Music By Year", "Likes", "Imported Playlist"]
+        self.REPORT_MODES = ["Raw Listens", "Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "Favorite Track Trend", "Favorite Album Trend", "New Music By Year", "Likes", "Likes for Days", "Imported Playlist"]
 
         # Initialize Variables for Enrichment (Moved from Filters)
         self.enrichment_mode_var = tk.StringVar(value="None (Data Only, No Genres)")
@@ -515,6 +515,20 @@ class BrainzMRIGUI:
             logging.info("TRACE: Main.run_report: returning early due to no user/playlist")
             # Note that this may also be the reason for the perceived "crash". Can this kill the main GUI?
             return
+        # Check for Likes for Days pre-flight sync prompt before locking
+        selected_mode = self.cmb_report.get()
+        sync_and_resolve = False
+        if selected_mode == "Likes for Days":
+            if not self.state.user:
+                messagebox.showwarning("No User", "Please load a user profile to run Likes for Days.")
+                return
+            from gui_actions import LikesSyncPromptDialog
+            dlg = LikesSyncPromptDialog(self.root)
+            if dlg.result is None:
+                logging.info("User cancelled Likes for Days pre-flight dialog.")
+                return
+            sync_and_resolve = (dlg.result == "sync_resolve")
+
         logging.info("TRACE: Main.run_report: starting, locking interface and getting params")
         # 0. Strict Locking
         self.lock_interface()
@@ -524,8 +538,6 @@ class BrainzMRIGUI:
             params = self.filters.get_values()
             
             # 2. Add Context
-            selected_mode = self.cmb_report.get()
-            
             # Alias "Imported Playlist" to "Raw Listens" logic
             if selected_mode == "Imported Playlist":
                 params["mode"] = "Raw Listens"
@@ -538,8 +550,8 @@ class BrainzMRIGUI:
             else:
                 params["liked_mbids"] = set()
             
-            # Load Last.fm loves for Likes report
-            if selected_mode == "Likes" and self.state.user:
+            # Load Last.fm loves for Likes / Likes for Days report
+            if selected_mode in ("Likes", "Likes for Days") and self.state.user:
                 import likes_sync
                 params["lastfm_loves"] = likes_sync.load_cached_lastfm_loves(self.state.user.username)
             else:
@@ -566,8 +578,7 @@ class BrainzMRIGUI:
                  if self.state.playlist_df is None:
                      raise ValueError("No Playlist loaded.")
                  base_df = self.state.playlist_df.copy()
-            elif selected_mode == "Likes":
-                 # Likes report can work with just the likes cache (no listening history required)
+            elif selected_mode in ("Likes", "Likes for Days"):
                  if not self.state.user:
                      raise ValueError("No User loaded.")
                  base_df = self.state.user.get_listens().copy()
@@ -581,7 +592,8 @@ class BrainzMRIGUI:
 
             # 4. Launch Thread
             logging.info(f"TRACE: Main.run_report: launching thread with params: {params['mode']}")
-            win = ProgressWindow(self.root, f"Generating {params['mode']}...")
+            initial_title = "Syncing Likes & Metadata..." if sync_and_resolve else f"Generating {params['mode']}..."
+            win = ProgressWindow(self.root, initial_title)
             logging.info(f"TRACE: Main.run_report: created progress window")
 
             def worker():
@@ -591,7 +603,90 @@ class BrainzMRIGUI:
                     def cb(c, t, m):
                         if not win.cancelled:
                             self.root.after(0, lambda: win.update_progress(c, t, m))
-                    
+
+                    # Optional Pre-Flight Stage: Sync & Resolve
+                    if sync_and_resolve:
+                        cb(5, 100, "Syncing ListenBrainz likes...")
+                        lb_user = self.state.user.get_listenbrainz_username()
+                        if lb_user:
+                            try:
+                                from api_client import ListenBrainzClient
+                                import parsing
+                                lb_client = ListenBrainzClient()
+                                resp = lb_client.get_user_likes(lb_user, offset=0, count=500)
+                                if resp and isinstance(resp, dict):
+                                    likes_data = resp.get("feedback", []) or resp.get("likes", []) or resp.get("payload", {}).get("likes", [])
+                                    new_mbids = parsing.load_feedback(likes_data)
+                                    if new_mbids:
+                                        self.state.user.sync_likes(new_mbids)
+                                        params["liked_mbids"] = self.state.user.get_liked_mbids()
+                                        if not win.cancelled:
+                                            self.root.after(0, lambda: win.update_secondary(f"LB Likes Synced ({len(new_mbids)})"))
+                            except Exception as e:
+                                logging.warning(f"ListenBrainz likes sync warning: {e}")
+
+                        if win.cancelled:
+                            self.root.after(0, lambda: self._on_report_done(pd.DataFrame(), {}, "", False, "Cancelled.", params['mode'], win))
+                            return
+
+                        cb(15, 100, "Syncing Last.fm loves...")
+                        lfm_user = self.state.user.lastfm_username
+                        if lfm_user:
+                            try:
+                                import likes_sync
+                                from api_client import LastFMClient
+                                if LastFMClient().api_key:
+                                    loves = likes_sync.fetch_and_cache_lastfm_loves(self.state.user)
+                                    params["lastfm_loves"] = loves
+                                    if not win.cancelled:
+                                        self.root.after(0, lambda: win.update_secondary(f"Last.fm Loves Synced ({len(loves)})"))
+                            except Exception as e:
+                                logging.warning(f"Last.fm loves sync warning: {e}")
+
+                        if win.cancelled:
+                            self.root.after(0, lambda: self._on_report_done(pd.DataFrame(), {}, "", False, "Cancelled.", params['mode'], win))
+                            return
+
+                        cb(25, 100, "Resolving unmapped likes...")
+                        try:
+                            loves_list = params.get("lastfm_loves") or []
+                            resolver_cache = enrichment.get_resolver_cache()
+                            unmapped_rows = []
+                            for love in loves_list:
+                                a = love.get("artist", "").strip()
+                                t = love.get("track", "").strip()
+                                m = love.get("mbid", "")
+                                if not m or str(m).strip().lower() in ("none", "nan", ""):
+                                    k = parsing.make_track_key(a, t, "")
+                                    if k not in resolver_cache:
+                                        unmapped_rows.append({"artist": a, "track_name": t, "album": "", "recording_mbid": ""})
+
+                            if unmapped_rows:
+                                unmapped_df = pd.DataFrame(unmapped_rows).drop_duplicates(subset=["artist", "track_name"])
+                                def resolve_cb(c, t, m):
+                                    if not win.cancelled:
+                                        parts = m.split("  ", 1)
+                                        header = parts[0]
+                                        detail = parts[1] if len(parts) > 1 else ""
+                                        self.root.after(0, lambda: [
+                                            win.update_progress(c, t, header),
+                                            win.update_secondary(detail) if detail else None
+                                        ])
+
+                                enrichment.resolve_missing_mbids(
+                                    unmapped_df,
+                                    force_update=False,
+                                    skip_failures=True,
+                                    progress_callback=resolve_cb,
+                                    is_cancelled=lambda: win.cancelled
+                                )
+                        except Exception as e:
+                            logging.warning(f"Likes resolution warning: {e}")
+
+                        if win.cancelled:
+                            self.root.after(0, lambda: self._on_report_done(pd.DataFrame(), {}, "", False, "Cancelled.", params['mode'], win))
+                            return
+
                     res, meta, key, enriched, status = self.report_engine.generate_report(
                         base_df,
                         **params,
@@ -714,15 +809,17 @@ class BrainzMRIGUI:
         enrich = self.enrichment_mode_var.get()
         
         # Force Cache: Enabled if ANY Enrichment is selected (to allow upgrading Cache Only -> Query)
-        # OR if using Imported Playlist
+        # OR if using Imported Playlist OR Likes for Days
         can_enrich = not enrich.startswith("None")
         is_playlist = (mode == "Imported Playlist")
+        is_likes_for_days = (mode == "Likes for Days")
         
-        if can_enrich or is_playlist:
+        if can_enrich or is_playlist or is_likes_for_days:
             self.chk_force.config(state="normal")
         else:
             self.chk_force.config(state="disabled")
             self.force_cache_var.set(False)
+
 
         # Deep Query: Only meaningful if enriching and NOT None
         if enrich.startswith("None") or enrich == "Cache Only (Fast)":
@@ -804,6 +901,7 @@ class BrainzMRIGUI:
         "Favorite Album Trend":  "_show_album_trend_chart",
         "New Music By Year":     "_show_new_music_chart",
         "Genre Flavor":          "_show_genre_treemap",
+        "Likes for Days":        "_show_likes_for_days_charts",
     }
 
     # ----------------------------------------------------------
@@ -811,7 +909,7 @@ class BrainzMRIGUI:
     # ----------------------------------------------------------
     ART_MATRIX_MODES = {
         "Top Artists", "Top Albums", "Top Tracks",
-        "Raw Listens", "Likes", "Imported Playlist",
+        "Raw Listens", "Likes", "Likes for Days", "Imported Playlist",
     }
 
     def show_graph(self):
@@ -850,6 +948,16 @@ class BrainzMRIGUI:
 
     def _show_genre_treemap(self):
         show_genre_flavor_treemap(self.state.last_report_df, parent=self.root)
+
+    def _show_likes_for_days_charts(self):
+        track_df = self.state.last_meta.get("track_df")
+        if track_df is None or track_df.empty:
+            track_df = self.state.last_report_df
+        artist_df = self.state.last_meta.get("artist_df", pd.DataFrame())
+        if track_df is not None and not track_df.empty:
+            from gui_charts import show_likes_for_days_windows
+            show_likes_for_days_windows(track_df, artist_df, parent=self.root)
+
 
     # ----------------------------------------------------------
     # Art Matrix Dispatch

@@ -907,6 +907,228 @@ def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list =
 
 
 # ------------------------------------------------------------
+# Likes for Days Pipeline & Formatting Helpers
+# ------------------------------------------------------------
+
+def format_track_duration(ms: int | float) -> str:
+    """Format milliseconds into MM:SS or H:MM:SS."""
+    if not ms or pd.isna(ms) or ms <= 0:
+        return "0:00"
+    total_seconds = int(ms) // 1000
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
+
+
+def format_human_duration(ms: int | float) -> str:
+    """Format total duration in milliseconds into human-readable text."""
+    if not ms or pd.isna(ms) or ms <= 0:
+        return "0 minutes"
+    total_seconds = int(ms) // 1000
+    minutes = total_seconds // 60
+    hours = minutes // 60
+    days = hours // 24
+
+    if days >= 1:
+        rem_hours = hours % 24
+        return f"{days}d {rem_hours}h" if rem_hours else f"{days} days"
+    if hours >= 1:
+        rem_min = minutes % 60
+        return f"{hours}h {rem_min}m" if rem_min else f"{hours} hours"
+    if minutes >= 1:
+        return f"{minutes} minutes"
+    return "< 1 minute"
+
+
+def get_resolved_likes(
+    df: pd.DataFrame,
+    liked_mbids: set,
+    lastfm_loves: list = None,
+    resolver_cache: dict = None
+) -> pd.DataFrame:
+    """
+    Retrieve all resolved likes (ListenBrainz + Last.fm) that possess a valid recording_mbid.
+    """
+    audit_df, _ = report_likes(
+        df=df,
+        liked_mbids=liked_mbids,
+        lastfm_loves=lastfm_loves,
+        resolver_cache=resolver_cache
+    )
+    if audit_df.empty:
+        return audit_df
+
+    # Filter to tracks with non-empty recording_mbid
+    mask_resolved = (
+        audit_df["recording_mbid"].notna() &
+        (audit_df["recording_mbid"] != "") &
+        (audit_df["recording_mbid"].str.lower() != "none") &
+        (audit_df["recording_mbid"].str.lower() != "nan")
+    )
+    resolved_df = audit_df[mask_resolved].copy()
+
+    # If track_name or artist is missing, attempt to recover from listening history
+    if not df.empty and "recording_mbid" in df.columns:
+        mbid_lookup = df[df["recording_mbid"].notna()].drop_duplicates(subset=["recording_mbid"]).set_index("recording_mbid")
+        for idx, row in resolved_df.iterrows():
+            mbid = row["recording_mbid"]
+            if (not row.get("artist") or not row.get("track_name")) and mbid in mbid_lookup.index:
+                hist_row = mbid_lookup.loc[mbid]
+                if not row.get("artist"):
+                    resolved_df.at[idx, "artist"] = hist_row.get("artist", "")
+                if not row.get("track_name"):
+                    resolved_df.at[idx, "track_name"] = hist_row.get("track_name", "")
+                if not row.get("album"):
+                    resolved_df.at[idx, "album"] = hist_row.get("album", "")
+
+    return resolved_df.reset_index(drop=True)
+
+
+def report_likes_for_days(
+    *,
+    df: pd.DataFrame,
+    resolved_likes_df: pd.DataFrame,
+    durations_map: dict[str, int],
+    topn: int = 100
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """
+    Compile 'Likes for Days' Top-N lists for Tracks and Artists.
+
+    Args:
+        df: User listening history DataFrame.
+        resolved_likes_df: DataFrame of resolved likes with recording_mbids.
+        durations_map: Dict mapping recording_mbid -> duration_ms.
+        topn: Maximum number of rows to return for Top-N lists.
+
+    Returns:
+        (track_df, artist_df, meta)
+    """
+    if resolved_likes_df.empty or df.empty:
+        empty_tracks = pd.DataFrame(columns=[
+            "track_name", "artist", "album", "Duration", "listens",
+            "Total Time", "total_duration_ms", "duration_ms", "Likes", "recording_mbid"
+        ])
+        empty_artists = pd.DataFrame(columns=[
+            "artist", "Likes", "listens", "total_duration_ms", "Total Time", "track_count"
+        ])
+        return empty_tracks, empty_artists, {"entity": "likes_for_days", "topn": topn}
+
+    # 1. Precompute listen counts from history
+    mbid_counts = {}
+    if "recording_mbid" in df.columns:
+        valid_mbids = df[df["recording_mbid"].notna() & (df["recording_mbid"] != "")]["recording_mbid"]
+        mbid_counts = valid_mbids.value_counts().to_dict()
+
+    name_counts = {}
+    if "artist" in df.columns and "track_name" in df.columns:
+        grouped_names = df.groupby([df["artist"].str.lower().str.strip(), df["track_name"].str.lower().str.strip()]).size()
+        name_counts = grouped_names.to_dict()
+
+    # 2. Build Track list with listen counts and durations
+    track_rows = []
+    for _, row in resolved_likes_df.iterrows():
+        mbid = str(row.get("recording_mbid", "")).strip()
+        artist = str(row.get("artist", "")).strip()
+        track_name = str(row.get("track_name", "")).strip()
+        album = str(row.get("album", "")).strip()
+
+        # Count listens by MBID or canonical names
+        c_mbid = mbid_counts.get(mbid, 0)
+        c_name = name_counts.get((artist.lower(), track_name.lower()), 0) if (artist and track_name) else 0
+        listens = max(c_mbid, c_name)
+
+        # Requirement 2: Truncate to liked tracks with 2 or more listens
+        if listens < 2:
+            continue
+
+        # Duration retrieval from duration cache / MusicBrainz
+        duration_ms = durations_map.get(mbid, 0)
+        if duration_ms <= 0 and "duration_ms" in df.columns:
+            # Fallback to listening history duration if available
+            matches = df[df["recording_mbid"] == mbid]
+            if not matches.empty:
+                max_d = matches["duration_ms"].max()
+                if pd.notna(max_d) and max_d > 0:
+                    duration_ms = int(max_d)
+
+        total_duration_ms = duration_ms * listens
+
+        track_rows.append({
+            "track_name": track_name,
+            "artist": artist,
+            "album": album,
+            "Duration": format_track_duration(duration_ms),
+            "listens": int(listens),
+            "Total Time": format_human_duration(total_duration_ms),
+            "total_duration_ms": int(total_duration_ms),
+            "duration_ms": int(duration_ms),
+            "Likes": 1,
+            "recording_mbid": mbid,
+        })
+
+    if not track_rows:
+        empty_tracks = pd.DataFrame(columns=[
+            "track_name", "artist", "album", "Duration", "listens",
+            "Total Time", "total_duration_ms", "duration_ms", "Likes", "recording_mbid"
+        ])
+        empty_artists = pd.DataFrame(columns=[
+            "artist", "Likes", "listens", "total_duration_ms", "Total Time", "track_count"
+        ])
+        return empty_tracks, empty_artists, {"entity": "likes_for_days", "topn": topn}
+
+    full_track_df = pd.DataFrame(track_rows)
+    # Sort by total listen duration descending, then by listen count
+    full_track_df = full_track_df.sort_values(
+        by=["total_duration_ms", "listens"],
+        ascending=[False, False]
+    ).reset_index(drop=True)
+
+    # 3. Build Artist list from all qualifying liked tracks
+    artist_groups = full_track_df.groupby("artist")
+    artist_rows = []
+    for art_name, grp in artist_groups:
+        total_art_duration = grp["total_duration_ms"].sum()
+        total_art_listens = grp["listens"].sum()
+        unique_likes = len(grp)  # Count of qualifying liked tracks for this artist
+
+        artist_rows.append({
+            "artist": art_name,
+            "Likes": int(unique_likes),
+            "listens": int(total_art_listens),
+            "total_duration_ms": int(total_art_duration),
+            "Total Time": format_human_duration(total_art_duration),
+            "track_count": int(unique_likes),
+        })
+
+    full_artist_df = pd.DataFrame(artist_rows)
+    full_artist_df = full_artist_df.sort_values(
+        by=["total_duration_ms", "listens"],
+        ascending=[False, False]
+    ).reset_index(drop=True)
+
+    # Apply Top-N truncation
+    if topn and topn > 0:
+        top_track_df = full_track_df.head(topn).copy()
+        top_artist_df = full_artist_df.head(topn).copy()
+    else:
+        top_track_df = full_track_df.copy()
+        top_artist_df = full_artist_df.copy()
+
+    meta = {
+        "entity": "likes_for_days",
+        "topn": topn,
+        "metric": "duration",
+        "artist_df": top_artist_df,
+        "track_df": top_track_df,
+    }
+
+    return top_track_df, top_artist_df, meta
+
+
+# ------------------------------------------------------------
 # Saving Reports
 # ------------------------------------------------------------
 

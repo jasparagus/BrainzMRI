@@ -160,6 +160,79 @@ class ResolveConfirmDialog(tk.Toplevel):
         self.destroy()
 
 
+class LikesSyncPromptDialog(tk.Toplevel):
+    """
+    A modal dialog that prompts the user whether to sync likes from server
+    and resolve unmapped tracks before generating 'Likes for Days'.
+    """
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.result = None  # None=Cancel, "sync_resolve"=Sync & Resolve, "proceed"=Use Existing
+        self.title("Likes for Days — Pre-Flight Check")
+        self.minsize(520, 220)
+        self.resizable(False, False)
+
+        try:
+            x = parent.winfo_rootx() + 50
+            y = parent.winfo_rooty() + 50
+            self.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
+
+        prompt = (
+            "Likes for Days evaluates your favorite tracks with 2+ listens using duration data from MusicBrainz.\n\n"
+            "Would you like to sync fresh likes from ListenBrainz / Last.fm and resolve missing metadata before generating the report?"
+        )
+        lbl = tk.Label(self, text=prompt, wraplength=480, justify="left", font="AppFontLarge")
+        lbl.pack(pady=20, padx=20, fill="x")
+
+        btn_frame = tk.Frame(self)
+        btn_frame.pack(pady=15)
+
+        # 1. Sync & Resolve
+        btn_sync = tk.Button(
+            btn_frame, text="Sync & Resolve\n(Recommended)",
+            bg="#4CAF50", fg="white", font="AppFontBold",
+            command=self.on_sync_resolve, width=18
+        )
+        btn_sync.pack(side="left", padx=8)
+        Hovertip(btn_sync, "Sync likes from ListenBrainz/Last.fm,\nresolve unmapped tracks, then generate report.")
+
+        # 2. Proceed with Existing
+        btn_proceed = tk.Button(
+            btn_frame, text="Proceed with\nExisting Likes",
+            bg="#2196F3", fg="white", font="AppFontBold",
+            command=self.on_proceed, width=18
+        )
+        btn_proceed.pack(side="left", padx=8)
+        Hovertip(btn_proceed, "Skip syncing and resolve steps.\nGenerate report using already-resolved likes.")
+
+        # 3. Cancel
+        btn_cancel = tk.Button(
+            btn_frame, text="Cancel",
+            command=self.on_cancel, font="AppFontBold", width=10
+        )
+        btn_cancel.pack(side="left", padx=8)
+        Hovertip(btn_cancel, "Abort report generation.")
+
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self.on_cancel)
+        self.wait_window()
+
+    def on_sync_resolve(self):
+        self.result = "sync_resolve"
+        self.destroy()
+
+    def on_proceed(self):
+        self.result = "proceed"
+        self.destroy()
+
+    def on_cancel(self):
+        self.result = None
+        self.destroy()
+
+
 class ActionComponent:
     def __init__(self, parent: tk.Frame, app_state, table_view, on_update_callback, force_var: tk.BooleanVar = None, on_re_report_callback=None):
         self.parent = parent

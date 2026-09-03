@@ -217,3 +217,17 @@ BrainzMRI/
 * Decide if a small bit of padding should be added at the top of the app UI to avoid clipping with the menu bar
 * Rename track_name -> Track (in Raw Listens view)
 * Resolver Change: need to allow resolver to find Artist/Album/Track for items with an existing mbid but a missing title/artist/track info. This should help with likes sync to make the list richer. This is currently broken despite the rest of the feature working well.
+
+
+
+
+## Likes For Days
+Craft an implementation plan for a new analysis type (to be added to the dropdown) called "Likes for Days", which does the following analysis when a report is generated:
+
+1. retrieve a list of all resolved likes (prompt to attempt a likes sync and resolve likes; proceed using only already-resolved likes otherwise)
+2. truncate the list to liked tracks with 2 or more listens
+3. for each track in the resulting list, retrieve its duration from musicbrainz, storing it in a new duration cache. Follow the best practices established for the other local caches, including a progress bar showing successes and failures, and respecting the "force updates" logic
+4. compile the results by track and by artist in to a TopN list (respect the Top N field in the GUI)
+5. visualize the results as a set of two separate "treeview" windows, each showing an entry for the entity (track or artist), total like count, and total listen duration. For example, a liked track with a duration of 10 minutes and 5 listens wold be shown with the following details:"Track Name (10:00)", "Artist Name", "5 Listens", "50 minutes" overlaid on its treeview region.
+
+When performing this, look for opportunities to most correctly utilize existing application infrastructure. Avoid rewriting code blocks and instead attempt to make use of existent helper functions. If absolutely necessary, propose modifications to existing functions to enable the new functionality. Use care to not break an existing workflows and to respect application state and robustness.

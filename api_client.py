@@ -109,6 +109,14 @@ class MusicBrainzClient(BaseClient):
         time.sleep(self.delay)
         return tags
 
+    def get_recording(self, recording_mbid: str) -> dict | None:
+        """Fetch recording metadata (including duration 'length') from MusicBrainz."""
+        if not recording_mbid or str(recording_mbid).lower() in ("none", "nan", ""):
+            return None
+        data = self._request("GET", f"recording/{recording_mbid}", params={"fmt": "json"})
+        time.sleep(self.delay)
+        return data
+
     def get_release_group_id(self, release_mbid: str) -> str | None:
         """Look up the release-group MBID for a given release MBID."""
         rel_data = self._request("GET", f"release/{release_mbid}", params={"inc": "release-groups", "fmt": "json"})

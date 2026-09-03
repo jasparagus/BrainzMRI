@@ -81,6 +81,23 @@ def get_resolver_cache() -> dict[str, Any]:
 
 
 # ------------------------------------------------------------
+# Duration Cache
+# ------------------------------------------------------------
+
+def _load_duration_cache() -> dict[str, Any]:
+    return _load_cache("duration_cache.json")
+
+def _save_duration_cache(data: dict[str, Any]) -> None:
+    _save_cache("duration_cache.json", data)
+
+def get_duration_cache() -> dict[str, Any]:
+    """Public read-only access to the duration cache.
+    Returns dict mapping recording_mbid -> entry dict (with 'duration_ms', etc.)."""
+    return _load_duration_cache()
+
+
+
+# ------------------------------------------------------------
 # Enrichment Failure Logger
 # ------------------------------------------------------------
 
@@ -718,3 +735,123 @@ def resolve_missing_mbids(
         df["album"] = cols_out["album"]
 
     return df, resolved_count, failed_count, skipped_count
+
+
+# ------------------------------------------------------------
+# Recording Duration Fetching (Likes for Days)
+# ------------------------------------------------------------
+
+def fetch_recording_durations(
+    *,
+    tracks: list[dict],
+    force_cache_update: bool = False,
+    progress_callback: Optional[Callable] = None,
+    is_cancelled: Optional[Callable] = None
+) -> dict[str, int]:
+    """
+    Fetch recording durations from MusicBrainz for a list of tracks.
+    Persists results to duration_cache.json.
+
+    Args:
+        tracks: List of dicts, each having at least 'recording_mbid' (and optionally 'artist', 'track_name').
+        force_cache_update: If True, bypass cache and re-query MusicBrainz.
+        progress_callback: Callback for progress updates (current, total, status_message).
+        is_cancelled: Callable returning True if operation was cancelled.
+
+    Returns:
+        dict mapping recording_mbid -> duration_ms (int).
+    """
+    duration_cache = _load_duration_cache()
+    durations: dict[str, int] = {}
+    total = len(tracks)
+
+    ok_count = 0
+    fail_count = 0
+    cached_count = 0
+    updates_since_save = 0
+
+    for i, item in enumerate(tracks):
+        if is_cancelled and is_cancelled():
+            logging.info(f"Duration fetch cancelled after {i}/{total} items.")
+            break
+
+        mbid = str(item.get("recording_mbid", "")).strip()
+        artist = str(item.get("artist", "")).strip()
+        track_name = str(item.get("track_name", "")).strip()
+
+        if not mbid or mbid.lower() in ("none", "nan", ""):
+            continue
+
+        # Check Cache
+        if not force_cache_update and mbid in duration_cache:
+            cached_entry = duration_cache[mbid]
+            dur_ms = cached_entry.get("duration_ms", 0) if isinstance(cached_entry, dict) else int(cached_entry or 0)
+            durations[mbid] = dur_ms
+            cached_count += 1
+            if dur_ms > 0:
+                ok_count += 1
+                status_icon = "✓"
+            else:
+                fail_count += 1
+                status_icon = "✗"
+
+            if progress_callback:
+                progress_callback(
+                    i + 1, total,
+                    f"Fetching Durations [{ok_count} OK / {fail_count} Fail / {cached_count} Cached]  {status_icon} {artist} - {track_name}"
+                )
+            continue
+
+        # API Query
+        try:
+            rec_data = mb_client.get_recording(mbid)
+        except Exception as e:
+            logging.error(f"Duration API ERROR for {mbid} ({artist} - {track_name}): {e}")
+            rec_data = None
+
+        if rec_data and rec_data.get("length"):
+            try:
+                dur_ms = int(rec_data["length"])
+            except (ValueError, TypeError):
+                dur_ms = 0
+        else:
+            dur_ms = 0
+
+        # Save to cache (including negative caching of 0)
+        title = rec_data.get("title", track_name) if rec_data else track_name
+        duration_cache[mbid] = {
+            "duration_ms": dur_ms,
+            "title": title,
+            "artist": artist,
+            "last_updated": datetime.now(timezone.utc).isoformat()
+        }
+        durations[mbid] = dur_ms
+        updates_since_save += 1
+
+        if dur_ms > 0:
+            ok_count += 1
+            status_icon = "✓"
+        else:
+            fail_count += 1
+            status_icon = "✗"
+            _log_enrichment_failure(
+                "recording_duration",
+                mbid,
+                {"artist": artist, "track": track_name},
+                "no_duration_in_mb"
+            )
+
+        if updates_since_save >= CACHE_SAVE_BATCH_SIZE:
+            _save_duration_cache(duration_cache)
+            updates_since_save = 0
+
+        if progress_callback:
+            progress_callback(
+                i + 1, total,
+                f"Fetching Durations [{ok_count} OK / {fail_count} Fail / {cached_count} Cached]  {status_icon} {artist} - {track_name}"
+            )
+
+    if updates_since_save > 0:
+        _save_duration_cache(duration_cache)
+
+    return durations

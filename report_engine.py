@@ -83,6 +83,13 @@ class ReportEngine:
                 "kwargs": {},
                 "report_type_key": "likes",
                 "status": "Likes audit generated.",
+            },
+            "Likes for Days": {
+                # Specialized pipeline: resolved likes -> >=2 listens -> MB durations -> TopN compilation
+                "func": None,
+                "kwargs": {},
+                "report_type_key": "likes_for_days",
+                "status": "Likes for Days report generated.",
             }
         }
 
@@ -176,6 +183,91 @@ class ReportEngine:
                 result, result_meta = raw_result
             else:
                 result, result_meta = raw_result, {}
+
+        # --- SPECIALIZED PIPELINE: LIKES FOR DAYS ---
+        elif mode == "Likes for Days":
+            if progress_callback: progress_callback(10, 100, "Retrieving resolved likes...")
+
+            resolver_cache = enrichment.get_resolver_cache()
+            resolved_likes_df = reporting.get_resolved_likes(
+                df=df,
+                liked_mbids=liked_mbids,
+                lastfm_loves=lastfm_loves,
+                resolver_cache=resolver_cache
+            )
+
+            if is_cancelled and is_cancelled():
+                logging.info("Report generation cancelled after retrieving resolved likes.")
+                return pd.DataFrame(), {}, "", False, "Cancelled."
+
+            if resolved_likes_df.empty:
+                logging.warning("No resolved likes found.")
+                return pd.DataFrame(), {}, handler["report_type_key"], False, "No resolved likes found."
+
+            # Pre-filter candidates with >= 2 listens to avoid unnecessary API calls
+            if progress_callback: progress_callback(25, 100, "Filtering tracks with 2+ listens...")
+
+            mbid_counts = {}
+            if "recording_mbid" in df.columns:
+                valid_mbids = df[df["recording_mbid"].notna() & (df["recording_mbid"] != "")]["recording_mbid"]
+                mbid_counts = valid_mbids.value_counts().to_dict()
+
+            name_counts = {}
+            if "artist" in df.columns and "track_name" in df.columns:
+                name_counts = df.groupby([df["artist"].str.lower().str.strip(), df["track_name"].str.lower().str.strip()]).size().to_dict()
+
+            candidate_tracks = []
+            for _, row in resolved_likes_df.iterrows():
+                mbid = str(row.get("recording_mbid", "")).strip()
+                artist = str(row.get("artist", "")).strip()
+                track_name = str(row.get("track_name", "")).strip()
+                c_mbid = mbid_counts.get(mbid, 0)
+                c_name = name_counts.get((artist.lower(), track_name.lower()), 0) if (artist and track_name) else 0
+                if max(c_mbid, c_name) >= 2:
+                    candidate_tracks.append({
+                        "recording_mbid": mbid,
+                        "artist": artist,
+                        "track_name": track_name,
+                        "album": str(row.get("album", "")).strip()
+                    })
+
+            if not candidate_tracks:
+                logging.warning("No liked tracks found with 2 or more listens.")
+                return pd.DataFrame(), {}, handler["report_type_key"], False, "No liked tracks found with 2+ listens."
+
+            if is_cancelled and is_cancelled():
+                logging.info("Report generation cancelled before duration fetch.")
+                return pd.DataFrame(), {}, "", False, "Cancelled."
+
+            # Fetch durations with persistent caching and progress feedback
+            if progress_callback: progress_callback(40, 100, f"Fetching durations for {len(candidate_tracks)} tracks...")
+
+            def duration_progress(cur, tot, msg):
+                if progress_callback and tot > 0:
+                    scaled = int(40 + (cur / tot) * 45)
+                    progress_callback(scaled, 100, msg)
+
+            durations_map = enrichment.fetch_recording_durations(
+                tracks=candidate_tracks,
+                force_cache_update=force_cache_update,
+                progress_callback=duration_progress,
+                is_cancelled=is_cancelled
+            )
+
+            if is_cancelled and is_cancelled():
+                logging.info("Report generation cancelled during duration fetch.")
+                return pd.DataFrame(), {}, "", False, "Cancelled."
+
+            if progress_callback: progress_callback(90, 100, "Compiling Top-N lists...")
+
+            track_df, artist_df, result_meta = reporting.report_likes_for_days(
+                df=df,
+                resolved_likes_df=resolved_likes_df,
+                durations_map=durations_map,
+                topn=topn
+            )
+
+            result = track_df
 
         # --- SPECIALIZED PIPELINE: GENRE FLAVOR ---
         elif mode == "Genre Flavor":

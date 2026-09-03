@@ -499,6 +499,158 @@ def show_genre_flavor_treemap(df: pd.DataFrame, parent=None):
 
 
 # ================================================================
+# Likes for Days Treemaps (Tracks & Artists)
+# ================================================================
+
+def show_likes_for_days_tracks_treemap(df: pd.DataFrame, parent=None):
+    """
+    Generate a Treemap for Top Tracks in 'Likes for Days' using squarify.
+    Displays: 'Track Name (MM:SS)', 'Artist Name', 'N Listens', 'Total Time'.
+    """
+    if df is None or df.empty:
+        return None
+
+    # Filter to valid positive durations
+    plot_df = df[df["total_duration_ms"] > 0].copy()
+    if plot_df.empty:
+        return None
+
+    from reporting import format_track_duration, format_human_duration
+    import matplotlib.cm as cm
+
+    # 1. Figure setup
+    fig = Figure(figsize=(12, 8), dpi=100)
+    ax = fig.add_subplot(111)
+
+    # 2. Build 4-line label text per tile
+    labels = []
+    for _, row in plot_df.iterrows():
+        t_name = str(row.get("track_name", "")).strip()
+        a_name = str(row.get("artist", "")).strip()
+
+        dur_str = str(row.get("Duration", "")).strip()
+        if not dur_str or dur_str == "0:00":
+            dur_str = format_track_duration(row.get("duration_ms", 0))
+
+        tot_str = str(row.get("Total Time", "")).strip()
+        if not tot_str:
+            tot_str = format_human_duration(row.get("total_duration_ms", 0))
+
+        listens_cnt = int(row.get("listens", 0))
+        listens_str = f"{listens_cnt} Listen{'s' if listens_cnt != 1 else ''}"
+
+        txt = f"{t_name} ({dur_str})\n{a_name}\n{listens_str}\n{tot_str}"
+        labels.append(txt)
+
+    # 3. Colors: Perceptually uniform gradient
+    colors = cm.plasma(np.linspace(0.85, 0.25, len(plot_df)))
+
+    # 4. Plot
+    squarify.plot(
+        sizes=plot_df["total_duration_ms"],
+        label=labels,
+        color=colors,
+        alpha=0.85,
+        text_kwargs={
+            'fontsize': 9,
+            'color': 'white',
+            'weight': 'bold',
+            'path_effects': [pe.withStroke(linewidth=2, foreground='black')]
+        },
+        ax=ax
+    )
+
+    ax.axis('off')
+    ax.set_title(f"Likes for Days — Top {len(plot_df)} Tracks by Total Listen Duration", fontsize=14, pad=12)
+    fig.tight_layout()
+
+    return create_chart_window(fig, "Likes for Days — Top Tracks", parent)
+
+
+def show_likes_for_days_artists_treemap(df: pd.DataFrame, parent=None):
+    """
+    Generate a Treemap for Top Artists in 'Likes for Days' using squarify.
+    Displays: 'Artist Name', 'N Likes', 'N Listens', 'Total Time'.
+    """
+    if df is None or df.empty:
+        return None
+
+    # Filter to valid positive durations
+    plot_df = df[df["total_duration_ms"] > 0].copy()
+    if plot_df.empty:
+        return None
+
+    from reporting import format_human_duration
+    import matplotlib.cm as cm
+
+    # 1. Figure setup
+    fig = Figure(figsize=(12, 8), dpi=100)
+    ax = fig.add_subplot(111)
+
+    # 2. Build 4-line label text per tile
+    labels = []
+    for _, row in plot_df.iterrows():
+        a_name = str(row.get("artist", "")).strip()
+        likes_cnt = int(row.get("Likes", 1))
+        like_str = f"{likes_cnt} Like{'s' if likes_cnt != 1 else ''}"
+
+        listens_cnt = int(row.get("listens", 0))
+        listens_str = f"{listens_cnt} Listen{'s' if listens_cnt != 1 else ''}"
+
+        tot_str = str(row.get("Total Time", "")).strip()
+        if not tot_str:
+            tot_str = format_human_duration(row.get("total_duration_ms", 0))
+
+        txt = f"{a_name}\n{like_str}\n{listens_str}\n{tot_str}"
+        labels.append(txt)
+
+    # 3. Colors: Perceptually uniform viridis gradient
+    colors = cm.viridis(np.linspace(0.85, 0.25, len(plot_df)))
+
+    # 4. Plot
+    squarify.plot(
+        sizes=plot_df["total_duration_ms"],
+        label=labels,
+        color=colors,
+        alpha=0.85,
+        text_kwargs={
+            'fontsize': 9,
+            'color': 'white',
+            'weight': 'bold',
+            'path_effects': [pe.withStroke(linewidth=2, foreground='black')]
+        },
+        ax=ax
+    )
+
+    ax.axis('off')
+    ax.set_title(f"Likes for Days — Top {len(plot_df)} Artists by Total Listen Duration", fontsize=14, pad=12)
+    fig.tight_layout()
+
+    return create_chart_window(fig, "Likes for Days — Top Artists", parent)
+
+
+def show_likes_for_days_windows(track_df: pd.DataFrame, artist_df: pd.DataFrame, parent=None):
+    """
+    Open both 'Likes for Days' Treemap windows (Artists and Tracks) in a clean cascade.
+    """
+    win_artists = show_likes_for_days_artists_treemap(artist_df, parent=parent)
+    win_tracks = show_likes_for_days_tracks_treemap(track_df, parent=parent)
+
+    if win_artists and win_tracks:
+        try:
+            # Stagger the tracks window slightly so both are immediately accessible
+            x = win_artists.winfo_x() + 50
+            y = win_artists.winfo_y() + 50
+            win_tracks.geometry(f"+{x}+{y}")
+            win_tracks.lift()
+        except Exception:
+            pass
+
+    return win_tracks, win_artists
+
+
+
+# ================================================================
 # Album Art Matrix (Album Mode — "Top Albums")
 # ================================================================
 
