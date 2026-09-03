@@ -26,15 +26,18 @@ Unlike standard "Year in Review" summaries, BrainzMRI works with a local cache o
 * **New Music by Year:** A discovery analysis comparing "New Discoveries" (artists heard for the first time that year) vs. "Catalog" (re-listening to known artists).
 * **Raw Listens:** A forensic view of your individual listen events, useful for verifying imports and data integrity.
 * **Likes Audit:** A cross-platform comparison of your liked/loved tracks on both **ListenBrainz** and **Last.fm**. Shows `Last.fm Liked`, `ListenBrainz Liked`, and `Both Liked` status per track, with full MBID visibility for sorting and filtering.
+* **Likes for Days:** A time-weighted analysis of your favorite music. Filters cross-platform likes (ListenBrainz + Last.fm) to tracks with 2 or more listens, retrieves verified track durations from MusicBrainz, and compiles Top-N lists for both Tracks and Artists ranked by total listening duration (`duration × listens`). Features an optional pre-flight prompt to sync fresh likes and resolve unmapped tracks before generation.
 
 ### Rich Visualizations
 * **Entity Art Matrices:** A grid visualization of album covers. For "Top Albums", it displays a grid of albums. For artist or track-level reports (e.g., Top Artists, Top Tracks, Raw Listens, Likes), it generates a square sub-grid of album covers per artist. Fetches thumbnails from the **Cover Art Archive** and caches them locally, with a fallback to the app logo if unavailable. Uses a **release-group fallback** — if a specific release has no artwork, it automatically looks up the parent release group to find art from any pressing of the same album.
 * **Genre Treemap:** A rectangular visualization of genre dominance.
+* **Likes for Days Treemaps:** Dual squarify treemap windows (one for Top Tracks, one for Top Artists) accessible via the **Show Graph** button. Tiles are sized by total listening duration with overlaid 4-line labels showing entity name, duration, listen counts, and human-readable total time with high-contrast text strokes.
 * **Stacked Area Chart:** Visualizes the "Favorite Trend" reports (Artist, Track, or Album), showing how entity dominance shifts over periods. Includes a subplot showing Relative Dominance (normalized percentage) alongside absolute listen counts.
 * **Stacked Bar Chart:** Visualizes the "New Music by Year" report, highlighting your discovery rates over time. Now includes a subplot comparing the ratio of New vs. Recurring tracks.
 
 ### Metadata Enrichment & Deep Query
 * **Smart Enrichment:** Automatically fetches metadata from MusicBrainz and Last.fm.
+* **Duration Caching:** Track durations fetched from MusicBrainz for "Likes for Days" are persistently cached in `cache/global/duration_cache.json`. Includes negative caching (`0`) to prevent redundant lookups and respects the **Force Cache Update** toggle.
 * **Deep Query Mode:** An optional "Slow" mode that fetches detailed metadata for Albums and Tracks, not just Artists.
 * **Resolver Engine:** Can scan generic playlist imports (which lack IDs) and query MusicBrainz to resolve missing **Recording MBIDs**, upgrading "dumb" text lists into fully linkable, "Like"-able data. The resolver shows a rolling progress log with per-item **✓/✗** status and running success/failure counts.
 * **Genre Exclusion:** Configurable `excluded_genres` list in `config.json` filters junk genres (e.g., "seen live") at display-time without modifying cached data.
@@ -169,6 +172,7 @@ BrainzMRI/
 └── cache/global/                   # Persistent caches
     ├── artist_enrichment.json      # Genre tags per artist
     ├── mbid_resolver_cache.json    # (Artist, Track, Album) → MBID mappings
+    ├── duration_cache.json         # recording_mbid → track duration mappings
     ├── release_group_map.json      # release_mbid → release_group_mbid mappings
     ├── enrichment_failures.jsonl   # Failed lookup diagnostics
     └── cover_art/                  # Cached album cover thumbnails (.jpg)
@@ -216,18 +220,4 @@ BrainzMRI/
 ## Miscellaneous Improvements and Fixes
 * Decide if a small bit of padding should be added at the top of the app UI to avoid clipping with the menu bar
 * Rename track_name -> Track (in Raw Listens view)
-* Resolver Change: need to allow resolver to find Artist/Album/Track for items with an existing mbid but a missing title/artist/track info. This should help with likes sync to make the list richer. This is currently broken despite the rest of the feature working well.
-
-
-
-
-## Likes For Days
-Craft an implementation plan for a new analysis type (to be added to the dropdown) called "Likes for Days", which does the following analysis when a report is generated:
-
-1. retrieve a list of all resolved likes (prompt to attempt a likes sync and resolve likes; proceed using only already-resolved likes otherwise)
-2. truncate the list to liked tracks with 2 or more listens
-3. for each track in the resulting list, retrieve its duration from musicbrainz, storing it in a new duration cache. Follow the best practices established for the other local caches, including a progress bar showing successes and failures, and respecting the "force updates" logic
-4. compile the results by track and by artist in to a TopN list (respect the Top N field in the GUI)
-5. visualize the results as a set of two separate "treeview" windows, each showing an entry for the entity (track or artist), total like count, and total listen duration. For example, a liked track with a duration of 10 minutes and 5 listens wold be shown with the following details:"Track Name (10:00)", "Artist Name", "5 Listens", "50 minutes" overlaid on its treeview region.
-
-When performing this, look for opportunities to most correctly utilize existing application infrastructure. Avoid rewriting code blocks and instead attempt to make use of existent helper functions. If absolutely necessary, propose modifications to existing functions to enable the new functionality. Use care to not break an existing workflows and to respect application state and robustness.
+* Resolver Change: need to allow resolver to find Artist/Album/Track for items with an existing mbid but a missing title/artist/track info. This should help with likes sync to make the list richer. This is currently broken despite the rest of the feature working well.

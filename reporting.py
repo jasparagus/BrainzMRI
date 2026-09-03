@@ -944,6 +944,7 @@ def format_human_duration(ms: int | float) -> str:
 
 
 def get_resolved_likes(
+    *,
     df: pd.DataFrame,
     liked_mbids: set,
     lastfm_loves: list = None,

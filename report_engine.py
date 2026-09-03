@@ -129,8 +129,8 @@ class ReportEngine:
             raise ValueError(f"Unknown report mode: {mode}")
 
         # --- GUARD CLAUSE: EMPTY DATA ---
-        # Likes report can work with empty df (likes from cache only)
-        if df.empty and mode != "Likes":
+        # Likes and Likes for Days can work with empty/minimal df (delegated to specialized handlers)
+        if df.empty and mode not in ("Likes", "Likes for Days"):
             logging.warning(f"Report '{mode}' aborted: Source DataFrame is empty.")
             return pd.DataFrame(), {}, handler["report_type_key"], False, "No data available."
 

@@ -172,12 +172,15 @@ class LikesSyncPromptDialog(tk.Toplevel):
         self.minsize(520, 220)
         self.resizable(False, False)
 
-        try:
-            x = parent.winfo_rootx() + 50
-            y = parent.winfo_rooty() + 50
-            self.geometry(f"+{x}+{y}")
-        except Exception:
-            pass
+        # Center relative to parent using deferred layout (Instantiation.md §3.9)
+        def _center():
+            try:
+                x = parent.winfo_rootx() + 50
+                y = parent.winfo_rooty() + 50
+                self.geometry(f"+{x}+{y}")
+            except Exception:
+                pass
+        self.after(10, _center)
 
         prompt = (
             "Likes for Days evaluates your favorite tracks with 2+ listens using duration data from MusicBrainz.\n\n"

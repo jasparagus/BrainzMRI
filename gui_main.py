@@ -606,12 +606,12 @@ class BrainzMRIGUI:
 
                     # Optional Pre-Flight Stage: Sync & Resolve
                     if sync_and_resolve:
+                        import parsing
                         cb(5, 100, "Syncing ListenBrainz likes...")
                         lb_user = self.state.user.get_listenbrainz_username()
                         if lb_user:
                             try:
                                 from api_client import ListenBrainzClient
-                                import parsing
                                 lb_client = ListenBrainzClient()
                                 resp = lb_client.get_user_likes(lb_user, offset=0, count=500)
                                 if resp and isinstance(resp, dict):
@@ -668,9 +668,9 @@ class BrainzMRIGUI:
                                         parts = m.split("  ", 1)
                                         header = parts[0]
                                         detail = parts[1] if len(parts) > 1 else ""
-                                        self.root.after(0, lambda: [
-                                            win.update_progress(c, t, header),
-                                            win.update_secondary(detail) if detail else None
+                                        self.root.after(0, lambda _c=c, _t=t, _h=header, _d=detail: [
+                                            win.update_progress(_c, _t, _h),
+                                            win.update_secondary(_d) if _d else None
                                         ])
 
                                 enrichment.resolve_missing_mbids(
