@@ -40,9 +40,7 @@ lastfm_client = LastFMClient()
 
 def _get_global_dir() -> str:
     """Return the path to the global cache directory."""
-    global_dir = os.path.join(config.cache_dir, "global")
-    os.makedirs(global_dir, exist_ok=True)
-    return global_dir
+    return config.global_cache_dir
 
 
 def _load_cache(filename: str) -> dict[str, Any]:

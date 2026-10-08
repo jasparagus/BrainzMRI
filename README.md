@@ -169,13 +169,20 @@ BrainzMRI/
 ├── requirements.txt
 ├── config.json                   # Auto-created settings
 │
-└── cache/global/                   # Persistent caches
-    ├── artist_enrichment.json      # Genre tags per artist
-    ├── mbid_resolver_cache.json    # (Artist, Track, Album) → MBID mappings
-    ├── duration_cache.json         # recording_mbid → track duration mappings
-    ├── release_group_map.json      # release_mbid → release_group_mbid mappings
-    ├── enrichment_failures.jsonl   # Failed lookup diagnostics
-    └── cover_art/                  # Cached album cover thumbnails (.jpg)
+└── cache/
+    ├── global/                     # Universal persistent metadata caches
+    │   ├── artist_enrichment.json  # Genre tags per artist
+    │   ├── mbid_resolver_cache.json# (Artist, Track, Album) → MBID mappings
+    │   ├── duration_cache.json     # recording_mbid → track duration mappings
+    │   ├── release_group_map.json  # release_mbid → release_group_mbid mappings
+    │   ├── enrichment_failures.jsonl # Failed lookup diagnostics
+    │   └── cover_art/              # Cached album cover thumbnails (.jpg)
+    ├── reports/                    # Exported analytical CSV reports
+    └── users/<username>/           # Per-user datasets and configurations
+        ├── user.json               # Credentials, session keys, and preferences
+        ├── listens.jsonl.gz        # Canonical scrobble history
+        ├── likes.json              # ListenBrainz liked recording MBIDs
+        └── lastfm_loves.json       # Last.fm loved tracks
 ```
 
 ---

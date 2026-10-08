@@ -12,7 +12,7 @@ from config import config
 
 def get_lastfm_loves_path(username: str) -> str:
     """Return the path to the user's cached Last.fm loves file."""
-    return os.path.join(config.cache_dir, username, "lastfm_loves.json")
+    return os.path.join(config.get_user_cache_dir(username), "lastfm_loves.json")
 
 
 def fetch_and_cache_lastfm_loves(user) -> list[dict]:

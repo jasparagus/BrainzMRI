@@ -195,14 +195,24 @@ The dedicated "Likes" report uses a distinct schema from the unified `Likes` col
 * **UI Layout:** Report configuration (Type, Enrichment Source, Settings) is grouped into a central `LabelFrame` in `gui_main.py`. The `gui_filters.py` module is restricted solely to data filtering (Time/Count).
 * **Duplicate Prevention (Sync):** The `SyncManager` must strictly apply "Filter-First" logic. Incoming batches must be filtered against local data **before** being written to disk or counted for the UI.
 
-### 6.4 Global Caches (`cache/global/`)
-* **`artist_enrichment.json`**: Caches genre tags for artists.
-* **`mbid_resolver_cache.json`**: Caches `(Artist, Track, Album)` → `MBID` resolutions. Critical for "Import Likes" performance.
-* **`duration_cache.json`**: Caches `recording_mbid` → `{duration_ms, title, artist, last_updated}`. Supports negative caching (`duration_ms: 0`) to prevent redundant API queries for recordings lacking duration data in MusicBrainz.
-* **`release_group_map.json`**: Caches `release_mbid` → `release_group_mbid` mappings. Used by both genre enrichment and cover art fallback.
-* **`enrichment_failures.jsonl`**: Append-only log of failed lookups (capped at 1000 lines).
-* **`cover_art/`**: Cached album cover art thumbnails (JPEG, 250px). Keyed by `release_mbid`.
-* **`genres_excluded.json`**: User-defined list of tags to ignore.
+### 6.4 Standardized Cache Hierarchy (`cache/`)
+* **Global Caches (`cache/global/`)**:
+  * **`artist_enrichment.json`**: Caches genre tags for artists.
+  * **`album_enrichment.json`**: Caches genre tags for albums.
+  * **`track_enrichment.json`**: Caches genre tags for tracks.
+  * **`mbid_resolver_cache.json`**: Caches `(Artist, Track, Album)` → `MBID` resolutions. Critical for "Import Likes" performance.
+  * **`duration_cache.json`**: Caches `recording_mbid` → `{duration_ms, title, artist, last_updated}`. Supports negative caching (`duration_ms: 0`) to prevent redundant API queries for recordings lacking duration data in MusicBrainz.
+  * **`release_group_map.json`**: Caches `release_mbid` → `release_group_mbid` mappings. Used by both genre enrichment and cover art fallback.
+  * **`enrichment_failures.jsonl`**: Append-only log of failed lookups (capped at 1000 lines).
+  * **`cover_art/`**: Cached album cover art thumbnails (JPEG, 250px). Keyed by `release_mbid`.
+* **Reports Cache (`cache/reports/`)**:
+  * Generated CSV report outputs, formatted as `{username}_{timestamp}_{params}.csv` to naturally sort by user, then time.
+* **Per-User Caches (`cache/users/<username>/`)**:
+  * **`user.json`**: Credentials, session keys, tokens, and profile settings.
+  * **`listens.jsonl.gz`**: Canonical scrobble history.
+  * **`listens_intermediate.jsonl`**: Transient batch file used during incremental API sync ("Island" strategy).
+  * **`likes.json`**: ListenBrainz liked recording MBIDs.
+  * **`lastfm_loves.json`**: Last.fm loved tracks.
 
 ---
 

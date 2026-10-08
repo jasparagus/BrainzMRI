@@ -1340,15 +1340,22 @@ def report_likes_for_days(
 # ------------------------------------------------------------
 
 def save_report(df: pd.DataFrame, user, meta: dict = None, report_name: str = None) -> str:
-    """Save the DataFrame to a CSV file in the user's reports directory."""
-    # FIX: Use global config for reports path instead of non-existent user.cache_dir
+    """Save the DataFrame to a CSV file in the reports directory."""
     reports_dir = config.reports_dir
     os.makedirs(reports_dir, exist_ok=True)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
+    username = ""
+    if user:
+        if isinstance(user, str):
+            username = user
+        elif hasattr(user, "username") and user.username:
+            username = user.username
+
+    prefix = f"{username}_{timestamp}" if username else timestamp
 
     if report_name:
-        filename = f"{timestamp}_{report_name}.csv"
+        filename = f"{prefix}_{report_name}.csv"
     else:
         entity = meta["entity"]
         topn = meta["topn"]
@@ -1368,7 +1375,7 @@ def save_report(df: pd.DataFrame, user, meta: dict = None, report_name: str = No
             topn_str = f"Top{topn}"
 
         metric_str = "By" + metric.capitalize()
-        filename = f"{timestamp}_{topn_str}_{entity}_{range_str}_{metric_str}.csv"
+        filename = f"{prefix}_{topn_str}_{entity}_{range_str}_{metric_str}.csv"
 
     filepath = os.path.join(reports_dir, filename)
     df.to_csv(filepath, index=False)

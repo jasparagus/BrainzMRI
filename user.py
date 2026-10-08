@@ -19,12 +19,7 @@ from config import config  # REFACTORED: Import config
 
 def get_user_cache_dir(username: str) -> str:
     """Return the cache directory for a specific user."""
-    users_root = os.path.join(config.cache_dir, "users")
-    os.makedirs(users_root, exist_ok=True)
-
-    user_dir = os.path.join(users_root, username)
-    os.makedirs(user_dir, exist_ok=True)
-    return user_dir
+    return config.get_user_cache_dir(username)
 
 
 def get_cached_usernames() -> list[str]:
@@ -32,12 +27,11 @@ def get_cached_usernames() -> list[str]:
     Return a sorted list of cached usernames.
     Determined by subdirectories in cache/users/.
     """
-    users_root = os.path.join(config.cache_dir, "users")
-    if not os.path.exists(users_root):
+    if not os.path.exists(config.users_cache_dir):
         return []
     
     names = []
-    for entry in os.scandir(users_root):
+    for entry in os.scandir(config.users_cache_dir):
         if entry.is_dir():
             # Check if user.json exists to confirm it's valid
             if os.path.exists(os.path.join(entry.path, "user.json")):

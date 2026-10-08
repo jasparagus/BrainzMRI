@@ -15,7 +15,9 @@ class AppConfig:
         # ------------------------------------------------------------------
         self.app_root = os.path.abspath(os.path.dirname(__file__))
         self.cache_dir = os.path.join(self.app_root, "cache")
+        self.global_cache_dir = os.path.join(self.cache_dir, "global")
         self.reports_dir = os.path.join(self.cache_dir, "reports")
+        self.users_cache_dir = os.path.join(self.cache_dir, "users")
         self.config_path = os.path.join(self.app_root, "config.json")
         self.log_file = os.path.join(self.app_root, "brainzmri.log")
 
@@ -41,10 +43,18 @@ class AppConfig:
 
         # Initialize directories
         os.makedirs(self.cache_dir, exist_ok=True)
+        os.makedirs(self.global_cache_dir, exist_ok=True)
+        os.makedirs(self.users_cache_dir, exist_ok=True)
         os.makedirs(self.reports_dir, exist_ok=True)
 
         # Load persistence
         self.load()
+
+    def get_user_cache_dir(self, username: str) -> str:
+        """Return the cache directory for a specific user, ensuring it exists."""
+        path = os.path.join(self.users_cache_dir, username)
+        os.makedirs(path, exist_ok=True)
+        return path
 
     def load(self):
         """Load settings from config.json if it exists."""
