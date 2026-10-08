@@ -32,7 +32,7 @@ from gui_header import HeaderComponent
 from gui_filters import FilterComponent
 from gui_actions import ActionComponent
 from gui_tableview import ReportTableView
-from gui_charts import show_entity_trend_chart, show_new_music_stacked_bar, show_genre_flavor_treemap, show_album_art_matrix, show_entity_art_matrix, render_album_art_matrix_image, render_entity_art_matrix_image
+from gui_charts import show_entity_trend_chart, show_new_music_stacked_bar, show_genre_flavor_treemap, show_album_art_matrix, show_entity_art_matrix, render_album_art_matrix_image, render_entity_art_matrix_image, show_listen_count_chart
 import reporting
 import enrichment
 
@@ -246,7 +246,7 @@ class BrainzMRIGUI:
         self.report_engine = ReportEngine()
         self.processing = False # Simple guard
 
-        self.REPORT_MODES = ["Raw Listens", "Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "Favorite Track Trend", "Favorite Album Trend", "New Music By Year", "Likes", "Likes for Days", "Imported Playlist"]
+        self.REPORT_MODES = ["Raw Listens", "Top Artists", "Top Albums", "Top Tracks", "Genre Flavor", "Favorite Artist Trend", "Favorite Track Trend", "Favorite Album Trend", "New Music By Year", "Listen Count vs. Time", "Likes", "Likes for Days", "Imported Playlist"]
 
         # Initialize Variables for Enrichment (Moved from Filters)
         self.enrichment_mode_var = tk.StringVar(value="None (Data Only, No Genres)")
@@ -899,6 +899,7 @@ class BrainzMRIGUI:
         "New Music By Year":     "_show_new_music_chart",
         "Genre Flavor":          "_show_genre_treemap",
         "Likes for Days":        "_show_likes_for_days_charts",
+        "Listen Count vs. Time": "_show_listen_count_chart",
     }
 
     # ----------------------------------------------------------
@@ -955,6 +956,9 @@ class BrainzMRIGUI:
         if track_df is not None and not track_df.empty:
             from gui_charts import show_likes_for_days_windows
             show_likes_for_days_windows(track_df, artist_df, album_df, parent=self.root)
+
+    def _show_listen_count_chart(self):
+        show_listen_count_chart(self.state.last_report_df, meta=self.state.last_meta, parent=self.root)
 
 
     # ----------------------------------------------------------

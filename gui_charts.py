@@ -257,6 +257,69 @@ def _compute_grid_layout(n):
 
 
 # ================================================================
+# Listen Count vs. Time (Moving Average Line Chart)
+# ================================================================
+
+def show_listen_count_chart(df: pd.DataFrame, meta: dict = None, parent=None):
+    """
+    Generate a line chart of daily listen count (moving average) over time.
+
+    Args:
+        df: DataFrame with columns ['date', 'daily_listens'].
+        meta: Report metadata dict containing 'window_label' for y-axis label.
+        parent: Tkinter parent widget.
+    """
+    if df is None or df.empty:
+        return
+
+    plot_df = df.copy()
+
+    # Ensure date column is datetime
+    if not pd.api.types.is_datetime64_any_dtype(plot_df["date"]):
+        plot_df["date"] = pd.to_datetime(plot_df["date"])
+
+    plot_df = plot_df.sort_values("date")
+
+    x = plot_df["date"]
+    y = plot_df["daily_listens"]
+
+    window_label = (meta or {}).get("window_label", "")
+
+    # Figure setup (OO API)
+    fig = Figure(figsize=(12, 6), dpi=100)
+    ax = fig.add_subplot(111)
+
+    # Gradient fill beneath the curve for visual depth
+    ax.fill_between(x, y, alpha=0.25, color="#42A5F5", zorder=1)
+    # Main line
+    ax.plot(x, y, color="#1565C0", linewidth=1.8, zorder=2)
+
+    # Average reference line
+    mean_val = y.mean()
+    ax.axhline(
+        y=mean_val, color="#EF5350", linestyle="--", alpha=0.6, linewidth=1,
+        label=f"Average: {mean_val:.1f} / day", zorder=3,
+    )
+
+    # Labels
+    ax.set_xlabel("Time", fontsize=12)
+    y_label = "Daily Listens"
+    if window_label:
+        y_label += f", Moving Average [{window_label}]"
+    ax.set_ylabel(y_label, fontsize=12)
+    ax.set_title("Listen Count vs. Time", fontsize=14, weight="bold")
+
+    ax.legend(loc="upper right", fontsize=10)
+    ax.grid(axis="y", alpha=0.25)
+
+    # Date formatting
+    fig.autofmt_xdate(rotation=30, ha="right")
+
+    fig.tight_layout()
+    create_chart_window(fig, "Listen Count vs. Time", parent)
+
+
+# ================================================================
 # Entity Trend Charts
 # ================================================================
 

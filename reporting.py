@@ -138,6 +138,95 @@ def apply_column_order(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------
+# Listen Count vs. Time (Moving Average)
+# ------------------------------------------------------------
+
+def _format_window_label(window_days: int) -> str:
+    """Format a window size in days into a human-readable period string.
+    E.g. 1 -> '1 day', 7 -> '1 week', 30 -> '1 month', 14 -> '2 weeks', 45 -> '45 days'.
+    """
+    if window_days == 1:
+        return "1 day"
+    if window_days == 7:
+        return "1 week"
+    if window_days == 14:
+        return "2 weeks"
+    if window_days == 21:
+        return "3 weeks"
+    if window_days == 30:
+        return "1 month"
+    if window_days == 60:
+        return "2 months"
+    if window_days == 90:
+        return "3 months"
+    if window_days % 30 == 0 and window_days >= 30:
+        months = window_days // 30
+        return f"{months} months"
+    if window_days % 7 == 0 and window_days >= 7:
+        weeks = window_days // 7
+        return f"{weeks} week{'s' if weeks != 1 else ''}"
+    return f"{window_days} days"
+
+
+def report_listen_count_vs_time(df: pd.DataFrame, **kwargs) -> tuple:
+    """Compute a moving average of daily listen counts.
+
+    The listen timestamps are binned into calendar days, producing a count
+    per day.  A centered rolling average is then applied with a window size
+    of ``ceil(total_span_days / 15)`` to give a smooth, human-readable
+    curve.  The output is normalised to listens-per-day.
+
+    Returns:
+        (result_df, meta) where result_df has columns ['date', 'daily_listens']
+        and meta contains 'window_days' and 'window_label'.
+    """
+    import math
+
+    if df.empty or "listened_at" not in df.columns:
+        empty = pd.DataFrame(columns=["date", "daily_listens"])
+        return empty, {"entity": "listen_rate", "window_days": 1, "window_label": "1 day"}
+
+    work = df[["listened_at"]].copy()
+    if not pd.api.types.is_datetime64_any_dtype(work["listened_at"]):
+        work["listened_at"] = pd.to_datetime(work["listened_at"], utc=True)
+
+    # Bin into calendar days
+    work["date"] = work["listened_at"].dt.normalize()
+    daily = work.groupby("date").size().reset_index(name="count")
+    daily = daily.sort_values("date").reset_index(drop=True)
+
+    # Determine the span and window size
+    date_min = daily["date"].min()
+    date_max = daily["date"].max()
+    span_days = max(1, (date_max - date_min).days)
+
+    # Fill gaps — ensure every day in the range has an entry (count=0)
+    full_range = pd.date_range(start=date_min, end=date_max, freq="D", name="date")
+    daily = daily.set_index("date").reindex(full_range, fill_value=0).rename_axis("date").reset_index()
+
+    # Window size: ceil(span / 15), minimum 1
+    window_days = max(1, math.ceil(span_days / 15))
+    window_label = _format_window_label(window_days)
+
+    # Centered rolling average (already in units of listens/day since each bin = 1 day)
+    daily["daily_listens"] = (
+        daily["count"]
+        .rolling(window=window_days, center=True, min_periods=1)
+        .mean()
+    )
+
+    result = daily[["date", "daily_listens"]].copy()
+
+    meta = {
+        "entity": "listen_rate",
+        "window_days": window_days,
+        "window_label": window_label,
+        "metric": "listen_rate",
+    }
+    return result, meta
+
+
+# ------------------------------------------------------------
 # Raw Listens Report
 # ------------------------------------------------------------
 

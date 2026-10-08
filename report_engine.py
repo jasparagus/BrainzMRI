@@ -90,6 +90,12 @@ class ReportEngine:
                 "kwargs": {},
                 "report_type_key": "likes_for_days",
                 "status": "Likes for Days report generated.",
+            },
+            "Listen Count vs. Time": {
+                "func": reporting.report_listen_count_vs_time,
+                "kwargs": {},
+                "report_type_key": "listen_rate",
+                "status": "Listen Count report generated.",
             }
         }
 
