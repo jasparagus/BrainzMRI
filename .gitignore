@@ -8,6 +8,7 @@
 /.venv/
 /.env/
 *listenbrainz*.zip
+*Backup*.7z
 __pycache__/
 *.pyc
 config.json
