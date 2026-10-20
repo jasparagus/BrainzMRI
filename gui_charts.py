@@ -86,22 +86,126 @@ def _make_dark_tile(tile_px=TILE_PX):
     return np.full((tile_px, tile_px, 3), 17, dtype=np.uint8)  # #111111
 
 
+_base_logo_cache = {}  # tile_px -> PIL.Image.Image (RGBA on #111111)
+
+
+def _get_base_logo_image(tile_px=TILE_PX):
+    """Load and cache the base BrainzMRI logo as a tile_px × tile_px RGBA Image."""
+    if tile_px in _base_logo_cache:
+        return _base_logo_cache[tile_px]
+
+    logo_path = os.path.join(config.app_root, "BrainzMRI_Transparent.png")
+    bg = Image.new("RGBA", (tile_px, tile_px), (17, 17, 17, 255))
+    try:
+        if os.path.isfile(logo_path):
+            img = Image.open(logo_path).convert("RGBA")
+            w, h = img.size
+            if w != h:
+                d = min(w, h)
+                left, top = (w - d) // 2, (h - d) // 2
+                img = img.crop((left, top, left + d, top + d))
+            img = img.resize((tile_px, tile_px), Image.LANCZOS)
+            base = Image.alpha_composite(bg, img)
+        else:
+            base = bg
+    except Exception as e:
+        logging.warning(f"Failed to load fallback logo image: {e}")
+        base = bg
+
+    _base_logo_cache[tile_px] = base
+    return base
+
+
 def _load_logo_tile(tile_px=TILE_PX):
     """Load the BrainzMRI logo as a tile_px × tile_px uint8 RGB array.
     Used for albums with missing cover art (distinct from empty cells)."""
-    logo_path = os.path.join(config.app_root, "BrainzMRI_Transparent.png")
-    tile = _load_tile(logo_path, tile_px)
-    if tile is not None:
-        return tile
-    return _make_dark_tile(tile_px)
+    base = _get_base_logo_image(tile_px)
+    return np.array(base.convert("RGB"), dtype=np.uint8)
+
+
+def _create_fallback_tile(album_title=None, tile_px=TILE_PX, side=1):
+    """Generate a fallback tile with the BrainzMRI logo and an overlaid album title.
+
+    - Overlays a soft translucent dark scrim band on the lower ~35% of the tile.
+    - Renders the album title centered in bold white text with a 1px black outline.
+    - Adaptively scales font size based on grid `side` (1, 2, or 3).
+    - Falls back to the plain logo if album_title is empty or placeholder text.
+    """
+    base_img = _get_base_logo_image(tile_px)
+    if (
+        not album_title
+        or not str(album_title).strip()
+        or str(album_title).strip().lower() in ("none", "nan", "unknown album", "")
+    ):
+        return np.array(base_img.convert("RGB"), dtype=np.uint8)
+
+    title_clean = str(album_title).strip()
+
+    try:
+        # 1. Clone base image
+        tile = base_img.copy()
+
+        # 2. Draw translucent scrim band across lower ~35% of tile
+        scrim_ratio = 0.36
+        scrim_h = int(tile_px * scrim_ratio)
+        scrim_top = tile_px - scrim_h
+
+        scrim_overlay = Image.new("RGBA", (tile_px, tile_px), (0, 0, 0, 0))
+        scrim_draw = ImageDraw.Draw(scrim_overlay)
+        # Dark navy-black tint with ~82% opacity
+        scrim_draw.rectangle([0, scrim_top, tile_px, tile_px], fill=(16, 16, 24, 210))
+        tile = Image.alpha_composite(tile, scrim_overlay)
+
+        # 3. Adaptive typography based on sub-grid dimension (side)
+        # In _render_art_block_pil, the entire side×side composite is resized to 400×400 px.
+        # When side=3, a 250px tile is downscaled by factor (400 / 750) = 0.533.
+        # A larger base font ensures text remains legible after downscaling.
+        if side == 1:
+            font_size = 16
+            max_chars = 22
+        elif side == 2:
+            font_size = 19
+            max_chars = 18
+        else:  # side >= 3
+            font_size = 23
+            max_chars = 15
+
+        font = _get_font(font_size, bold=True)
+        wrapped_text = _format_text(title_clean, max_chars=max_chars, max_lines=2)
+
+        # 4. Measure text height to vertically center it inside the scrim band
+        draw = ImageDraw.Draw(tile)
+        lines = wrapped_text.split("\n")
+        line_bboxes = [draw.textbbox((0, 0), line, font=font, stroke_width=1) for line in lines]
+        line_heights = [(b[3] - b[1]) for b in line_bboxes]
+        total_text_h = sum(line_heights) + (len(lines) - 1) * 3
+
+        text_y = scrim_top + max(2, (scrim_h - total_text_h) // 2)
+
+        # 5. Draw centered text with 1px black stroke
+        _draw_centered_text(
+            draw,
+            wrapped_text,
+            cx=tile_px // 2,
+            y=text_y,
+            font=font,
+            fill="white",
+            stroke_width=1,
+            stroke_fill="black",
+        )
+
+        return np.array(tile.convert("RGB"), dtype=np.uint8)
+    except Exception as e:
+        logging.warning(f"Error generating fallback tile with title '{album_title}': {e}")
+        return np.array(base_img.convert("RGB"), dtype=np.uint8)
 
 
 def _composite_grid(albums, side, cover_art_map, logo_tile, dark_tile):
     """Stitch album images into a single (side*TILE_PX) × (side*TILE_PX) composite.
 
-    - Albums with cover art  → loaded and resized
-    - Albums with missing art → logo_tile (fallback logo)
-    - Empty grid cells       → dark_tile (solid dark fill)
+    - Albums with cover art   → loaded and resized
+    - Albums with missing art → _create_fallback_tile (logo + overlaid album title)
+    - Empty grid cells        → dark_tile (solid dark fill)
     """
     tile_px = logo_tile.shape[0]
     rows = []
@@ -110,10 +214,14 @@ def _composite_grid(albums, side, cover_art_map, logo_tile, dark_tile):
         row_tiles = []
         for _c in range(side):
             if idx < len(albums):
-                mbid = albums[idx].get("release_mbid")
+                album_info = albums[idx] if isinstance(albums[idx], dict) else {}
+                mbid = album_info.get("release_mbid")
                 img_path = cover_art_map.get(mbid) if mbid else None
                 tile = _load_tile(img_path, tile_px) if img_path else None
-                row_tiles.append(tile if tile is not None else logo_tile.copy())
+                if tile is None:
+                    album_title = album_info.get("album")
+                    tile = _create_fallback_tile(album_title=album_title, tile_px=tile_px, side=side)
+                row_tiles.append(tile)
                 idx += 1
             else:
                 row_tiles.append(dark_tile.copy())
@@ -861,7 +969,7 @@ def show_album_art_matrix(df: pd.DataFrame, cover_art_map: dict[str, str | None]
             stats_str += f" | {likes} ❤️"
 
         # 1×1 composite for single album
-        albums = [{"release_mbid": mbid}]
+        albums = [{"release_mbid": mbid, "album": raw_album}]
         composite = _composite_grid(albums, 1, cover_art_map, logo_tile, dark_tile)
 
         r = idx // ncols
@@ -1054,18 +1162,26 @@ def _get_font(size, bold=False):
 
 # --- Text Drawing ---
 
-def _draw_centered_text(draw, text, cx, y, font, fill):
+def _draw_centered_text(draw, text, cx, y, font, fill, stroke_width=0, stroke_fill=None):
     """Draw (possibly multi-line) text centred horizontally at *cx*, starting at *y*.
 
     Returns the y position after the last line (useful for chaining).
     """
     if not text:
         return y
+    text_kwargs = {}
+    bbox_kwargs = {}
+    if stroke_width > 0:
+        bbox_kwargs["stroke_width"] = stroke_width
+        text_kwargs["stroke_width"] = stroke_width
+        if stroke_fill:
+            text_kwargs["stroke_fill"] = stroke_fill
+
     for line in text.split("\n"):
-        bbox = draw.textbbox((0, 0), line, font=font)
+        bbox = draw.textbbox((0, 0), line, font=font, **bbox_kwargs)
         tw = bbox[2] - bbox[0]
         line_h = bbox[3] - bbox[1]
-        draw.text((cx - tw // 2, y), line, font=font, fill=fill)
+        draw.text((cx - tw // 2, y), line, font=font, fill=fill, **text_kwargs)
         y += line_h + 3
     return y
 
@@ -1371,7 +1487,7 @@ def render_album_art_matrix_image(
             stats_str += f"  |  {likes} Likes"
 
         # 1x1 composite for single album
-        albums = [{"release_mbid": mbid}]
+        albums = [{"release_mbid": mbid, "album": raw_album}]
         composite = _composite_grid(albums, 1, cover_art_map, logo_tile,
                                     dark_tile)
 
@@ -1386,7 +1502,7 @@ def render_album_art_matrix_image(
         y = margin + title_h + r * (block_w + header_h + gap)
         master.paste(block_img, (x, y))
 
-    _show_image_window(master, "Album Art Matrix", parent)
+    return _show_image_window(master, "Album Art Matrix", parent)
 
 
 # --- Entity Art Matrix (Raster) ---
@@ -1464,4 +1580,4 @@ def render_entity_art_matrix_image(
         y = margin + title_h + r * (block_w + header_h + gap)
         master.paste(block_img, (x, y))
 
-    _show_image_window(master, "Entity Art Matrix", parent)
+    return _show_image_window(master, "Entity Art Matrix", parent)
