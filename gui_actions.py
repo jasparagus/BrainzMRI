@@ -165,7 +165,7 @@ class LikesSyncPromptDialog(tk.Toplevel):
     A modal dialog that prompts the user whether to sync likes from server
     and resolve unmapped tracks before generating 'Likes for Days'.
     """
-    def __init__(self, parent):
+    def __init__(self, parent, min_listens: int = 3):
         super().__init__(parent)
         self.result = None  # None=Cancel, "sync_resolve"=Sync & Resolve, "proceed"=Use Existing
         self.title("Likes for Days — Pre-Flight Check")
@@ -182,8 +182,10 @@ class LikesSyncPromptDialog(tk.Toplevel):
                 pass
         self.after(10, _center)
 
+        effective_min = max(1, int(min_listens))
+        listen_label = f"{effective_min}+ listens" if effective_min > 1 else "1+ listen"
         prompt = (
-            "Likes for Days evaluates your favorite tracks with 2+ listens using duration data from MusicBrainz.\n\n"
+            f"Likes for Days evaluates your favorite tracks with {listen_label} using duration data from MusicBrainz.\n\n"
             "Would you like to sync fresh likes from ListenBrainz / Last.fm and resolve missing metadata before generating the report?"
         )
         lbl = tk.Label(self, text=prompt, wraplength=480, justify="left", font="AppFontLarge")
@@ -199,7 +201,7 @@ class LikesSyncPromptDialog(tk.Toplevel):
             command=self.on_sync_resolve, width=18
         )
         btn_sync.pack(side="left", padx=8)
-        Hovertip(btn_sync, "Sync likes from ListenBrainz/Last.fm,\nresolve unmapped tracks, then generate report.")
+        Hovertip(btn_sync, f"Sync likes from ListenBrainz/Last.fm,\nresolve unmapped tracks ({listen_label}), then generate report.")
 
         # 2. Proceed with Existing
         btn_proceed = tk.Button(

@@ -782,6 +782,76 @@ prepare_artist_trend_chart_data = prepare_entity_trend_chart_data
 # Cross-Service Likes Audit Report
 # ------------------------------------------------------------
 
+def _build_history_indexes(df: pd.DataFrame) -> tuple[dict[str, dict], dict[tuple[str, str], dict]]:
+    """
+    Build O(1) lookup dictionaries from listening history DataFrame:
+      1. mbid_to_hist: recording_mbid -> best row dict
+      2. name_to_hist: (artist_lower, track_lower) -> best row dict
+    Prioritizes rows with non-empty recording_mbid, album, artist_mbid, and release_mbid.
+    """
+    mbid_to_hist: dict[str, dict] = {}
+    name_to_hist: dict[tuple[str, str], dict] = {}
+
+    if df is None or df.empty:
+        return mbid_to_hist, name_to_hist
+
+    cols = [c for c in ["artist", "track_name", "album", "recording_mbid", "artist_mbid", "release_mbid"] if c in df.columns]
+    if not cols:
+        return mbid_to_hist, name_to_hist
+
+    dedup_df = df[cols].drop_duplicates()
+
+    def _clean_field(val: object) -> str:
+        if val is None or pd.isna(val):
+            return ""
+        s = str(val).strip()
+        return "" if s.lower() in ("nan", "none", "") else s
+
+    mbid_scores: dict[str, int] = {}
+    name_scores: dict[tuple[str, str], int] = {}
+
+    for row_tuple in dedup_df.itertuples(index=False):
+        row_dict = row_tuple._asdict()
+        artist = _clean_field(row_dict.get("artist"))
+        track = _clean_field(row_dict.get("track_name"))
+        album = _clean_field(row_dict.get("album"))
+        if album.lower() == "unknown":
+            album = ""
+        rec_mbid = _clean_field(row_dict.get("recording_mbid"))
+        art_mbid = _clean_field(row_dict.get("artist_mbid"))
+        rel_mbid = _clean_field(row_dict.get("release_mbid"))
+
+        score = (
+            (4 if rec_mbid else 0) +
+            (2 if artist else 0) +
+            (2 if track else 0) +
+            (2 if album else 0) +
+            (1 if art_mbid else 0) +
+            (1 if rel_mbid else 0)
+        )
+
+        entry = {
+            "artist": artist,
+            "track_name": track,
+            "album": album,
+            "recording_mbid": rec_mbid,
+            "artist_mbid": art_mbid,
+            "release_mbid": rel_mbid,
+        }
+
+        if rec_mbid and score > mbid_scores.get(rec_mbid, -1):
+            mbid_scores[rec_mbid] = score
+            mbid_to_hist[rec_mbid] = entry
+
+        if artist and track:
+            norm_key = (artist.lower(), track.lower())
+            if score > name_scores.get(norm_key, -1):
+                name_scores[norm_key] = score
+                name_to_hist[norm_key] = entry
+
+    return mbid_to_hist, name_to_hist
+
+
 def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list = None,
                  resolver_cache: dict = None, **kwargs):
     """
@@ -797,7 +867,7 @@ def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list =
         DataFrame with columns: track_name, artist, album, Last.fm Liked, ListenBrainz Liked, 
         Both Liked, recording_mbid
     """
-    import parsing  # For make_track_key (case-insensitive resolver lookup)
+    import parsing
     
     if liked_mbids is None:
         liked_mbids = set()
@@ -805,180 +875,177 @@ def report_likes(df: pd.DataFrame, liked_mbids: set = None, lastfm_loves: list =
         resolver_cache = {}
     
     rows = []  # Will hold the final audit rows
-    matched_lfm_indices = set()  # Track which Last.fm loves have been matched
-    
+
+    # Pre-index listening history and resolver cache for O(1) lookups
+    mbid_to_hist, name_to_hist = _build_history_indexes(df)
+
+    mbid_to_resolved: dict[str, dict] = {}
+    partial_name_to_resolved: dict[tuple[str, str], dict] = {}
+    for cache_key, cache_val in resolver_cache.items():
+        if isinstance(cache_val, dict) and cache_val.get("mbid"):
+            c_mbid = str(cache_val["mbid"]).strip()
+            c_artist = str(cache_val.get("artist") or "").strip()
+            c_track = str(cache_val.get("track") or "").strip()
+            c_album = str(cache_val.get("album") or "").strip()
+            if not c_artist or not c_track:
+                k_art, k_trk, k_alb = parsing.parse_track_key(cache_key)
+                c_artist = c_artist or k_art
+                c_track = c_track or k_trk
+                c_album = c_album or k_alb
+            info = {"mbid": c_mbid, "artist": c_artist, "track": c_track, "album": c_album}
+            if c_mbid:
+                mbid_to_resolved[c_mbid] = info
+            if c_artist and c_track:
+                partial_name_to_resolved[(c_artist.lower(), c_track.lower())] = info
+
     # ------------------------------------------------------------------
-    # Step 1: Build LB Likes base from listening history
+    # Step 1: Build LB Likes base from listening history & resolver cache
     # ------------------------------------------------------------------
-    # For each liked MBID, find the best entry in listening history
-    # "Best" = most complete (prioritize entries without "Unknown" fields)
-    
-    if liked_mbids and not df.empty and "recording_mbid" in df.columns:
+    if liked_mbids:
         for mbid in liked_mbids:
-            matches = df[df["recording_mbid"] == mbid]
-            if matches.empty:
-                # MBID not found in listening history — try reverse lookup via resolver cache
-                # The resolver cache maps (artist, track, album) → {mbid: ...}, so we need
-                # to search it backwards to find names for this MBID
-                found_name = False
-                for cache_key, cache_val in resolver_cache.items():
-                    if isinstance(cache_val, dict) and cache_val.get("mbid") == mbid:
-                        # cache_key is typically "artist||track||album" (from make_track_key)
-                        parts = cache_key.split("||")
-                        if len(parts) >= 2:
-                            artist_name = parts[0].strip()
-                            track_name = parts[1].strip()
-                            album_name = parts[2].strip() if len(parts) > 2 else ""
-                            
-                            # Try to find this track in history by name
-                            name_matches = df[
-                                (df["track_name"].str.lower() == track_name.lower()) &
-                                (df["artist"].str.lower() == artist_name.lower())
-                            ]
-                            if not name_matches.empty:
-                                best_row = name_matches.iloc[0]
-                                rows.append({
-                                    "track_name": str(best_row.get("track_name", track_name)).strip(),
-                                    "artist": str(best_row.get("artist", artist_name)).strip(),
-                                    "album": str(best_row.get("album", album_name)).strip(),
-                                    "ListenBrainz Liked": 1,
-                                    "Last.fm Liked": 0,
-                                    "recording_mbid": mbid,
-                                    "artist_mbid": str(best_row.get("artist_mbid", "")).strip(),
-                                    "release_mbid": str(best_row.get("release_mbid", "")).strip(),
-                                })
-                            else:
-                                # Use the names from cache even without history match
-                                rows.append({
-                                    "track_name": track_name,
-                                    "artist": artist_name,
-                                    "album": album_name,
-                                    "ListenBrainz Liked": 1,
-                                    "Last.fm Liked": 0,
-                                    "recording_mbid": mbid,
-                                    "artist_mbid": "",
-                                    "release_mbid": "",
-                                })
-                            found_name = True
-                            break
-                
-                if not found_name:
-                    # No resolver cache hit — include with empty fields
+            hist = mbid_to_hist.get(mbid)
+            if hist:
+                rows.append({
+                    "track_name": hist["track_name"],
+                    "artist": hist["artist"],
+                    "album": hist["album"],
+                    "ListenBrainz Liked": 1,
+                    "Last.fm Liked": 0,
+                    "recording_mbid": mbid,
+                    "artist_mbid": hist["artist_mbid"],
+                    "release_mbid": hist["release_mbid"],
+                })
+                continue
+
+            # Reverse lookup via resolver cache if not directly in history by MBID
+            res_info = mbid_to_resolved.get(mbid)
+            if res_info:
+                c_artist = res_info["artist"]
+                c_track = res_info["track"]
+                c_album = res_info["album"]
+                name_hist = name_to_hist.get((c_artist.lower(), c_track.lower())) if (c_artist and c_track) else None
+                if name_hist:
                     rows.append({
-                        "track_name": "",
-                        "artist": "",
-                        "album": "",
+                        "track_name": name_hist["track_name"] or c_track,
+                        "artist": name_hist["artist"] or c_artist,
+                        "album": name_hist["album"] or c_album,
+                        "ListenBrainz Liked": 1,
+                        "Last.fm Liked": 0,
+                        "recording_mbid": mbid,
+                        "artist_mbid": name_hist["artist_mbid"],
+                        "release_mbid": name_hist["release_mbid"],
+                    })
+                else:
+                    rows.append({
+                        "track_name": c_track,
+                        "artist": c_artist,
+                        "album": c_album,
                         "ListenBrainz Liked": 1,
                         "Last.fm Liked": 0,
                         "recording_mbid": mbid,
                         "artist_mbid": "",
                         "release_mbid": "",
                     })
-                continue
-            
-            # Pick the most complete row: prefer non-"Unknown", non-empty fields
-            best = matches.iloc[0]
-            best_score = 0
-            for _, row in matches.iterrows():
-                score = 0
-                for col in ["artist", "track_name", "album"]:
-                    val = str(row.get(col, "")).strip()
-                    if val and val.lower() not in ("unknown", "nan", "none", ""):
-                        score += 1
-                if score > best_score:
-                    best_score = score
-                    best = row
-            
-            rows.append({
-                "track_name": str(best.get("track_name", "")).strip(),
-                "artist": str(best.get("artist", "")).strip(),
-                "album": str(best.get("album", "")).strip(),
-                "ListenBrainz Liked": 1,
-                "Last.fm Liked": 0,
-                "recording_mbid": mbid,
-                "artist_mbid": str(best.get("artist_mbid", "")).strip(),
-                "release_mbid": str(best.get("release_mbid", "")).strip(),
-            })
-    elif liked_mbids:
-        # No listening history but have MBIDs — include with empty fields
-        for mbid in liked_mbids:
-            rows.append({
-                "track_name": "",
-                "artist": "",
-                "album": "",
-                "ListenBrainz Liked": 1,
-                "Last.fm Liked": 0,
-                "recording_mbid": mbid,
-                "artist_mbid": "",
-                "release_mbid": "",
-            })
+            else:
+                rows.append({
+                    "track_name": "",
+                    "artist": "",
+                    "album": "",
+                    "ListenBrainz Liked": 1,
+                    "Last.fm Liked": 0,
+                    "recording_mbid": mbid,
+                    "artist_mbid": "",
+                    "release_mbid": "",
+                })
     
     # ------------------------------------------------------------------
     # Step 2: Join Last.fm loves (if available)
     # ------------------------------------------------------------------
     if lastfm_loves:
-        # Step 2a: Resolve Last.fm loves via resolver cache (case-insensitive lookup)
-        lfm_resolved = []  # (index, mbid_or_None, artist, track)
-        for i, love in enumerate(lastfm_loves):
-            artist = love.get("artist", "").strip()
-            track = love.get("track", "").strip()
-            # Check if Last.fm already provided an MBID
-            mbid = love.get("mbid", "")
-            if mbid and str(mbid).strip() and str(mbid) != "None":
-                lfm_resolved.append((i, str(mbid).strip(), artist, track))
-                continue
-            # Try resolver cache
+        lb_mbid_to_row: dict[str, int] = {}
+        lb_name_to_row: dict[tuple[str, str], int] = {}
+        for j, row in enumerate(rows):
+            r_mbid = row.get("recording_mbid", "")
+            if r_mbid:
+                lb_mbid_to_row[r_mbid] = j
+            r_art = row.get("artist", "").strip().lower()
+            r_trk = row.get("track_name", "").strip().lower()
+            if r_art and r_trk:
+                lb_name_to_row[(r_art, r_trk)] = j
+
+        for love in lastfm_loves:
+            artist = str(love.get("artist") or "").strip()
+            track = str(love.get("track") or "").strip()
+            lfm_mbid = str(love.get("mbid") or "").strip()
+            if lfm_mbid.lower() in ("none", "nan", ""):
+                lfm_mbid = ""
+
+            norm_name = (artist.lower(), track.lower()) if (artist and track) else None
+            hist = name_to_hist.get(norm_name) if norm_name else None
+            hist_mbid = hist["recording_mbid"] if hist else ""
+
             key = parsing.make_track_key(artist, track, "")
             cached = resolver_cache.get(key)
-            if cached and isinstance(cached, dict) and cached.get("mbid"):
-                lfm_resolved.append((i, cached["mbid"], artist, track))
-            else:
-                lfm_resolved.append((i, None, artist, track))
-        
-        # Step 2b: MBID-based join against existing LB rows
-        lb_mbid_to_row = {}
-        for j, row in enumerate(rows):
-            mbid = row.get("recording_mbid", "")
-            if mbid:
-                lb_mbid_to_row[mbid] = j
-        
-        for (lfm_idx, mbid, artist, track) in lfm_resolved:
-            if mbid and mbid in lb_mbid_to_row:
-                # Mark as also liked on Last.fm
-                rows[lb_mbid_to_row[mbid]]["Last.fm Liked"] = 1
-                matched_lfm_indices.add(lfm_idx)
-        
-        # Step 2c: Exact name match for unresolved Last.fm loves
-        # Build lookup: (artist, track_name) → row index (case-sensitive, exact)
-        lb_name_to_row = {}
-        for j, row in enumerate(rows):
-            name_key = (row["artist"], row["track_name"])
-            if name_key[0] and name_key[1]:  # Skip empty entries
-                lb_name_to_row[name_key] = j
-        
-        for (lfm_idx, mbid, artist, track) in lfm_resolved:
-            if lfm_idx in matched_lfm_indices:
+            if not (isinstance(cached, dict) and cached.get("mbid")) and norm_name:
+                cached = partial_name_to_resolved.get(norm_name)
+
+            cache_mbid = str(cached.get("mbid") or "").strip() if isinstance(cached, dict) else ""
+            cache_album = str(cached.get("album") or "").strip() if isinstance(cached, dict) else ""
+
+            # Check if this Last.fm love matches an existing row by MBID or case-insensitive name
+            match_idx = None
+            for candidate_mbid in (lfm_mbid, hist_mbid, cache_mbid):
+                if candidate_mbid and candidate_mbid in lb_mbid_to_row:
+                    match_idx = lb_mbid_to_row[candidate_mbid]
+                    break
+            if match_idx is None and norm_name and norm_name in lb_name_to_row:
+                match_idx = lb_name_to_row[norm_name]
+
+            if match_idx is not None:
+                target = rows[match_idx]
+                target["Last.fm Liked"] = 1
+                # Backfill missing metadata on unnamed/incomplete rows
+                if not target.get("artist"):
+                    target["artist"] = (hist["artist"] if hist and hist.get("artist") else artist)
+                if not target.get("track_name"):
+                    target["track_name"] = (hist["track_name"] if hist and hist.get("track_name") else track)
+                if not target.get("album"):
+                    target["album"] = (hist["album"] if hist and hist.get("album") else cache_album)
+                if not target.get("artist_mbid") and hist:
+                    target["artist_mbid"] = hist.get("artist_mbid", "")
+                if not target.get("release_mbid") and hist:
+                    target["release_mbid"] = hist.get("release_mbid", "")
+                if target.get("artist") and target.get("track_name"):
+                    lb_name_to_row[(target["artist"].lower(), target["track_name"].lower())] = match_idx
                 continue
-            # Exact case-sensitive match
-            name_key = (artist, track)
-            if name_key in lb_name_to_row:
-                rows[lb_name_to_row[name_key]]["Last.fm Liked"] = 1
-                matched_lfm_indices.add(lfm_idx)
-        
-        # Step 2d: Append unmatched Last.fm loves as new rows
-        for (lfm_idx, mbid, artist, track) in lfm_resolved:
-            if lfm_idx in matched_lfm_indices:
-                continue
+
+            # Unmatched Last.fm love: prefer history recording_mbid for alignment, then resolver cache, then Last.fm MBID
+            chosen_mbid = hist_mbid or cache_mbid or lfm_mbid or ""
+            h_row = mbid_to_hist.get(chosen_mbid) if chosen_mbid else None
+            if not h_row:
+                h_row = hist
+
+            final_artist = (h_row["artist"] if h_row and h_row.get("artist") else artist)
+            final_track = (h_row["track_name"] if h_row and h_row.get("track_name") else track)
+            final_album = (h_row["album"] if h_row and h_row.get("album") else cache_album)
+            final_artist_mbid = (h_row.get("artist_mbid", "") if h_row else "")
+            final_release_mbid = (h_row.get("release_mbid", "") if h_row else "")
+
+            new_idx = len(rows)
             rows.append({
-                "track_name": track,
-                "artist": artist,
-                "album": "",
+                "track_name": final_track,
+                "artist": final_artist,
+                "album": final_album,
                 "ListenBrainz Liked": 0,
                 "Last.fm Liked": 1,
-                "recording_mbid": mbid or "",
-                "artist_mbid": "",
-                "release_mbid": "",
+                "recording_mbid": chosen_mbid,
+                "artist_mbid": final_artist_mbid,
+                "release_mbid": final_release_mbid,
             })
+            if chosen_mbid:
+                lb_mbid_to_row[chosen_mbid] = new_idx
+            if final_artist and final_track:
+                lb_name_to_row[(final_artist.lower(), final_track.lower())] = new_idx
     
     # ------------------------------------------------------------------
     # Step 3: Build result DataFrame
@@ -1081,24 +1148,6 @@ def get_resolved_likes(
     )
     resolved_df = audit_df[mask_resolved].copy()
 
-    # If track_name or artist is missing, attempt to recover from listening history
-    if not df.empty and "recording_mbid" in df.columns:
-        mbid_lookup = df[df["recording_mbid"].notna()].drop_duplicates(subset=["recording_mbid"]).set_index("recording_mbid")
-        for idx, row in resolved_df.iterrows():
-            mbid = row["recording_mbid"]
-            if mbid in mbid_lookup.index:
-                hist_row = mbid_lookup.loc[mbid]
-                if not row.get("artist"):
-                    resolved_df.at[idx, "artist"] = hist_row.get("artist", "")
-                if not row.get("track_name"):
-                    resolved_df.at[idx, "track_name"] = hist_row.get("track_name", "")
-                if not row.get("album"):
-                    resolved_df.at[idx, "album"] = hist_row.get("album", "")
-                if not row.get("artist_mbid") and "artist_mbid" in hist_row:
-                    resolved_df.at[idx, "artist_mbid"] = hist_row.get("artist_mbid", "")
-                if not row.get("release_mbid") and "release_mbid" in hist_row:
-                    resolved_df.at[idx, "release_mbid"] = hist_row.get("release_mbid", "")
-
     return resolved_df.reset_index(drop=True)
 
 
@@ -1108,6 +1157,7 @@ def report_likes_for_days(
     resolved_likes_df: pd.DataFrame,
     durations_map: dict[str, int],
     topn: int = 100,
+    min_listens: int = 3,
     **kwargs
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """
@@ -1118,10 +1168,13 @@ def report_likes_for_days(
         resolved_likes_df: DataFrame of resolved likes with recording_mbids.
         durations_map: Dict mapping recording_mbid -> duration_ms.
         topn: Maximum number of rows to return for Top-N lists.
+        min_listens: Minimum listen count threshold for a liked track to be included.
 
     Returns:
         (track_df, artist_df, album_df, meta)
     """
+    effective_min_listens = max(1, int(min_listens))
+
     if resolved_likes_df.empty or df.empty:
         empty_tracks = pd.DataFrame(columns=[
             "track_name", "artist", "album", "Duration", "listens",
@@ -1136,13 +1189,14 @@ def report_likes_for_days(
         return empty_tracks, empty_artists, empty_albums, {
             "entity": "likes_for_days",
             "topn": topn,
+            "min_listens": effective_min_listens,
             "metric": "duration",
             "artist_df": empty_artists,
             "album_df": empty_albums,
             "track_df": empty_tracks,
         }
 
-    # 1. Precompute listen counts from history
+    # 1. Precompute listen counts and fallback durations from history
     mbid_counts = {}
     if "recording_mbid" in df.columns:
         valid_mbids = df[df["recording_mbid"].notna() & (df["recording_mbid"] != "")]["recording_mbid"]
@@ -1152,6 +1206,22 @@ def report_likes_for_days(
     if "artist" in df.columns and "track_name" in df.columns:
         grouped_names = df.groupby([df["artist"].str.lower().str.strip(), df["track_name"].str.lower().str.strip()]).size()
         name_counts = grouped_names.to_dict()
+
+    hist_mbid_dur = {}
+    hist_name_dur = {}
+    if "duration_ms" in df.columns:
+        pos_dur_df = df[pd.to_numeric(df["duration_ms"], errors="coerce").fillna(0) > 0]
+        if not pos_dur_df.empty:
+            if "recording_mbid" in pos_dur_df.columns:
+                valid_m = pos_dur_df[pos_dur_df["recording_mbid"].notna() & (pos_dur_df["recording_mbid"] != "")]
+                if not valid_m.empty:
+                    hist_mbid_dur = valid_m.groupby("recording_mbid")["duration_ms"].max().to_dict()
+            if "artist" in pos_dur_df.columns and "track_name" in pos_dur_df.columns:
+                hist_name_dur = pos_dur_df.groupby(
+                    [pos_dur_df["artist"].str.lower().str.strip(), pos_dur_df["track_name"].str.lower().str.strip()]
+                )["duration_ms"].max().to_dict()
+
+    mbid_to_hist, name_to_hist = _build_history_indexes(df)
 
     # 2. Build Track list with listen counts and durations
     track_rows = []
@@ -1163,34 +1233,37 @@ def report_likes_for_days(
         artist_mbid = str(row.get("artist_mbid", "")).strip()
         release_mbid = str(row.get("release_mbid", "")).strip()
 
-        # Fallback to history for artist_mbid / release_mbid if missing
-        if not artist_mbid and not df.empty and "recording_mbid" in df.columns and "artist_mbid" in df.columns:
-            m = df[df["recording_mbid"] == mbid]
-            if not m.empty and pd.notna(m["artist_mbid"].iloc[0]):
-                artist_mbid = str(m["artist_mbid"].iloc[0]).strip()
-        if not release_mbid and not df.empty and "recording_mbid" in df.columns and "release_mbid" in df.columns:
-            m = df[df["recording_mbid"] == mbid]
-            if not m.empty and pd.notna(m["release_mbid"].iloc[0]):
-                release_mbid = str(m["release_mbid"].iloc[0]).strip()
+        norm_name = (artist.lower(), track_name.lower()) if (artist and track_name) else None
+
+        # Fallback to history index for missing artist_mbid / release_mbid / album
+        if not artist_mbid or not release_mbid or not album:
+            h_entry = mbid_to_hist.get(mbid) or (name_to_hist.get(norm_name) if norm_name else None)
+            if h_entry:
+                if not artist_mbid:
+                    artist_mbid = h_entry.get("artist_mbid", "")
+                if not release_mbid:
+                    release_mbid = h_entry.get("release_mbid", "")
+                if not album:
+                    album = h_entry.get("album", "")
 
         # Count listens by MBID or canonical names
         c_mbid = mbid_counts.get(mbid, 0)
-        c_name = name_counts.get((artist.lower(), track_name.lower()), 0) if (artist and track_name) else 0
+        c_name = name_counts.get(norm_name, 0) if norm_name else 0
         listens = max(c_mbid, c_name)
 
-        # Requirement 2: Truncate to liked tracks with 2 or more listens
-        if listens < 2:
+        # Truncate to liked tracks meeting the minimum listen threshold
+        if listens < effective_min_listens:
             continue
 
-        # Duration retrieval from duration cache / MusicBrainz
-        duration_ms = durations_map.get(mbid, 0)
-        if duration_ms <= 0 and "duration_ms" in df.columns:
-            # Fallback to listening history duration if available
-            matches = df[df["recording_mbid"] == mbid]
-            if not matches.empty:
-                max_d = matches["duration_ms"].max()
-                if pd.notna(max_d) and max_d > 0:
-                    duration_ms = int(max_d)
+        # Duration retrieval from duration cache / MusicBrainz, with history fallback
+        raw_dur = durations_map.get(mbid, 0)
+        duration_ms = int(raw_dur.get("duration_ms", 0) or 0) if isinstance(raw_dur, dict) else int(raw_dur or 0)
+        if duration_ms <= 0:
+            fallback_d = hist_mbid_dur.get(mbid, 0)
+            if fallback_d <= 0 and norm_name:
+                fallback_d = hist_name_dur.get(norm_name, 0)
+            if fallback_d > 0:
+                duration_ms = int(fallback_d)
 
         total_duration_ms = duration_ms * listens
 
@@ -1223,6 +1296,7 @@ def report_likes_for_days(
         return empty_tracks, empty_artists, empty_albums, {
             "entity": "likes_for_days",
             "topn": topn,
+            "min_listens": effective_min_listens,
             "metric": "duration",
             "artist_df": empty_artists,
             "album_df": empty_albums,
@@ -1255,6 +1329,19 @@ def report_likes_for_days(
         by=["total_duration_ms", "listens"],
         ascending=[False, False]
     ).reset_index(drop=True)
+
+    # Deduplicate by case-insensitive (artist, track_name) so divergent MBIDs never double-count
+    if not full_track_df.empty:
+        full_track_df["_dedup_art"] = full_track_df["artist"].str.lower().str.strip()
+        full_track_df["_dedup_trk"] = full_track_df["track_name"].str.lower().str.strip()
+        non_empty_mask = (full_track_df["_dedup_art"] != "") & (full_track_df["_dedup_trk"] != "")
+        deduped_named = full_track_df[non_empty_mask].drop_duplicates(subset=["_dedup_art", "_dedup_trk"], keep="first")
+        unnamed = full_track_df[~non_empty_mask]
+        full_track_df = pd.concat([deduped_named, unnamed], ignore_index=True).drop(columns=["_dedup_art", "_dedup_trk"])
+        full_track_df = full_track_df.sort_values(
+            by=["total_duration_ms", "listens"],
+            ascending=[False, False]
+        ).reset_index(drop=True)
 
     # 3. Build Artist list from all qualifying liked tracks
     artist_groups = full_track_df.groupby("artist")
@@ -1326,6 +1413,7 @@ def report_likes_for_days(
     meta = {
         "entity": "likes_for_days",
         "topn": topn,
+        "min_listens": effective_min_listens,
         "metric": "duration",
         "artist_df": top_artist_df,
         "album_df": top_album_df,

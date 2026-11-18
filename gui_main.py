@@ -515,6 +515,13 @@ class BrainzMRIGUI:
             logging.info("TRACE: Main.run_report: returning early due to no user/playlist")
             # Note that this may also be the reason for the perceived "crash". Can this kill the main GUI?
             return
+        # Validate filter inputs early so pre-flight dialog can show dynamic min_listens
+        try:
+            params = self.filters.get_values()
+        except ValueError as e:
+            messagebox.showerror("Input Error", str(e))
+            return
+
         # Check for Likes for Days pre-flight sync prompt before locking
         selected_mode = self.cmb_report.get()
         sync_and_resolve = False
@@ -523,7 +530,7 @@ class BrainzMRIGUI:
                 messagebox.showwarning("No User", "Please load a user profile to run Likes for Days.")
                 return
             from gui_actions import LikesSyncPromptDialog
-            dlg = LikesSyncPromptDialog(self.root)
+            dlg = LikesSyncPromptDialog(self.root, min_listens=params.get("min_listens", 3))
             if dlg.result is None:
                 logging.info("User cancelled Likes for Days pre-flight dialog.")
                 return
@@ -534,9 +541,6 @@ class BrainzMRIGUI:
         self.lock_interface()
 
         try:
-            # 1. Get Params from Component
-            params = self.filters.get_values()
-            
             # 2. Add Context
             # Alias "Imported Playlist" to "Raw Listens" logic
             if selected_mode == "Imported Playlist":
@@ -612,22 +616,23 @@ class BrainzMRIGUI:
 
                     # Optional Pre-Flight Stage: Sync & Resolve
                     if sync_and_resolve:
-                        import parsing
+                        import likes_sync
                         cb(5, 100, "Syncing ListenBrainz likes...")
                         lb_user = self.state.user.get_listenbrainz_username()
                         if lb_user:
                             try:
-                                from api_client import ListenBrainzClient
-                                lb_client = ListenBrainzClient()
-                                resp = lb_client.get_user_likes(lb_user, offset=0, count=500)
-                                if resp and isinstance(resp, dict):
-                                    likes_data = resp.get("feedback", []) or resp.get("likes", []) or resp.get("payload", {}).get("likes", [])
-                                    new_mbids = parsing.load_feedback(likes_data)
-                                    if new_mbids:
-                                        self.state.user.sync_likes(new_mbids)
-                                        params["liked_mbids"] = self.state.user.get_liked_mbids()
-                                        if not win.cancelled:
-                                            self.root.after(0, lambda: win.update_secondary(f"LB Likes Synced ({len(new_mbids)})"))
+                                def _lb_prog(found_cnt):
+                                    if not win.cancelled:
+                                        self.root.after(0, lambda c=found_cnt: win.update_secondary(f"Syncing User Likes ({c} found)..."))
+
+                                new_mbids = likes_sync.fetch_and_cache_listenbrainz_likes(
+                                    self.state.user,
+                                    progress_callback=_lb_prog,
+                                    is_cancelled=lambda: win.cancelled
+                                )
+                                params["liked_mbids"] = self.state.user.get_liked_mbids()
+                                if not win.cancelled:
+                                    self.root.after(0, lambda c=len(new_mbids): win.update_secondary(f"LB Likes Synced ({c})"))
                             except Exception as e:
                                 logging.warning(f"ListenBrainz likes sync warning: {e}")
 
@@ -639,7 +644,6 @@ class BrainzMRIGUI:
                         lfm_user = self.state.user.lastfm_username
                         if lfm_user:
                             try:
-                                import likes_sync
                                 from api_client import LastFMClient
                                 if LastFMClient().api_key:
                                     loves = likes_sync.fetch_and_cache_lastfm_loves(self.state.user)
@@ -653,15 +657,44 @@ class BrainzMRIGUI:
                             self.root.after(0, lambda: self._on_report_done(pd.DataFrame(), {}, "", False, "Cancelled.", params['mode'], win))
                             return
 
-                        cb(25, 100, "Resolving unmapped likes...")
+                        effective_min_listens = max(1, params.get("min_listens", 3))
+                        listen_label = f"{effective_min_listens}+ listens" if effective_min_listens > 1 else "1+ listen"
+                        cb(25, 100, f"Resolving unmapped likes ({listen_label})...")
                         try:
                             loves_list = params.get("lastfm_loves") or []
+                            work_df = base_df
+                            t_start = params.get("time_start_days", 0)
+                            t_end = params.get("time_end_days", 0)
+                            if not work_df.empty and (t_start > 0 or t_end > 0):
+                                work_df = reporting.filter_by_days(work_df, "listened_at", t_start, t_end)
+
+                            name_counts = {}
+                            hist_has_mbid = set()
+                            if not work_df.empty and "artist" in work_df.columns and "track_name" in work_df.columns:
+                                a_low = work_df["artist"].fillna("").astype(str).str.strip().str.lower()
+                                t_low = work_df["track_name"].fillna("").astype(str).str.strip().str.lower()
+                                name_counts = work_df.groupby([a_low, t_low]).size().to_dict()
+                                if "recording_mbid" in work_df.columns:
+                                    valid_mbid_mask = (
+                                        work_df["recording_mbid"].notna() &
+                                        (work_df["recording_mbid"].astype(str).str.strip() != "") &
+                                        (~work_df["recording_mbid"].astype(str).str.strip().str.lower().isin(["none", "nan"]))
+                                    )
+                                    hist_has_mbid = set(zip(a_low[valid_mbid_mask], t_low[valid_mbid_mask]))
+
                             unmapped_rows = []
                             for love in loves_list:
                                 a = love.get("artist", "").strip()
                                 t = love.get("track", "").strip()
                                 m = love.get("mbid", "")
+                                if not a or not t:
+                                    continue
                                 if not m or str(m).strip().lower() in ("none", "nan", ""):
+                                    norm_pair = (a.lower(), t.lower())
+                                    if name_counts.get(norm_pair, 0) < effective_min_listens:
+                                        continue
+                                    if norm_pair in hist_has_mbid:
+                                        continue
                                     unmapped_rows.append({"artist": a, "track_name": t, "album": "", "recording_mbid": ""})
 
                             if unmapped_rows:
@@ -953,9 +986,10 @@ class BrainzMRIGUI:
             track_df = self.state.last_report_df
         artist_df = self.state.last_meta.get("artist_df", pd.DataFrame())
         album_df = self.state.last_meta.get("album_df", pd.DataFrame())
+        min_listens = self.state.last_meta.get("min_listens")
         if track_df is not None and not track_df.empty:
             from gui_charts import show_likes_for_days_windows
-            show_likes_for_days_windows(track_df, artist_df, album_df, parent=self.root)
+            show_likes_for_days_windows(track_df, artist_df, album_df, parent=self.root, min_listens=min_listens)
 
     def _show_listen_count_chart(self):
         show_listen_count_chart(self.state.last_report_df, meta=self.state.last_meta, parent=self.root)

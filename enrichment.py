@@ -611,6 +611,14 @@ def resolve_missing_mbids(
     results_map = _load_resolver_cache()
     original_cache_size = len(results_map)
 
+    # Build partial (artist_lower, track_lower) index for cross-album cache hits
+    partial_map: dict[tuple[str, str], dict] = {}
+    for ck, cv in results_map.items():
+        if isinstance(cv, dict) and cv.get("mbid"):
+            ca, ct, _ = parsing.parse_track_key(ck)
+            if ca and ct:
+                partial_map[(ca, ct)] = cv
+
     # Identify rows needing resolution
     mask_missing = (
         (df["recording_mbid"].isna() | (df["recording_mbid"] == "") | (df["recording_mbid"] == "None")) &
@@ -642,21 +650,29 @@ def resolve_missing_mbids(
             album = str(album_val).strip()
 
         key = parsing.make_track_key(artist, track, album)
+        norm_pair = (artist.lower(), track.lower())
 
         # Check Cache (bypass if force_update)
-        if not force_update and key in results_map:
-            cached = results_map[key]
-            # Skip successful cache hits
-            if cached and isinstance(cached, dict) and "mbid" in cached:
+        if not force_update:
+            if key in results_map:
+                cached = results_map[key]
+                # Skip successful cache hits
+                if cached and isinstance(cached, dict) and "mbid" in cached:
+                    resolved_count += 1
+                    if progress_callback:
+                        progress_callback(i + 1, total, f"Resolving ({i + 1}/{total}) [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  ✓ (cached) {artist} - {track}")
+                    continue
+                # Skip previously-failed entries when skip_failures is enabled
+                elif cached is None and skip_failures:
+                    skipped_count += 1
+                    if progress_callback:
+                        progress_callback(i + 1, total, f"Resolving ({i + 1}/{total}) [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  ↷ (skipped) {artist} - {track}")
+                    continue
+            elif norm_pair in partial_map:
+                # Partial key hit (resolved previously with/without album)
                 resolved_count += 1
                 if progress_callback:
                     progress_callback(i + 1, total, f"Resolving ({i + 1}/{total}) [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  ✓ (cached) {artist} - {track}")
-                continue
-            # Skip previously-failed entries when skip_failures is enabled
-            elif cached is None and skip_failures:
-                skipped_count += 1
-                if progress_callback:
-                    progress_callback(i + 1, total, f"Resolving ({i + 1}/{total}) [{resolved_count} OK / {failed_count} Fail / {skipped_count} Skip]  ↷ (skipped) {artist} - {track}")
                 continue
 
         try:
@@ -666,6 +682,15 @@ def resolve_missing_mbids(
             logging.error(f"Resolution API ERROR for {artist} - {track}: {e}")
             res = None
         
+        if res and isinstance(res, dict):
+            res = {
+                "mbid": res["mbid"],
+                "artist": res.get("artist") or artist,
+                "track": res.get("track") or track,
+                "album": res.get("album") or album,
+            }
+            partial_map[norm_pair] = res
+
         results_map[key] = res # res is dict or None
         updates_since_save += 1
 
@@ -711,8 +736,12 @@ def resolve_missing_mbids(
         else:
             safe_album = str(a_val).strip()
             
-        k = parsing.make_track_key(str(row["artist"]).strip(), str(row["track_name"]).strip(), safe_album)
+        r_art = str(row["artist"]).strip()
+        r_trk = str(row["track_name"]).strip()
+        k = parsing.make_track_key(r_art, r_trk, safe_album)
         res = results_map.get(k)
+        if res is None:
+            res = partial_map.get((r_art.lower(), r_trk.lower()))
 
         if res and isinstance(res, dict) and "mbid" in res:
             new_mbid = res["mbid"]

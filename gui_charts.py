@@ -673,7 +673,7 @@ def show_genre_flavor_treemap(df: pd.DataFrame, parent=None):
 # Likes for Days Treemaps (Tracks & Artists)
 # ================================================================
 
-def show_likes_for_days_tracks_treemap(df: pd.DataFrame, parent=None):
+def show_likes_for_days_tracks_treemap(df: pd.DataFrame, parent=None, min_listens: int = None):
     """
     Generate a Treemap for Top Tracks in 'Likes for Days' using squarify.
     Displays: 'Track Name (MM:SS)', 'Artist Name', 'N Listens', 'Total Time'.
@@ -732,13 +732,14 @@ def show_likes_for_days_tracks_treemap(df: pd.DataFrame, parent=None):
     )
 
     ax.axis('off')
-    ax.set_title(f"Likes for Days — Top {len(plot_df)} Tracks by Total Listen Duration", fontsize=14, pad=12)
+    min_str = f" ({max(1, int(min_listens))}+ Listens)" if min_listens is not None else ""
+    ax.set_title(f"Likes for Days — Top {len(plot_df)} Tracks by Total Listen Duration{min_str}", fontsize=14, pad=12)
     fig.tight_layout()
 
-    return create_chart_window(fig, "Likes for Days — Top Tracks", parent)
+    return create_chart_window(fig, f"Likes for Days — Top Tracks{min_str}", parent)
 
 
-def show_likes_for_days_artists_treemap(df: pd.DataFrame, parent=None):
+def show_likes_for_days_artists_treemap(df: pd.DataFrame, parent=None, min_listens: int = None):
     """
     Generate a Treemap for Top Artists in 'Likes for Days' using squarify.
     Displays: 'Artist Name', 'N Likes', 'N Listens', 'Total Time'.
@@ -794,13 +795,14 @@ def show_likes_for_days_artists_treemap(df: pd.DataFrame, parent=None):
     )
 
     ax.axis('off')
-    ax.set_title(f"Likes for Days — Top {len(plot_df)} Artists by Total Listen Duration", fontsize=14, pad=12)
+    min_str = f" ({max(1, int(min_listens))}+ Listens)" if min_listens is not None else ""
+    ax.set_title(f"Likes for Days — Top {len(plot_df)} Artists by Total Listen Duration{min_str}", fontsize=14, pad=12)
     fig.tight_layout()
 
-    return create_chart_window(fig, "Likes for Days — Top Artists", parent)
+    return create_chart_window(fig, f"Likes for Days — Top Artists{min_str}", parent)
 
 
-def show_likes_for_days_albums_treemap(df: pd.DataFrame, parent=None):
+def show_likes_for_days_albums_treemap(df: pd.DataFrame, parent=None, min_listens: int = None):
     """
     Generate a Treemap for Top Albums in 'Likes for Days' using squarify.
     Displays: 'Album Title', 'Artist Name', 'N Likes • N Listens', 'Total Time'.
@@ -857,19 +859,20 @@ def show_likes_for_days_albums_treemap(df: pd.DataFrame, parent=None):
     )
 
     ax.axis('off')
-    ax.set_title(f"Likes for Days — Top {len(plot_df)} Albums by Total Listen Duration", fontsize=14, pad=12)
+    min_str = f" ({max(1, int(min_listens))}+ Listens)" if min_listens is not None else ""
+    ax.set_title(f"Likes for Days — Top {len(plot_df)} Albums by Total Listen Duration{min_str}", fontsize=14, pad=12)
     fig.tight_layout()
 
-    return create_chart_window(fig, "Likes for Days — Top Albums", parent)
+    return create_chart_window(fig, f"Likes for Days — Top Albums{min_str}", parent)
 
 
-def show_likes_for_days_windows(track_df: pd.DataFrame, artist_df: pd.DataFrame, album_df: pd.DataFrame = None, parent=None):
+def show_likes_for_days_windows(track_df: pd.DataFrame, artist_df: pd.DataFrame, album_df: pd.DataFrame = None, parent=None, min_listens: int = None):
     """
     Open 'Likes for Days' Treemap windows (Artists, Albums, Tracks) in a clean cascade.
     """
-    win_artists = show_likes_for_days_artists_treemap(artist_df, parent=parent)
-    win_albums = show_likes_for_days_albums_treemap(album_df, parent=parent) if album_df is not None and not album_df.empty else None
-    win_tracks = show_likes_for_days_tracks_treemap(track_df, parent=parent)
+    win_artists = show_likes_for_days_artists_treemap(artist_df, parent=parent, min_listens=min_listens)
+    win_albums = show_likes_for_days_albums_treemap(album_df, parent=parent, min_listens=min_listens) if album_df is not None and not album_df.empty else None
+    win_tracks = show_likes_for_days_tracks_treemap(track_df, parent=parent, min_listens=min_listens)
 
     def _cascade():
         try:

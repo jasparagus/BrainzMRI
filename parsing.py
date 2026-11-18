@@ -28,32 +28,51 @@ def _clean_str(val: Any) -> str:
 
 def make_track_key(artist: str, track: str, album: str = "") -> str:
     """
-    Generate a consistent unique key for a track.
-    Format: "artist|track|album" (album optional)
+    Generate a consistent unique key for a track as a JSON-serialized array.
+    Format: '["artist", "track", "album"]' (album optional)
     """
     a = _clean_str(artist)
     t = _clean_str(track)
     alb = _clean_str(album)
-    # Use pipe separator as it's rare in names
-    return f"{a}|{t}|{alb}"
+    return json.dumps([a, t, alb], ensure_ascii=False)
+
+
+def parse_track_key(key: str) -> tuple[str, str, str]:
+    """
+    Parse a JSON-serialized track key into (artist, track, album).
+    Returns ("", "", "") if malformed.
+    """
+    if not key or not isinstance(key, str):
+        return "", "", ""
+    try:
+        parts = json.loads(key)
+        if isinstance(parts, list) and len(parts) >= 2:
+            artist = str(parts[0]).strip()
+            track = str(parts[1]).strip()
+            album = str(parts[2]).strip() if len(parts) > 2 else ""
+            return artist, track, album
+    except Exception:
+        pass
+    return "", "", ""
 
 
 def make_album_key(artist: str, album: str) -> str:
     """
-    Generate a consistent unique key for an album.
-    Format: "artist|album"
+    Generate a consistent unique key for an album as a JSON-serialized array.
+    Format: '["artist", "album"]'
     """
     a = _clean_str(artist)
     alb = _clean_str(album)
-    return f"{a}|{alb}"
+    return json.dumps([a, alb], ensure_ascii=False)
 
 
 def make_track_key_series(df: pd.DataFrame) -> pd.Series:
     """
-    Vectorized key generation for a DataFrame.
+    Key generation for a DataFrame using JSON-serialized array keys.
     Expects columns: 'artist', 'track_name', and optional 'album'.
     """
-    # Vectorized string processing for speed
+    if df.empty:
+        return pd.Series([], dtype=str, index=df.index)
 
     # 1. Artist
     if "artist" in df.columns:
@@ -73,7 +92,11 @@ def make_track_key_series(df: pd.DataFrame) -> pd.Series:
     else:
         s_alb = pd.Series([""] * len(df), index=df.index)
 
-    return s_art + "|" + s_track + "|" + s_alb
+    return pd.Series(
+        [json.dumps([a, t, alb], ensure_ascii=False) for a, t, alb in zip(s_art, s_track, s_alb)],
+        index=df.index,
+        dtype=str,
+    )
 
 
 # ------------------------------------------------------------

@@ -85,7 +85,7 @@ class ReportEngine:
                 "status": "Likes audit generated.",
             },
             "Likes for Days": {
-                # Specialized pipeline: resolved likes -> >=2 listens -> MB durations -> TopN compilation
+                # Specialized pipeline: resolved likes -> >= min_listens -> MB durations -> TopN compilation
                 "func": None,
                 "kwargs": {},
                 "report_type_key": "likes_for_days",
@@ -210,8 +210,12 @@ class ReportEngine:
                 logging.warning("No resolved likes found.")
                 return pd.DataFrame(), {}, handler["report_type_key"], False, "No resolved likes found."
 
-            # Pre-filter candidates with >= 2 listens to avoid unnecessary API calls
-            if progress_callback: progress_callback(25, 100, f"Filtering tracks with 2+ listens (from {len(resolved_likes_df)} resolved likes)...")
+            effective_min_listens = max(1, min_listens)
+            listen_label = f"{effective_min_listens}+ listens" if effective_min_listens > 1 else "1+ listen"
+
+            # Pre-filter candidates with >= effective_min_listens to avoid unnecessary API calls
+            if progress_callback:
+                progress_callback(25, 100, f"Filtering tracks with {listen_label} (from {len(resolved_likes_df)} resolved likes)...")
 
             mbid_counts = {}
             if "recording_mbid" in df.columns:
@@ -223,6 +227,7 @@ class ReportEngine:
                 name_counts = df.groupby([df["artist"].str.lower().str.strip(), df["track_name"].str.lower().str.strip()]).size().to_dict()
 
             seen_mbids = set()
+            seen_names = set()
             candidate_tracks = []
             for _, row in resolved_likes_df.iterrows():
                 mbid = str(row.get("recording_mbid", "")).strip()
@@ -230,10 +235,15 @@ class ReportEngine:
                     continue
                 artist = str(row.get("artist", "")).strip()
                 track_name = str(row.get("track_name", "")).strip()
+                norm_name = (artist.lower(), track_name.lower()) if (artist and track_name) else None
+                if norm_name and norm_name in seen_names:
+                    continue
                 c_mbid = mbid_counts.get(mbid, 0)
-                c_name = name_counts.get((artist.lower(), track_name.lower()), 0) if (artist and track_name) else 0
-                if max(c_mbid, c_name) >= 2:
+                c_name = name_counts.get(norm_name, 0) if norm_name else 0
+                if max(c_mbid, c_name) >= effective_min_listens:
                     seen_mbids.add(mbid)
+                    if norm_name:
+                        seen_names.add(norm_name)
                     candidate_tracks.append({
                         "recording_mbid": mbid,
                         "artist": artist,
@@ -242,15 +252,16 @@ class ReportEngine:
                     })
 
             if not candidate_tracks:
-                logging.warning("No liked tracks found with 2 or more listens.")
-                return pd.DataFrame(), {}, handler["report_type_key"], False, "No liked tracks found with 2+ listens."
+                logging.warning(f"No liked tracks found with {effective_min_listens} or more listens.")
+                return pd.DataFrame(), {}, handler["report_type_key"], False, f"No liked tracks found with {listen_label}."
 
             if is_cancelled and is_cancelled():
                 logging.info("Report generation cancelled before duration fetch.")
                 return pd.DataFrame(), {}, "", False, "Cancelled."
 
             # Fetch durations with persistent caching and progress feedback
-            if progress_callback: progress_callback(40, 100, f"Fetching durations for {len(candidate_tracks)} qualifying tracks (2+ listens)...")
+            if progress_callback:
+                progress_callback(40, 100, f"Fetching durations for {len(candidate_tracks)} qualifying tracks ({listen_label})...")
 
             def duration_progress(cur, tot, msg):
                 if progress_callback and tot > 0:
@@ -274,7 +285,8 @@ class ReportEngine:
                 df=df,
                 resolved_likes_df=resolved_likes_df,
                 durations_map=durations_map,
-                topn=topn
+                topn=topn,
+                min_listens=effective_min_listens
             )
 
             result = track_df
@@ -375,7 +387,11 @@ class ReportEngine:
             }
 
         base_msg = self.get_status(mode).rstrip(".")
-        status_text = f"{base_msg} ({len(result)} Rows)."
+        if mode == "Likes for Days":
+            eff_min = max(1, min_listens)
+            status_text = f"{base_msg} ({len(result)} Rows, {eff_min}+ Listens)."
+        else:
+            status_text = f"{base_msg} ({len(result)} Rows)."
         
         if last_enriched and enrichment_stats:
             key_map = {
