@@ -355,6 +355,10 @@ def _process_enrichment_loop(
             stats["cache_hits"] += 1
             continue
 
+        if mode == ENRICHMENT_MODE_CACHE_ONLY:
+            stats["empty"] += 1
+            continue
+
         if progress_callback:
             msg = f"Enriching {entity_type} {i + 1}/{total}..."
             progress_callback(i, total, msg)
@@ -719,23 +723,49 @@ def resolve_missing_mbids(
     if updates_since_save > 0:
         _save_resolver_cache(results_map)
 
-    # Apply results to dataframe
+    df = apply_resolver_cache(df, results_map=results_map)
+
+    return df, resolved_count, failed_count, skipped_count
+
+
+def apply_resolver_cache(df: pd.DataFrame, results_map: Optional[dict[str, Any]] = None) -> pd.DataFrame:
+    """
+    Apply cached recording_mbid and album resolutions from mbid_resolver_cache.json
+    to a track-level DataFrame without making any network calls.
+    """
+    if df is None or df.empty or "artist" not in df.columns or "track_name" not in df.columns:
+        return df
+
+    if results_map is None:
+        results_map = _load_resolver_cache()
+    if not results_map:
+        return df
+
+    df = df.copy()
+    if "recording_mbid" not in df.columns:
+        df["recording_mbid"] = ""
+
+    partial_map: dict[tuple[str, str], dict] = {}
+    for ck, cv in results_map.items():
+        if isinstance(cv, dict) and cv.get("mbid"):
+            ca, ct, _ = parsing.parse_track_key(ck)
+            if ca and ct:
+                partial_map[(ca, ct)] = cv
+
     def applicator(row):
         existing_mbid = row.get("recording_mbid")
         existing_album = row.get("album")
 
         # If already exists, keep it
-        if existing_mbid and str(existing_mbid) != "None" and str(existing_mbid) != "":
+        if existing_mbid and pd.notna(existing_mbid) and str(existing_mbid).strip().lower() not in ("none", "nan", ""):
             return pd.Series([existing_mbid, existing_album], index=["recording_mbid", "album"])
 
-        # Re-construct key to lookup result
-        # Must match sanitization logic above
-        a_val = row["album"]
-        if pd.isna(a_val) or str(a_val).lower() == "nan" or str(a_val).lower() == "none":
+        a_val = row.get("album")
+        if pd.isna(a_val) or str(a_val).lower() in ("nan", "none"):
             safe_album = ""
         else:
             safe_album = str(a_val).strip()
-            
+
         r_art = str(row["artist"]).strip()
         r_trk = str(row["track_name"]).strip()
         k = parsing.make_track_key(r_art, r_trk, safe_album)
@@ -747,7 +777,6 @@ def resolve_missing_mbids(
             new_mbid = res["mbid"]
             new_album = res.get("album", existing_album)
 
-            # Use new album name if original was unknown/missing
             final_album = existing_album
             if pd.isna(existing_album) or str(existing_album).lower() in ["unknown", "none", "nan", ""]:
                 final_album = new_album
@@ -756,12 +785,12 @@ def resolve_missing_mbids(
 
         return pd.Series([existing_mbid, existing_album], index=["recording_mbid", "album"])
 
-    if not df.empty:
-        cols_out = df.apply(applicator, axis=1)
-        df["recording_mbid"] = cols_out["recording_mbid"]
+    cols_out = df.apply(applicator, axis=1)
+    df["recording_mbid"] = cols_out["recording_mbid"]
+    if "album" in df.columns:
         df["album"] = cols_out["album"]
 
-    return df, resolved_count, failed_count, skipped_count
+    return df
 
 
 # ------------------------------------------------------------

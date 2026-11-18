@@ -357,6 +357,12 @@ class ReportEngine:
                 logging.info("Report generation cancelled.")
                 return pd.DataFrame(), {}, "", False, "Cancelled."
 
+            # Apply cached MBID resolutions to track-level standard reports (Raw Listens, Imported Playlist, Top Tracks)
+            if not result.empty and "track_name" in result.columns and "artist" in result.columns:
+                result = enrichment.apply_resolver_cache(result)
+                if liked_mbids and "recording_mbid" in result.columns and "Likes" in result.columns:
+                    result["Likes"] = result["recording_mbid"].apply(lambda x: 1 if x in liked_mbids else 0).astype(int)
+
             # Enrich Result
             if do_enrich and not result.empty:
                 if progress_callback: progress_callback(50, 100, "Enriching report...")

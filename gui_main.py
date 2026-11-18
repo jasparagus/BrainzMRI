@@ -566,7 +566,7 @@ class BrainzMRIGUI:
             force_update = self.force_cache_var.get()
             
             # Logic: If Force Update is requested, we MUST query API
-            if force_update and (enrich_str.startswith("None") or enrich_str == "Cache Only (Fast)"):
+            if force_update and (enrich_str.startswith("None") or enrich_str in ("Cache Only", "Cache Only (Fast)")):
                 enrich_str = "Query MusicBrainz"
                 logging.info(f"Auto-switching enrichment to '{enrich_str}' because Force Update is enabled.")
 
@@ -851,8 +851,8 @@ class BrainzMRIGUI:
             self.force_cache_var.set(False)
 
 
-        # Deep Query: Only meaningful if enriching and NOT None
-        if enrich.startswith("None") or enrich == "Cache Only (Fast)":
+        # Deep Query: Only meaningful if enriching and NOT None/Cache Only
+        if enrich.startswith("None") or enrich in ("Cache Only", "Cache Only (Fast)"):
              self.chk_deep.config(state="disabled")
              self.deep_query_var.set(False)
         else:
@@ -876,6 +876,10 @@ class BrainzMRIGUI:
         The resolver cache has been updated on disk, so re-running the report
         will pick up newly resolved MBIDs through the standard pipeline."""
         logging.info(f"Re-generating report after resolve (filter='{saved_filter}', col='{saved_filter_col}')")
+
+        # Update loaded playlist_df in-memory if present so Imported Playlist retains resolved MBIDs
+        if self.state.playlist_df is not None:
+            self.state.playlist_df = enrichment.apply_resolver_cache(self.state.playlist_df)
         
         # Store the callback to apply filter after report completes
         self._pending_filter = saved_filter
